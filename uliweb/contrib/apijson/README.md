@@ -100,3 +100,28 @@ Response
 }
 ```
 
+### Single record query: @column
+
+Request:
+
+```
+{
+   "user":{
+     "@column": "id,username,email"
+   }
+}
+```
+
+Response
+
+```
+{
+    "code": 200,
+    "msg": "success",
+    "user": {
+        "username": "zhangcl",
+        "email": "zhangcl@localhost",
+        "id": 1
+    }
+}
+```

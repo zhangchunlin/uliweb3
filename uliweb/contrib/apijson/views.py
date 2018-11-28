@@ -37,6 +37,7 @@ class ApiJson(object):
         except ModelNotFound as e:
             log.error("try to find model '%s' but not found: '%s'"%(modelname,e))
             return json({"code":400,"msg":"model '%s' not found"%(modelname)})
+        model_column_set = None
         q = model.all()
         public = model_setting.get("public",False)
         filtered = False
@@ -50,12 +51,15 @@ class ApiJson(object):
                 return json({"code":401,"msg":"'%s' not accessable because not public"%(modelname)})
         params = self.request_data[key]
         if isinstance(params,dict):
-            for attrname in params:
-                if hasattr(model,attrname):
-                    q = q.filter(getattr(model.c,attrname)==params[attrname])
+            for n in params:
+                if n[0]=="@":
+                    if n=="@column":
+                        model_column_set = set(params[n].split(","))
+                elif hasattr(model,n):
+                    q = q.filter(getattr(model.c,n)==params[n])
                     filtered = True
                 else:
-                    return json({"code":400,"msg":"'%s' have no attribute '%s'"%(modelname,attrname)})
+                    return json({"code":400,"msg":"'%s' have no attribute '%s'"%(modelname,n)})
         #default filter
         if not filtered and request.user:
             default_filter_by_self = model_setting.get("default_filter_by_self",False)
@@ -71,6 +75,11 @@ class ApiJson(object):
             if secret_fields:
                 for k in secret_fields:
                     del o[k]
+            if model_column_set:
+                keys = list(o.keys())
+                for k in keys:
+                    if k not in model_column_set:
+                        del o[k]
         self.rdict[key] = o
 
     def _query_array(self,key):
