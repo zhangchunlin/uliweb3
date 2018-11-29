@@ -1,5 +1,3 @@
-
-
 # Introduction
 
 uliweb.contrib.apijson is a subset and slightly different variation of [apijson](https://github.com/TommyLemon/APIJSON/blob/master/Document.md)
@@ -43,7 +41,7 @@ Request:
 }
 ```
 
-Response
+Response:
 
 ```
 {
@@ -77,7 +75,7 @@ Request:
 }
 ```
 
-Response
+Response:
 
 ```
 {
@@ -112,7 +110,7 @@ Request:
 }
 ```
 
-Response
+Response:
 
 ```
 {
@@ -125,3 +123,44 @@ Response
     }
 }
 ```
+
+### Array query
+
+Request:
+
+```
+{
+  "[]":{
+    "@count":2,
+    "@page":0,
+    "user":{
+      "@column":"id,username,nickname,email",
+      "@order":"id-"
+    }
+  }
+}
+```
+
+Response:
+
+```
+{
+    "code": 200,
+    "msg": "success",
+    "[]": [
+        {
+            "username": "testuser2",
+            "nickname": "Test User2",
+            "email": "testuser2@localhost",
+            "id": 3
+        },
+        {
+            "username": "testuser",
+            "nickname": "Test User",
+            "email": "testuser@localhost",
+            "id": 2
+        }
+    ]
+}
+```
+

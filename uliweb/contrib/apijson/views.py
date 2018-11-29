@@ -100,6 +100,7 @@ class ApiJson(object):
                     if query_count<=0:
                         return json({"code":400,"msg":"count should >0, now is '%s' "%(query_count)})
                 elif not query_page and n=="@page":
+                    #@page begin from 0
                     try:
                         query_page = int(params[n])
                     except ValueError as e:
