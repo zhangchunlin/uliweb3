@@ -162,8 +162,10 @@ def filedown(environ, filename, cache=True, cache_timeout=None,
                 #for small file, read it to memory and return directly
                 #and this can avoid some issue with google chrome
                 if (rend-rbegin) < FileIterator.chunk_size:
-                    s = "".join([chunk for chunk in FileIterator(real_filename,rbegin,rend)])
-                    return Response(s,status=206, headers=headers, direct_passthrough=True)
+                    with open(real_filename,"rb") as f:
+                        f.seek(rbegin)
+                        s = f.read(rend-rbegin)
+                        return Response(s,status=206, headers=headers, direct_passthrough=True)
                 else:
                     return Response(FileIterator(real_filename,rbegin,rend),
                         status=206, headers=headers, direct_passthrough=True)
