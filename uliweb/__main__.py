@@ -1,2 +1,2 @@
-from manage import main
+from .manage import main
 main()

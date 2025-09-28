@@ -6,7 +6,7 @@ import inspect
 from optparse import make_option
 import uliweb
 from uliweb.core.commands import Command, CommandManager
-from uliweb.core import SimpleFrame
+from uliweb.core.starlette import AsyncDispatcher, ASGIApplication
 from .utils._compat import input, string_types, iteritems, exec_
 
 apps_dir = 'apps'
@@ -73,21 +73,15 @@ def make_application(debug=None, apps_dir='apps', project_dir=None,
     dispatcher_cls=None, dispatcher_kwargs=None, debug_cls=None, debug_kwargs=None,
     reuse=True, verbose=False, pythonpath=None, trace_print=False):
     """
-    Make an application object
+    Make an ASGI application object
     """
     from uliweb.utils.common import import_attr
-    from uliweb.utils.whocallme import print_frame
-    from werkzeug.debug import DebuggedApplication
 
-    #is reuse, then create application only one
-    if reuse and hasattr(SimpleFrame.__global__, 'application') and SimpleFrame.__global__.application:
-        return SimpleFrame.__global__.application
-
-    #process settings and local_settings
+    # Process settings and local_settings
     settings_file = settings_file or os.environ.get('SETTINGS', 'settings.ini')
     local_settings_file = local_settings_file or os.environ.get('LOCAL_SETTINGS', 'local_settings.ini')
 
-    dispatcher_cls = dispatcher_cls or SimpleFrame.Dispatcher
+    dispatcher_cls = dispatcher_cls or AsyncDispatcher
     dispatcher_kwargs = dispatcher_kwargs or {}
 
     if project_dir:
@@ -117,73 +111,32 @@ def make_application(debug=None, apps_dir='apps', project_dir=None,
             def write(self, s):
                 output.write(s)
                 output.write('\n')
-                print_frame(output)
                 if hasattr(output, 'flush'):
                     output.flush()
 
         sys.stdout = MyOut()
 
+    # Create ASGI application
     application = app = dispatcher_cls(apps_dir=apps_dir,
         include_apps=include_apps,
         settings_file=settings_file,
         local_settings_file=local_settings_file,
         start=start,
         default_settings=default_settings,
-        reset=True,
         **dispatcher_kwargs)
 
     if verbose:
         log.info(' * settings file is "%s"' % settings_file)
         log.info(' * local settings file is "%s"' % local_settings_file)
 
-    #settings global application object
-    SimpleFrame.__global__.application = app
-
-    #process wsgi middlewares
-    middlewares = []
-    parameters = {}
-    for name, v in iteritems(uliweb.settings.get('WSGI_MIDDLEWARES', {})):
-        order, kwargs = 500, {}
-        if not v:
-            continue
-        if isinstance(v, (list, tuple)):
-            if len(v) > 3:
-                logging.error('WSGI_MIDDLEWARE %s difinition is not right' % name)
-                raise uliweb.UliwebError('WSGI_MIDDLEWARE %s difinition is not right' % name)
-            cls = v[0]
-            if len(v) == 2:
-                if isinstance(v[1], int):
-                    order = v[1]
-                else:
-                    kwargs = v[1]
-            else:
-                order, kwargs = v[1], v[2]
-        else:
-            cls = v
-        middlewares.append((order, name))
-        parameters[name] = cls, kwargs
-
-    middlewares.sort(key=lambda k: k[0])
-    for name in reversed([x[1] for x in middlewares]):
-        clspath, kwargs = parameters[name]
-        cls = import_attr(clspath)
-        app = cls(app, **kwargs)
-
-    debug_flag = uliweb.settings.GLOBAL.DEBUG
-    if debug or (debug is None and debug_flag):
-        if not debug_cls:
-            debug_cls = DebuggedApplication
-
-        log.setLevel(logging.DEBUG)
-        # log.info(' * Loading DebuggedApplication...')
-        app.debug = True
-        app = debug_cls(app, uliweb.settings.GLOBAL.get('DEBUG_CONSOLE', False))
     return app
+
 
 def make_simple_application(apps_dir='apps', project_dir=None, include_apps=None,
     settings_file='', local_settings_file='',
     default_settings=None, dispatcher_cls=None, dispatcher_kwargs=None, reuse=True,
     pythonpath=None, trace_print=False):
+    """Create a simple ASGI application for command line use"""
     settings = {'ORM/AUTO_DOTRANSACTION':False}
     settings.update(default_settings or {})
     return make_application(apps_dir=apps_dir, project_dir=project_dir,
@@ -507,7 +460,7 @@ class ExportStaticCommand(Command):
                 os.remove(f)
             except:
                 print("Error: static file [{}] can't be deleted".format(f))
-                
+
         d = init_static_combine()
         for k, v in d.items():
             filename = os.path.join(outputdir, k)
@@ -556,7 +509,7 @@ class ExportStaticCommand(Command):
                 print('Compress {} to {}'.format(sfile, dfile))
             return True
 register_command(ExportStaticCommand)
-    
+
 class ExportCommand(Command):
     name = 'export'
     help = 'Export all installed apps or specified module source files to output directory.'
@@ -600,35 +553,6 @@ class ExportCommand(Command):
 
 register_command(ExportCommand)
 
-#class ExtractUrlsCommand(Command):
-#    name = 'extracturls'
-#    help = 'Extract all url mappings from view modules to a specified file.'
-#    args = ''
-#
-#    def handle(self, options, global_options, *args):
-#        urlfile = 'urls.py'
-#
-#        application = SimpleFrame.Dispatcher(apps_dir=global_options.project, start=False)
-#        filename = os.path.join(application.apps_dir, urlfile)
-#        if os.path.exists(filename):
-#            answer = raw_input("Error: [%s] is existed already, do you want to overwrite it[Y/n]:" % urlfile)
-#            if answer.strip() and answer.strip.lower() != 'y':
-#                return
-#        f = file(filename, 'w')
-#        print >>f, "from uliweb import simple_expose\n"
-#        application.url_infos.sort()
-#        for url, kw in application.url_infos:
-#            endpoint = kw.pop('endpoint')
-#            if kw:
-#                s = ['%s=%r' % (k, v) for k, v in kw.items()]
-#                t = ', %s' % ', '.join(s)
-#            else:
-#                t = ''
-#            print >>f, "simple_expose(%r, %r%s)" % (url, endpoint, t)
-#        f.close()
-#        print 'urls.py has been created successfully.'
-#register_command(ExtractUrlsCommand)
-#
 class CallCommand(Command):
     name = 'call'
     help = 'Call <exefile>.py for each installed app according the command argument.'
@@ -813,7 +737,7 @@ register_command(MakeCmdCommand)
 
 class RunserverCommand(Command):
     name = 'runserver'
-    help = 'Start a new development server. And it can also startup an app without a whole project.'
+    help = 'Start a new ASGI development server. And it can also startup an app without a whole project.'
     args = '[appname appname ...]'
     option_list = (
         make_option('-h', dest='hostname', default='localhost',
@@ -826,22 +750,16 @@ class RunserverCommand(Command):
             help='If auto enable debug mode. Default is True.'),
         make_option('--nocolor', dest='color', action='store_false', default=True,
             help='Disable colored log info. Default is False.'),
-        make_option('--thread', dest='thread', action='store_true', default=False,
-            help='If use thread server mode. Default is False.'),
-        make_option('--processes', dest='processes', type='int', default=1,
-            help='The default number of processes to start.'),
+        make_option('--asgi-server', dest='asgi_server', default='uvicorn',
+            help='ASGI server to use (uvicorn, hypercorn, daphne).'),
+        make_option('--asgi-workers', dest='asgi_workers', type='int', default=1,
+            help='Number of ASGI worker processes.'),
         make_option('--ssl', dest='ssl', action='store_true',
             help='Using SSL to access http.'),
         make_option('--ssl-key', dest='ssl_key', default='ssl.key',
             help='The SSL private key filename.'),
         make_option('--ssl-cert', dest='ssl_cert', default='ssl.cert',
             help='The SSL certificate filename.'),
-        make_option('--tornado', dest='tornado', action='store_true', default=False,
-            help='Start uliweb server with tornado.'),
-        make_option('--gevent', dest='gevent', action='store_true', default=False,
-            help='Start uliweb server with gevent.'),
-        make_option('--gevent-socketio', dest='gsocketio', action='store_true', default=False,
-            help='Start uliweb server with gevent-socketio.'),
         make_option('--coverage', dest='coverage', action='store_true', default=False,
             help='Start uliweb server with coverage.'),
         make_option('--trace-print', dest='trace_print', action='store_true', default=False,
@@ -877,6 +795,11 @@ class RunserverCommand(Command):
 
         check_apps_dir(global_options.apps_dir)
 
+        # 保存变量供 run_asgi 方法使用
+        self.include_apps = include_apps
+        self.old_apps_dir = old_apps_dir
+        self.global_options = global_options  # 保存 global_options 为实例属性
+
         extra_files = collect_files(global_options, global_options.apps_dir, self.get_apps(global_options, include_apps))
 
         if options.color:
@@ -895,7 +818,7 @@ class RunserverCommand(Command):
         def get_app(debug_cls=None):
             return make_application(options.debug, project_dir=global_options.project,
                         include_apps=include_apps, settings_file=global_options.settings,
-                        local_settings_file=global_options.local_settings, debug_cls=debug_cls,
+                        local_settings_file=global_options.local_settings,
                         verbose=global_options.verbose, pythonpath=old_apps_dir,
                         trace_print=options.trace_print)
 
@@ -910,152 +833,95 @@ class RunserverCommand(Command):
 
                 cov = coverage(source=['apps'])
                 cov.start()
-            if options.tornado:
-                self.run_tornado(options, extra_files, get_app)
-            elif options.gevent:
-                self.run_gevent(options, extra_files, get_app)
-            elif options.gsocketio:
-                self.run_gevent_socketio(options, extra_files, get_app)
-            else:
-                self.run_simple(options, extra_files, get_app)
+
+            # 只支持 ASGI 服务器
+            self.run_asgi(options, extra_files, get_app)
         finally:
             if cov:
                 cov.stop()
                 cov.html_report(directory='covhtml')
 
-    def run_tornado(self, options, extra_files, get_app):
-        try:
-            import tornado.wsgi
-            import tornado.httpserver
-            import tornado.ioloop
-            import tornado.autoreload
-        except:
-            print('Error: Please install tornado first')
+    def run_asgi(self, options, extra_files, get_app):
+        """运行 ASGI 服务器"""
+        import asyncio
+        import subprocess
+        import sys
+
+        # 获取全局选项和包含的应用
+        global_options = self.global_options
+        include_apps = getattr(self, 'include_apps', [])
+        old_apps_dir = getattr(self, 'old_apps_dir', os.path.abspath(global_options.apps_dir))
+
+        # 获取 ASGI 应用
+        def get_asgi_app():
+            return make_application(options.debug, project_dir=global_options.project,
+                        include_apps=include_apps, settings_file=global_options.settings,
+                        local_settings_file=global_options.local_settings,
+                        verbose=global_options.verbose, pythonpath=old_apps_dir,
+                        trace_print=options.trace_print)
+
+        # 构建 ASGI 服务器命令
+        server = options.asgi_server.lower()
+        host = options.hostname
+        port = options.port
+        workers = options.asgi_workers
+
+        if server == 'uvicorn':
+            cmd = ['uvicorn']
+            if options.reload:
+                cmd.append('--reload')
+            # uvicorn 不支持 --debug 选项，使用 --log-level debug 替代
+            if options.debug:
+                cmd.extend(['--log-level', 'debug'])
+            cmd.extend([
+                '--host', host,
+                '--port', str(port),
+                '--workers', str(workers)
+            ])
+        elif server == 'hypercorn':
+            cmd = ['hypercorn']
+            if options.reload:
+                cmd.append('--reload')
+            cmd.extend([
+                '--bind', f'{host}:{port}',
+                '--workers', str(workers)
+            ])
+        elif server == 'daphne':
+            cmd = ['daphne']
+            cmd.extend([
+                '-b', host,
+                '-p', str(port),
+                '--verbosity', '1'
+            ])
+        else:
+            log.error(f"不支持的 ASGI 服务器: {server}")
+            log.info("支持的服务器: uvicorn, hypercorn, daphne")
             return
 
-        if options.ssl:
-            ctx = {
-                "certfile": options.ssl_cert,
-                "keyfile": options.ssl_key,
-            }
-            log.info(' * Running on https://%s:%d/' % (options.hostname, options.port))
-        else:
-            ctx = None
-            log.info(' * Running on http://%s:%d/' % (options.hostname, options.port))
+        # 添加应用模块路径
+        cmd.append('uliweb.core.starlette:ASGIApplication')
 
-        container = tornado.wsgi.WSGIContainer(get_app())
-        http_server = tornado.httpserver.HTTPServer(container,
-            ssl_options=ctx)
-        http_server.listen(options.port, address=options.hostname)
-        loop=tornado.ioloop.IOLoop.instance()
+        # 设置环境变量
+        env = os.environ.copy()
+        env.update({
+            'SETTINGS': global_options.settings,
+            'LOCAL_SETTINGS': global_options.local_settings,
+            'PROJECT_DIR': global_options.project or os.getcwd()
+        })
+
+        # 运行 ASGI 服务器
+        log.info(f' * 启动 {server} ASGI 服务器...')
+        log.info(f' * 运行在 http://{host}:{port}/')
+        log.info(f' * 工作进程数: {workers}')
         if options.reload:
-            for f in extra_files:
-                tornado.autoreload.watch(f)
-            tornado.autoreload.start(loop)
-        loop.start()
+            log.info(' * 自动重载已启用')
 
-    def run_gevent(self, options, extra_files, get_app):
-        WSGIServer = None
         try:
-            from gevent.wsgi import WSGIServer
-        except:
-            pass
-        try:
-            if not WSGIServer:
-                from gevent.pywsgi import WSGIServer
-            from gevent import monkey
-        except:
-            print('Error: Please install gevent first')
-            return
-        from werkzeug.serving import run_with_reloader
-        from functools import partial
-
-        monkey.patch_all()
-
-        run_with_reloader = partial(run_with_reloader, extra_files=extra_files)
-
-        if options.ssl:
-            ctx = {
-                "certfile": options.ssl_cert,
-                "keyfile": options.ssl_key,
-            }
-        else:
-            ctx = {}
-        @run_with_reloader
-        def run_server():
-            log.info(' * Running on http://%s:%d/' % (options.hostname, options.port))
-            http_server = WSGIServer((options.hostname, options.port), get_app(), **ctx)
-            http_server.serve_forever()
-
-        run_server()
-
-    def run_gevent_socketio(self, options, extra_files, get_app):
-        try:
-            from gevent import monkey
-        except:
-            print('Error: Please install gevent first')
-            return
-        try:
-            from socketio.server import SocketIOServer
-        except:
-            print('Error: Please install gevent-socketio first')
-            sys.exit(1)
-        from werkzeug.serving import run_with_reloader
-        from functools import partial
-
-        monkey.patch_all()
-
-        from werkzeug.debug import DebuggedApplication
-        class MyDebuggedApplication(DebuggedApplication):
-            def __call__(self, environ, start_response):
-                # check if websocket call
-                if "wsgi.websocket" in environ and not environ["wsgi.websocket"] is None:
-                    # a websocket call, no debugger ;)
-                    return self.application(environ, start_response)
-                # else go on with debugger
-                return DebuggedApplication.__call__(self, environ, start_response)
-
-        if options.ssl:
-            ctx = {
-                "certfile": options.ssl_cert,
-                "keyfile": options.ssl_key,
-            }
-        else:
-            ctx = {}
-
-        run_with_reloader = partial(run_with_reloader, extra_files=extra_files)
-
-        @run_with_reloader
-        def run_server():
-            log.info(' * Running on http://%s:%d/' % (options.hostname, options.port))
-            SocketIOServer((options.hostname, options.port), get_app(MyDebuggedApplication), resource="socket.io", **ctx).serve_forever()
-
-        run_server()
-
-    def run_simple(self, options, extra_files, get_app):
-        from werkzeug.serving import run_simple
-
-        if options.ssl:
-            ctx = 'adhoc'
-
-            default = False
-            if not os.path.exists(options.ssl_key):
-                log.info(' * SSL key file (%s) not found, will use default ssl config' % options.ssl_key)
-                default = True
-            if not os.path.exists(options.ssl_cert) and not default:
-                log.info(' * SSL cert file (%s) not found, will use default ssl config' % options.ssl_cert)
-                default = True
-
-            if not default:
-                ctx = (options.ssl_key, options.ssl_cert)
-        else:
-            ctx = None
-
-            # run_simple(options.hostname, options.port, get_app(), options.reload, False, True,
-            #        extra_files, 1, options.thread, options.processes, ssl_context=ctx)
-            run_simple(options.hostname, options.port, get_app(), options.reload, use_debugger=False,
-                       extra_files=extra_files, threaded=options.thread,
-                       processes=options.processes, ssl_context=ctx)
+            subprocess.run(cmd, env=env, check=True)
+        except subprocess.CalledProcessError as e:
+            log.error(f"ASGI 服务器启动失败: {e}")
+        except KeyboardInterrupt:
+            log.info(" * 服务器已停止")
 
 register_command(RunserverCommand)
 
@@ -1453,7 +1319,7 @@ class FindCommand(Command):
 
                 for x in files:
                     print(x)
-                    
+
                 if source:
                     print()
                     print('---------------- source of %s ---------------' % template)
@@ -1464,7 +1330,7 @@ class FindCommand(Command):
                     else:
                         print(t.code)
                         print()
-            
+
             else:
                 print('Not Found')
         else:
@@ -1484,7 +1350,7 @@ class FindCommand(Command):
                 print('%s' % path)
                 return
         print('Not Found')
-        
+
     def _find_model(self, global_options, model):
         from uliweb import settings
 

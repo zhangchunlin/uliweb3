@@ -1,5 +1,7 @@
 # Uliweb 管理命令
 
+> **重要变更**: Uliweb 现在只支持 ASGI 架构，不再支持 WSGI。所有服务器功能都基于 Starlette ASGI 框架实现。
+
 `manage.py` 脚本是管理 Uliweb 项目的命令行接口。它提供了各种命令用于创建应用、项目、模块以及执行其他开发任务。
 
 ## 使用方法
@@ -135,7 +137,7 @@ python manage.py makecmd appname
 
 ### runserver
 
-启动新的开发服务器。也可以在没有完整项目的情况下启动应用。
+启动新的 ASGI 开发服务器。也可以在没有完整项目的情况下启动应用。
 
 **用法:**
 ```bash
@@ -148,14 +150,11 @@ python manage.py runserver [options] [appname appname ...]
 - `--no-reload`: 是否自动重新加载开发服务器（默认：True）
 - `--no-debug`: 是否自动启用调试模式（默认：True）
 - `--nocolor`: 禁用彩色日志信息（默认：False）
-- `--thread`: 是否使用线程服务器模式（默认：False）
-- `--processes`: 启动的进程数（默认：1）
+- `--asgi-server`: ASGI 服务器选择（uvicorn、hypercorn、daphne，默认：uvicorn）
+- `--asgi-workers`: ASGI 工作进程数（默认：1）
 - `--ssl`: 使用 SSL 访问 http
 - `--ssl-key`: SSL 私钥文件名（默认：ssl.key）
 - `--ssl-cert`: SSL 证书文件名（默认：ssl.cert）
-- `--tornado`: 使用 tornado 启动 uliweb 服务器
-- `--gevent`: 使用 gevent 启动 uliweb 服务器
-- `--gevent-socketio`: 使用 gevent-socketio 启动 uliweb 服务器
 - `--coverage`: 使用 coverage 启动 uliweb 服务器
 - `--trace-print`: 跟踪打印语句
 

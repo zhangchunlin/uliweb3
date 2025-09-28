@@ -20,13 +20,17 @@ from . import template
 from .js import json_dumps
 from . import dispatch
 from uliweb.utils.storage import Storage
-from uliweb.utils.common import (pkg, log, import_attr, 
+from uliweb.utils.common import (pkg, log, import_attr,
     myimport, wraps, norm_path)
 import uliweb.utils.pyini as pyini
 from uliweb.i18n import gettext_lazy, i18n_ini_convertor
 from uliweb.utils.localproxy import LocalProxy, Global
-from uliweb import UliwebError
 from uliweb.utils._compat import html_escape, isresponse
+
+# 定义错误类以避免循环导入
+class UliwebError(Exception):
+    """Uliweb 基础错误类"""
+    pass
 
 # from rules import Mapping, add_rule
 from . import rules
@@ -69,7 +73,7 @@ class Finder(object):
     def __init__(self, section):
         self.__objects = {}
         self.__section = section
-    
+
     def __contains__(self, name):
         if name in self.__objects:
             return True
@@ -77,7 +81,7 @@ class Finder(object):
             return False
         else:
             return True
-        
+
     def __getattr__(self, name):
         if name in self.__objects:
             return self.__objects[name]
@@ -86,7 +90,7 @@ class Finder(object):
         obj = import_attr(settings[self.__section].get(name))
         self.__objects[name] = obj
         return obj
-    
+
     def __setitem__(self, name, value):
         if isinstance(value, string_types):
             value = import_attr(value)
@@ -116,11 +120,11 @@ class Request(OriginalRequest):
         header and set it to "XMLHttpRequest".  Libraries that do that are
         prototype, jQuery and Mochikit and probably some more.''')
 
-    
+
 class Response(OriginalResponse):
     def write(self, value):
         self.stream.write(value)
-    
+
 class HTTPError(Exception):
     def __init__(self, errorpage=None, **kwargs):
         self.errorpage = errorpage or settings.GLOBAL.ERROR_PAGE
@@ -128,7 +132,7 @@ class HTTPError(Exception):
 
     def __str__(self):
         return repr(self.errors)
-   
+
 def redirect(location, code=302):
     global _xhr_redirect_json, request
 
@@ -151,10 +155,10 @@ class RedirectException(Exception):
     """
     def __init__(self, location, code=302):
         self.response = redirect(location, code)
-        
+
     def get_response(self):
         return self.response
-    
+
 def Redirect(url):
     raise RedirectException(url)
 
@@ -173,7 +177,7 @@ def function(fname, *args, **kwargs):
             return import_attr(func)
     else:
         raise UliwebError("Can't find the function [%s] in settings" % fname)
- 
+
 def json(data, **json_kwargs):
     def set_content_type():
         from uliweb import request
@@ -190,7 +194,7 @@ def json(data, **json_kwargs):
                         json_kwargs['content_type'] = CONTENT_TYPE_TEXT
             else:
                 json_kwargs['content_type'] = CONTENT_TYPE_TEXT
-        
+
     if callable(data):
         @wraps(data)
         def f(*arg, **kwargs):
@@ -201,24 +205,24 @@ def json(data, **json_kwargs):
     else:
         set_content_type()
         return Response(json_dumps(data), **json_kwargs)
-    
+
 def jsonp(data, **json_kwargs):
     """
     jsonp is callback key name
     """
     from uliweb import request
-    
+
     if 'jsonp' in json_kwargs:
         cb = json_kwargs.pop('jsonp')
     else:
         cb = 'callback'
-        
+
     begin = str(request.GET.get(cb))
     if not begin:
         raise BadRequest("Can't found %s parameter in request's query_string" % cb)
     if not r_callback.match(begin):
         raise BadRequest("The callback name is not right, it can be alphabetic, number and underscore only")
-    
+
     if callable(data):
         @wraps(data)
         def f(*arg, **kwargs):
@@ -382,14 +386,14 @@ def url_for(endpoint, **values):
     urljoin = import_('urllib.parse', 'urljoin')
 
     point = rules.get_endpoint(endpoint)
-    
+
     #if the endpoint is string format, then find and replace
     #the module prefix with app alias which matched
     for k, v in __app_alias__.items():
         if point.startswith(k):
             point = v + point[len(k):]
             break
-        
+
     if point in rules.__url_names__:
         point = rules.__url_names__[point]
 
@@ -436,7 +440,7 @@ def get_app_dir(app):
             path = ''
         if len(p) > 1:
             path = os.path.join(path, *p[1:])
-        
+
         __app_dirs__[app] = path
         return path
 
@@ -464,26 +468,26 @@ def get_app_depends(app, existed_apps=None, installed_apps=None):
                     yield j
     s.add(app)
     yield app
-    
+
 def set_var(key, value):
     """
     Default set_var function
     """
     from uliweb import settings
-    
+
     settings.set_var(key, value)
-    
+
 def get_var(key, default=None):
     """
     Default get_var function
     """
     from uliweb import settings
-    
+
     return settings.get_var(key, default)
-    
+
 def get_local_cache(key, creator=None):
     global local
-    
+
     if not hasattr(local, 'local_cache'):
         local.local_cache = {}
     value = local.local_cache.get(key)
@@ -525,10 +529,10 @@ def get_apps(apps_dir, include_apps=None, settings_file='settings.ini', local_se
         for p in os.listdir(apps_dir):
             if os.path.isdir(os.path.join(apps_dir, p)) and p not in ['.svn', 'CVS', '.git'] and not p.startswith('.') and not p.startswith('_'):
                 apps.append(p)
-    
+
     return apps
 
-def collect_settings(project_dir, include_apps=None, settings_file='settings.ini', 
+def collect_settings(project_dir, include_apps=None, settings_file='settings.ini',
     local_settings_file='local_settings.ini'):
 
     apps_dir = os.path.join(project_dir, 'apps')
@@ -544,15 +548,15 @@ def collect_settings(project_dir, include_apps=None, settings_file='settings.ini
         inifile =os.path.join(get_app_dir(p), 'settings.ini')
         if os.path.exists(inifile):
             settings.append(inifile)
-    
+
     if os.path.exists(settings_file):
         settings.append(settings_file)
-    
+
     if os.path.exists(local_settings_file):
         settings.append(local_settings_file)
     return settings
 
-def get_settings(project_dir, include_apps=None, settings_file='settings.ini', 
+def get_settings(project_dir, include_apps=None, settings_file='settings.ini',
     local_settings_file='local_settings.ini', default_settings=None):
 
     default_settings = default_settings or {}
@@ -565,7 +569,7 @@ def get_settings(project_dir, include_apps=None, settings_file='settings.ini',
     d = dict([(k, repr(v)) for k, v in default_settings.items()])
     x.update(d or {})
     x.freeze()
-    
+
     #process FILESYSTEM_ENCODING
     if not x.GLOBAL.FILESYSTEM_ENCODING:
         x.GLOBAL.FILESYSTEM_ENCODING = sys.getfilesystemencoding() or x.GLOBAL.DEFAULT_ENCODING
@@ -573,7 +577,7 @@ def get_settings(project_dir, include_apps=None, settings_file='settings.ini',
 
 def is_in_web():
     return getattr(local, 'in_web', False)
-        
+
 class DispatcherHandler(object):
     def __init__(self, application):
         self.application = application
@@ -623,9 +627,9 @@ class ContextStorage(object):
         self._vars = {}
 
     def __getattr__(self, key):
-        try: 
+        try:
             return self['_vars'][key]
-        except KeyError as e: 
+        except KeyError as e:
             try:
                 return self[key]
             except KeyError as e:
@@ -646,7 +650,7 @@ class ContextStorage(object):
             return self._vars[key]
         except KeyError as e:
             return self.__variables__[key]
-        
+
     def __setitem__(self, key, value):
         self._vars[key] = value
 
@@ -662,19 +666,19 @@ class ContextStorage(object):
         for k, v in self.__variables__.items():
             if k not in keys:
                 yield k, v
-    
+
     def __repr__(self):
         return '<ContextStorage ' + repr(self.__variables__) + ' ' + repr(self._vars) + ' >'
-    
+
 class Dispatcher(object):
     installed = False
-    def __init__(self, apps_dir='apps', project_dir=None, include_apps=None, 
-        start=True, default_settings=None, settings_file='settings.ini', 
+    def __init__(self, apps_dir='apps', project_dir=None, include_apps=None,
+        start=True, default_settings=None, settings_file='settings.ini',
         local_settings_file='local_settings.ini', xhr_redirect_json=True,
         reset=False):
-            
+
         global _xhr_redirect_json
-            
+
         _xhr_redirect_json = xhr_redirect_json
         __global__.application = self
         self.debug = False
@@ -688,49 +692,49 @@ class Dispatcher(object):
             self.init(project_dir, apps_dir)
             dispatch.call(self, 'startup_installed')
             self.init_urls()
-            
+
         if start:
             dispatch.call(self, 'startup')
-    
+
     def init(self, project_dir, apps_dir):
         if not project_dir:
             project_dir = norm_path(os.path.join(apps_dir, '..'))
-        
+
         Dispatcher.project_dir = project_dir
         Dispatcher.apps_dir = norm_path(os.path.join(project_dir, 'apps'))
         Dispatcher.apps = get_apps(self.apps_dir, self.include_apps, self.settings_file, self.local_settings_file)
         Dispatcher.modules = self.collect_modules()
-        
+
         self.install_settings(self.modules['settings'])
-        
+
         self.debug = settings.GLOBAL.get('DEBUG', False)
 
         #process global_objects
         self.install_global_objects()
-        
+
         #process binds
         self.install_binds()
-        
+
         dispatch.call(self, 'after_init_settings')
-        
+
         Dispatcher.settings = settings
-        
+
         #process domains
         self.process_domains(settings)
-        
+
         #setup log
         self.set_log()
-        
+
         #set app rules
         rules.set_app_rules(dict(settings.get('URL', {})))
         rules.set_urlroute_rules(dict(settings.get('URL_ROUTE', {})))
-        
+
         Dispatcher.env = self._prepare_env()
         #install template_dirs and taglibs_dirs
         self.get_template_dirs()
         #install template_loader and taglibs_loader
         self.install_template_loader()
-        
+
         #begin to start apps
         self.install_apps()
         dispatch.call(self, 'after_init_apps')
@@ -740,12 +744,12 @@ class Dispatcher(object):
         self.install_exposes()
         #process middlewares
         Dispatcher.middlewares = self.install_middlewares()
-        
+
         dispatch.call(self, 'prepare_default_env', Dispatcher.env)
         Dispatcher.default_template = pkg.resource_filename('uliweb.core', 'default.html')
-        
+
         Dispatcher.installed = True
-        
+
     def _prepare_env(self):
         env = {}
         env['url_for'] = url_for
@@ -762,25 +766,25 @@ class Dispatcher(object):
 
         c = ContextStorage(env)
         return c
-    
+
     def set_log(self):
         import logging
-        
+
         s = self.settings
-        
+
         def _get_level(level):
             return getattr(logging, level.upper())
-        
+
         #get basic configuration
         config = {}
         for k, v in s.LOG.items():
             if k in ['format', 'datefmt', 'filename', 'filemode']:
                 config[k] = v
-                
+
         if s.get_var('LOG/level'):
             config['level'] = _get_level(s.get_var('LOG/level'))
         logging.basicConfig(**config)
-        
+
         if config.get('filename'):
             Handler = 'logging.FileHandler'
             if config.get('filemode'):
@@ -790,32 +794,32 @@ class Dispatcher(object):
         else:
             Handler = 'logging.StreamHandler'
             _args = ()
-        
+
         #process formatters
         formatters = {}
         for f, v in s.get_var('LOG.Formatters', {}).items():
             formatters[f] = logging.Formatter(v)
-            
+
         #process handlers
         handlers = {}
         for h, v in s.get_var('LOG.Handlers', {}).items():
             handler_cls = v.get('class', Handler)
             handler_args = v.get('args', _args)
             handler_kwargs = v.get('kwargs', {})
-            
+
             handler = import_attr(handler_cls)(*handler_args, **handler_kwargs)
             if v.get('level'):
                 handler.setLevel(_get_level(v.get('level')))
-            
+
             format = v.get('format')
             if format in formatters:
                 handler.setFormatter(formatters[format])
             elif format:
                 fmt = logging.Formatter(format)
                 handler.setFormatter(fmt)
-                
+
             handlers[h] = handler
-            
+
         #process loggers
         for logger_name, v in s.get_var('LOG.Loggers', {}).items():
             if logger_name == 'ROOT':
@@ -823,7 +827,7 @@ class Dispatcher(object):
                 log.handlers = []
             else:
                 log = logging.getLogger(logger_name)
-                
+
             if v.get('level'):
                 log.setLevel(_get_level(v.get('level')))
             if 'propagate' in v:
@@ -843,20 +847,20 @@ class Dispatcher(object):
                 _handler = import_attr(Handler)(*_args)
                 _handler.setFormatter(fmt)
                 log.addHandler(_handler)
-                
+
     def process_domains(self, settings):
         from uliweb.utils._compat import import_
         urlparse = import_('urllib.parse', 'urlparse')
 
         Dispatcher.domains = {}
-        
+
         for k, v in settings.DOMAINS.items():
             _domain = urlparse(v['domain'])
-            self.domains[k] = {'domain':v.get('domain'), 'domain_parse':_domain, 
+            self.domains[k] = {'domain':v.get('domain'), 'domain_parse':_domain,
                 'host':_domain.netloc or v.get('domain'),
                 'scheme':_domain.scheme or 'http', 'display':v.get('display', False),
                 'url_prefix':v.get('url_prefix', '')}
-        
+
     def get_file(self, filename, dir='static'):
         """
         get_file will search from apps directory
@@ -873,7 +877,7 @@ class Dispatcher(object):
             if os.path.exists(path):
                 return path
         return None
-    
+
     def install_template_loader(self):
         Loader = import_attr(settings.get_var('TEMPLATE_PROCESSOR/loader'))
         args = settings.get_var('TEMPLATE')
@@ -884,16 +888,16 @@ class Dispatcher(object):
             args['debug'] = settings.get_var('GLOBAL/DEBUG_TEMPLATE', False)
         Dispatcher.template_loader = Loader(Dispatcher.template_dirs,
                                             **args)
-            
-    
+
+
     def template(self, filename, vars=None, env=None, default_template=None, layout=None):
         vars = vars or {}
         env = env or self.get_view_env()
-        
+
         t = self.template_loader.load(filename, layout=layout,
                                       default_template=default_template)
         return t.generate(vars, env)
-    
+
     def render(self, templatefile, vars, env=None, default_template=None,
                content_type='text/html', status=200, layout=None):
         return Response(self.template(templatefile, vars, env,
@@ -907,7 +911,7 @@ class Dispatcher(object):
     def parse_tag(self, xml):
         from uliweb.core.taglibs import parse
         return parse(xml, self.taglibs_loader)
-    
+
     def _page_not_found(self, description=None, **kwargs):
         description = 'The requested URL "{{=url}}" was not found on the server.'
         text = """<h1>Page Not Found</h1>
@@ -924,7 +928,7 @@ class Dispatcher(object):
     </table>
     """ % description
         return Response(template.template(text, kwargs), status=404, content_type='text/html')
-        
+
     def not_found(self, e):
         if self.debug:
             urls = []
@@ -942,7 +946,7 @@ class Dispatcher(object):
         else:
             response = e
         return response
-    
+
     def internal_error(self, e):
         tmp_file = self.template_loader.resolve_path('500'+settings.GLOBAL.TEMPLATE_SUFFIX)
         if tmp_file:
@@ -951,7 +955,7 @@ class Dispatcher(object):
             response = InternalServerError()
         log.exception(e)
         return response
-    
+
     def get_handler(self, endpoint):
         from uliweb.utils.common import safe_import
 
@@ -966,7 +970,7 @@ class Dispatcher(object):
         elif callable(endpoint):
             handler = endpoint
             mod = sys.modules[handler.__module__]
-        
+
         return _klass, mod, handler
 
     def prepare_request(self, request, rule):
@@ -989,26 +993,26 @@ class Dispatcher(object):
         else:
             request.view_class = None
         return mod, _klass, handler
-    
+
     def call_view(self, mod, cls, handler, request, response=None, wrap_result=None, args=None, kwargs=None):
         #get env
         wrap = wrap_result or self.wrap_result
         env = self.get_view_env()
-        
+
         #if there is __begin__ then invoke it, if __begin__ return None, it'll
         #continue running
-        
+
         #there is a problem about soap view, because soap view will invoke
         #call_view again, so that it may cause the __begin__ or __end__ be called
         #twice, so I'll remember the function in cache, so that they'll not be invoke
         #twice
-        
+
         def _get_name(mod, name):
             if isinstance(mod, types.ModuleType):
                 return mod.__name__ + '.' + name
             else:
                 return cls.__module__ + '.' + cls.__class__.__name__ + '.' + name
-            
+
         def _process_begin(mod):
             name = '__begin__'
             if hasattr(mod, name):
@@ -1017,7 +1021,7 @@ class Dispatcher(object):
                     request._invokes['begin'].append(_name)
                     f = getattr(mod, name)
                     return self._call_function(f, request, response, env)
-                    
+
         def _prepare_end(mod):
             name = '__end__'
             if hasattr(mod, name):
@@ -1025,12 +1029,12 @@ class Dispatcher(object):
                 if _name not in request._invokes['end']:
                     request._invokes['end'].append(_name)
                     return True
-            
+
         def _process_end(mod):
             f = getattr(mod, '__end__')
             return self._call_function(f, request, response, env)
-            
-                
+
+
         if not hasattr(request, '_invokes'):
             request._invokes = {'begin':[], 'end':[]}
 
@@ -1041,25 +1045,25 @@ class Dispatcher(object):
         result = _process_begin(cls)
         if result is not None:
             return wrap(handler, result, request, response, env)
-        
+
         #preprocess __end__
         mod_end = _prepare_end(mod)
         cls_end = _prepare_end(cls)
-        
+
         result = self.call_handler(handler, request, response, env, wrap, args, kwargs)
 
         if mod_end:
             result1 = _process_end(mod)
             if result1 is not None:
                 return wrap(handler, result1, request, response, env)
-        
+
         if cls_end:
             result1 = _process_end(cls)
             if result1 is not None:
                 return wrap(handler, result1, request, response, env)
 
         return result
-        
+
     def wrap_result(self, handler, result, request, response, env):
 #        #process ajax invoke, return a json response
 #        if request.is_xhr and isinstance(result, dict):
@@ -1094,7 +1098,7 @@ class Dispatcher(object):
                 else:
                     tmpfile = args
                 response.template = tmpfile
-            
+
             #if debug mode, then display a default_template
             if self.debug:
                 d = ['default.html', self.default_template]
@@ -1127,19 +1131,19 @@ class Dispatcher(object):
             sync_call = self.ensure_sync(Response.__call__)
             response = sync_call(str(result), content_type=response.content_type)
         return response
-    
+
     def get_view_env(self):
         #prepare local env
         local_env = {}
-        
+
         #process before view call
         dispatch.call(self, 'prepare_view_env', local_env)
-        
+
         local_env['application'] = __global__.application
         local_env['request'] = request
         local_env['response'] = response
         local_env['settings'] = __global__.settings
-        
+
         env = Storage(self.env.to_dict())
         env.update(local_env)
         return env
@@ -1178,7 +1182,7 @@ class Dispatcher(object):
     def _call_function(self, handler, request, response, env, args=None, kwargs=None):
         handler.__globals__.update(env)
         handler.__globals__['env'] = env
-        
+
         args = args or ()
         kwargs = kwargs or {}
 
@@ -1188,12 +1192,12 @@ class Dispatcher(object):
         if isinstance(result, LocalProxy) and result._obj_name == 'response':
             result = local.response
         return result
-    
+
     def call_handler(self, handler, request, response, env, wrap_result=None, args=None, kwargs=None):
         wrap = wrap_result or self.wrap_result
         result = self._call_function(handler, request, response, env, args, kwargs)
         return wrap(handler, result, request, response, env)
-            
+
     def collect_modules(self, check_view=True):
         modules = {}
         views = []
@@ -1201,12 +1205,12 @@ class Dispatcher(object):
 
         inifile = pkg.resource_filename('uliweb.core', 'default_settings.ini')
         settings.insert(0, ('', inifile))
-        
+
         def enum_views(views_path, appname, subfolder=None, pattern=None):
             if not os.path.exists(views_path):
                 log.error("Can't found the app %s path, please check if the path is right" % appname)
                 return
-                 
+
             for f in os.listdir(views_path):
                 fname, ext = os.path.splitext(f)
                 if os.path.isfile(os.path.join(views_path, f)) and ext in ['.py', '.pyc', '.pyo'] and fname!='__init__':
@@ -1232,29 +1236,29 @@ class Dispatcher(object):
                     enum_views(path, p, pattern='views*')
             #deal with settings
             inifile =os.path.join(get_app_dir(p), 'settings.ini')
-            
+
             if os.path.exists(inifile):
                 settings.append((p, inifile))
 
         set_ini = os.path.join(self.apps_dir, self.settings_file)
         if os.path.exists(set_ini):
             settings.append(('', set_ini))
-        
+
         local_set_ini = os.path.join(self.apps_dir, self.local_settings_file)
         if os.path.exists(local_set_ini):
             settings.append(('', local_set_ini))
-        
+
         modules['views'] = views
         modules['settings'] = settings
         return modules
-    
+
     def install_views(self, views):
         for v in views:
             try:
                 myimport(v)
             except Exception as e:
                 log.exception(e)
-         
+
     def init_urls(self):
         #initialize urls
         for v in rules.merge_rules():
@@ -1276,7 +1280,7 @@ class Dispatcher(object):
             except:
                 log.error("Wrong url url=%s, endpoint=%s" % (_url, endpoint))
                 raise
-    
+
     def install_apps(self):
         for p in self.apps:
             try:
@@ -1285,7 +1289,7 @@ class Dispatcher(object):
                 pass
             except BaseException as e:
                 log.exception(e)
-            
+
     def install_settings(self, s):
         settings.set_basepath(self.apps_dir)
 #        settings = pyini.Ini()
@@ -1296,11 +1300,11 @@ class Dispatcher(object):
         d = dict([(k, repr(v)) for k, v in self.default_settings.items()])
         settings.update(d)
         settings.freeze()
-        
+
         #process FILESYSTEM_ENCODING
         if not settings.GLOBAL.FILESYSTEM_ENCODING:
             settings.GLOBAL.FILESYSTEM_ENCODING = sys.getfilesystemencoding() or settings.GLOBAL.DEFAULT_ENCODING
-            
+
     def install_global_objects(self):
         """
         Process [GLOBAL_OBJECTS], and inject all object to uliweb module, so
@@ -1309,12 +1313,12 @@ class Dispatcher(object):
         import uliweb
         for k, v in settings.GLOBAL_OBJECTS.items():
             setattr(uliweb, k, import_attr(v))
-        
+
     def install_binds(self):
         #process DISPATCH hooks
         #BINDS format
         #func = topic              #bind_name will be the same with function
-        #bind_name = topic, func        
+        #bind_name = topic, func
         #bind_name = topic, func, {args}
         d = settings.get('BINDS', {})
         for bind_name, args in d.items():
@@ -1338,11 +1342,11 @@ class Dispatcher(object):
             if is_wrong:
                 log.error('BINDS definition should be "function=topic" or "bind_name=topic, function" or "bind_name=topic, function, {"args":value1,...}"')
                 raise UliwebError('BINDS definition [%s=%r] is not right' % (bind_name, args))
-                
+
     def install_exposes(self):
         #EXPOSES format
         #endpoint = topic              #bind_name will be the same with function
-        #expose_name = topic, func        
+        #expose_name = topic, func
         #expose_name = topic, func, {args}
         d = settings.get('EXPOSES', {})
         for name, args in d.items():
@@ -1366,7 +1370,7 @@ class Dispatcher(object):
             if is_wrong:
                 log.error('EXPOSES definition should be "endpoint=url" or "name=url, endpoint" or "name=url, endpoint, {"args":value1,...}"')
                 raise UliwebError('EXPOSES definition [%s=%r] is not right' % (name, args))
-       
+
     def install_middlewares(self):
         m = self._sort_middlewares(settings.get('MIDDLEWARES', {}).values())
         req_classes, res_classes, ex_classes = self._get_middlewares_classes(m)
@@ -1374,7 +1378,7 @@ class Dispatcher(object):
         Dispatcher.process_response_classes = res_classes
         Dispatcher.process_exception_classes = ex_classes
         return m
-    
+
     def _get_middlewares_classes(self, middlewares):
         m = middlewares
 
@@ -1407,7 +1411,7 @@ class Dispatcher(object):
         for v in middlewares:
             if not v:
                 continue
-            
+
             order = None
             if isinstance(v, (list, tuple)):
                 if len(v) > 2:
@@ -1418,15 +1422,15 @@ class Dispatcher(object):
             else:
                 middleware_path = v
             cls = import_attr(middleware_path)
-            
+
             if order is None:
                 order = getattr(cls, 'ORDER', 500)
             m.append((order, cls))
         # only compare order
         m.sort(key=lambda x: x[0])
-            
+
         return [x[1] for x in m]
-    
+
     def get_config(self, config_filename):
         """
         Collection all config file in all available apps, and merge them into ini object
@@ -1456,7 +1460,7 @@ class Dispatcher(object):
                 for f in files:
                     if f != 'readme.txt':
                         return True
-                    
+
         template_dirs = [os.path.join(self.project_dir, x) for x in settings.GLOBAL.TEMPLATE_DIRS or []]
         taglibs_dirs = []
         for p in reversed(self.apps):
@@ -1464,32 +1468,32 @@ class Dispatcher(object):
             path = os.path.join(app_path, 'templates')
             if if_not_empty(path):
                 template_dirs.append(path)
-                
+
             path = os.path.join(app_path, 'taglibs')
             if if_not_empty(path):
                 taglibs_dirs.append(path)
 
         Dispatcher.template_dirs = template_dirs
         Dispatcher.taglibs_dirs = taglibs_dirs
-    
+
     def get_templateplugins_dirs(self):
         return [os.path.join(get_app_dir(p), 'template_plugins') for p in self.apps]
-    
+
     def open(self, *args, **kwargs):
         from werkzeug.test import EnvironBuilder
-        
+
         pre_call = kwargs.pop('pre_call', None)
         post_call = kwargs.pop('post_call', None)
         middlewares = kwargs.pop('middlewares', None)
-        
+
         builder = EnvironBuilder(*args, **kwargs)
         try:
             environ = builder.get_environ()
         finally:
             builder.close()
-            
+
         return self._open(environ, pre_call=pre_call, post_call=post_call, middlewares=middlewares)
-        
+
     def _open(self, environ, pre_call=None, post_call=None, middlewares=None):
         if middlewares is None:
             middlewares = self.middlewares
@@ -1499,12 +1503,12 @@ class Dispatcher(object):
         else:
             m = self._sort_middlewares(middlewares)
             process_request_classes, process_response_classes, process_exception_classes = self._get_middlewares_classes(m)
-            
+
         self.lock.acquire()
         try:
             local.request = req = Request(environ)
             local.response = res = Response(content_type='text/html')
-        
+
             # add DEFAULT_CORS support
             if settings.GLOBAL.DEFAULT_CORS and req.method == 'OPTIONS':
                 return CORS()
@@ -1535,7 +1539,7 @@ class Dispatcher(object):
                         response = sync_call(req)
                         if response is not None:
                             break
-                
+
                 if response is None:
                     try:
                         if pre_call:
@@ -1559,27 +1563,27 @@ class Dispatcher(object):
                             if response:
                                 return response
                         raise
-                    
+
                 for cls in process_response_classes:
                     ins = _inss.get(cls)
                     if not ins:
                         ins = cls(self, settings)
                     sync_call = self.ensure_sync(ins.process_response)
                     response = sync_call(req, response)
-                
+
                     if not isinstance(response, (OriginalResponse, Response)):
                         raise Exception("Middleware %s should return an Response object, but %r found" % (ins.__class__.__name__, response))
-                
+
                 #process post_response call, you can set some async process in here
                 #but the sync may fail, so you should think about the checking mechanism
                 if hasattr(response, 'post_response') and response.post_response:
                     response.post_response()
-                    
+
                 if hasattr(res, 'post_response') and res.post_response:
                     res.post_response()
-                
+
             #endif
-            
+
         except HTTPError as e:
             response = self.render(e.errorpage, Storage(e.errors))
         except NotFound as e:
@@ -1599,7 +1603,7 @@ class Dispatcher(object):
             return CORS(None, response)
         else:
             return response
-    
+
     def handler(self):
         return DispatcherHandler(self)
 

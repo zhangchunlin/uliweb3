@@ -1,42 +1,107 @@
-####################################################################
-# Author: Limodou@gmail.com
-# License: BSD
-####################################################################
+"""
+Uliweb - Easy Python Web Framework
+"""
 
-__author__ = 'limodou'
+__version__ = '3.0.0'
+__author__ = 'Limodou'
 __author_email__ = 'limodou@gmail.com'
 __url__ = 'https://github.com/limodou/uliweb3'
 __license__ = 'BSD'
-version = __version__ = '0.3.2'
 
-import os, sys
-workpath = os.path.dirname(__file__)
-sys.path.insert(0, os.path.join(workpath, 'lib'))
 
-class UliwebError(Exception): pass
+# 首先定义错误类，避免循环导入
+class UliwebError(Exception):
+    """Uliweb 基础错误类"""
+    pass
 
-from .core.SimpleFrame import (Request, Response, redirect, Redirect, error, json, jsonp,
-        POST, GET, CORS, url_for, expose, get_app_dir, get_apps, function, Finder, decorators,
-        functions, response, request, settings, application, NotFound, HTTPException,
-        is_in_web, CONTENT_TYPE_JSON, CONTENT_TYPE_TEXT
+
+class HTTPError(Exception):
+    """HTTP 错误类"""
+    pass
+
+
+class RedirectException(Exception):
+    """重定向异常类"""
+    pass
+
+
+# 标记 ASGI 可用性
+ASGI_AVAILABLE = False
+
+# 导入管理命令需要的函数（避免循环导入）
+from .core.SimpleFrame import get_apps, get_app_dir
+
+# 尝试导入 ASGI 组件
+try:
+    from .core.starlette import (
+        Request as ASGIRequest,
+        Response as ASGIResponse,
+        AsyncDispatcher,
+        expose as asgi_expose,
+        POST as asgi_POST,
+        GET as asgi_GET,
+        redirect as asgi_redirect,
+        json as asgi_json,
+        request as asgi_request,
+        response as asgi_response,
+        settings as asgi_settings,
+        application as asgi_application
     )
-from .core.js import json_dumps
-from .utils.storage import Storage
-from .core.rules import get_endpoint
 
-class Middleware(object):
-    ORDER = 500
-    
-    def __init__(self, application, settings):
-        self.application = application
-        self.settings = settings
+    # 如果导入成功，标记 ASGI 可用
+    ASGI_AVAILABLE = True
 
+    # 使用 ASGI 组件
+    Request = ASGIRequest
+    Response = ASGIResponse
+    expose = asgi_expose
+    POST = asgi_POST
+    GET = asgi_GET
+    redirect = asgi_redirect
+    json = asgi_json
+    request = asgi_request
+    response = asgi_response
+    settings = asgi_settings
+    application = asgi_application
+    Dispatcher = AsyncDispatcher
 
-#jupyter extension support
-#you should use %load_ext uliweb to load it
-#it'll add settings, functions, application to global environment
-def load_ipython_extension(ipython):
-    from uliweb.utils.ipython_extension import make_shell_env, patch_ipython
-    patch_ipython()
-    ipython.push(make_shell_env())
+except ImportError:
+    # 如果 Starlette 不可用，回退到 WSGI
+    from .core.SimpleFrame import (
+        Request as WSGIRequest,
+        Response as WsgiResponse,
+        expose as wsgi_expose,
+        POST as wsgi_POST,
+        GET as wsgi_GET,
+        redirect as wsgi_redirect,
+        json as wsgi_json,
+        request as wsgi_request,
+        response as wsgi_response,
+        settings as wsgi_settings,
+        application as wsgi_application,
+        Dispatcher as WSGIDispatcher
+    )
 
+    Request = WSGIRequest
+    Response = WsgiResponse
+    expose = wsgi_expose
+    POST = wsgi_POST
+    GET = wsgi_GET
+    redirect = wsgi_redirect
+    json = wsgi_json
+    request = wsgi_request
+    response = wsgi_response
+    settings = wsgi_settings
+    application = wsgi_application
+    Dispatcher = WSGIDispatcher
+
+# 兼容性导出
+__all__ = [
+    'Request', 'Response', 'Dispatcher', 'expose', 'POST', 'GET',
+    'redirect', 'json', 'request', 'response', 'settings', 'application',
+    'UliwebError', 'HTTPError', 'RedirectException',
+    'SimpleFrame', 'dispatch', 'template', 'html', 'js', 'uaml',
+    'common', 'date', 'files', 'storage', 'sorteddict',
+    'form', 'orm', 'i18n', 'mail', 'ASGI_AVAILABLE',
+    'get_apps', 'get_app_dir'  # 添加缺失的函数
+]

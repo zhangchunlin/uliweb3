@@ -2,8 +2,11 @@
 #coding=utf-8
 
 import re
-from six.moves.StringIO import StringIO
+from uliweb.utils._compat import import_
 import six
+
+# 使用兼容性导入
+StringIO = import_('io', 'StringIO')
 
 COMMENT = 1
 BEGIN_TAG = 2
@@ -35,7 +38,7 @@ class Writer(object):
             return getattr(self, func_name)(indent, value, **kwargs)
         else:
             return indent*' ' + begin_tag(name, **kwargs) + value + end_tag(name)
-    
+
     def unknown_begin(self, indent, v):
         name, value, kwargs = v
         func_name = 'begin_' + name
@@ -43,7 +46,7 @@ class Writer(object):
             return getattr(self, func_name)(indent, value, **kwargs)
         else:
             return indent*' ' + begin_tag(name, **kwargs)
-    
+
     def unknown_close(self, indent, v):
         name, value, kwargs = v
         func_name = 'close_' + name
@@ -51,13 +54,13 @@ class Writer(object):
             return getattr(self, func_name)(indent)
         else:
             return indent*' ' + end_tag(name)
-    
+
     def comment(self, indent, line):
         return indent*' ' + '<!-- %s -->' % line[2:]
 
     def verbatim(self, indent, value):
         return indent*' ' + value
-    
+
 handler_map = {
     COMMENT:'comment',
     VERBATIM:'verbatim',
@@ -70,18 +73,18 @@ class Parser(object):
         self.text = text
         self.writer = writer or Writer()
         self.result = []
-        
+
     def run(self):
         result = []
         for token, indent, value in self.generate():
             func = getattr(self.writer, handler_map[token])
             result.append(func(indent, value))
-          
+
         return '\n'.join(result)
-    
+
     def __str__(self):
         return self.run()
-        
+
     def generate(self):
         lnum = 0
         indents = [0]
@@ -90,21 +93,21 @@ class Parser(object):
         continued = False
 
         readline = StringIO(self.text).readline
-        while 1:  
+        while 1:
             line = readline()
             if not line: break
-        
+
             line = line.rstrip()
             lnum = lnum + 1
             pos, max = 0, len(line)
-            
+
             column = 0
             while pos < max:                   # measure leading whitespace
                 if line[pos] == ' ': column = column + 1
                 elif line[pos] == '\t': column = (column/tabsize + 1)*tabsize
                 else: break
                 pos = pos + 1
-            
+
             if continued:
                 if line[pos:].startswith('}}}'):
                     yield (VERBATIM, 0, '\n'.join(buf))
@@ -113,25 +116,25 @@ class Parser(object):
                 else:
                     buf.append(line)
                 continue
-            
+
             if not line: continue
-            
+
             #comment line
             if line[pos:].startswith('//'):
                 yield (COMMENT, indents[-1], line[pos:])
                 continue
-            
+
             #{{{}}} block
             if line[pos:].startswith('{{{'):
                 buf = []
                 continued = True
                 continue
-              
+
             #| iteral line
             if line[pos:].startswith('|'):
                 yield (VERBATIM, indents[-1], line[pos+1:])
                 continue
-            
+
             #process indent
             if column > indents[-1]:           # count indents or dedents
                 indents.append(column)
@@ -139,12 +142,12 @@ class Parser(object):
                 tags.append('')
                 yield (BEGIN_TAG, indents[-2], tag)
                 buf = []
-                
+
             #process last buffer
             if buf and not continued:
                 yield (TAG, indents[-1], buf[-1])
                 buf = []
-                
+
             #process dedent
             while column < indents[-1]:
                 if column not in indents:
@@ -156,12 +159,12 @@ class Parser(object):
                 tags = tags[:-1]
                 yield (CLOSE_TAG, indents[-1], tag)
                 buf = []
-                
+
             #process tag_name
             t = TAG_WHITESPACE_ATTRS.search(line[pos:])
             tag = t.group(1)
             pos += t.end()
-            
+
             t = TAG_AND_REST.match(tag)
             tag_name = t.group(1) or 'div'
             r = t.group(2)
@@ -175,7 +178,7 @@ class Parser(object):
                 else:
                     attr['id'] = v
             value = ''
-            
+
             #process tag_attr
             while 1:
                 t = AUTO_QUOTE.search(line[pos:])
@@ -188,7 +191,7 @@ class Parser(object):
                             _v = v[1][1:-1]
                         else:
                             _v = v[1]
-                        
+
                         if name == 'class':
                             if 'class' in attr:
                                 attr['class'] += ' ' + _v
@@ -210,18 +213,18 @@ class Parser(object):
             else:
                 tags[-1] = (tag_name, value, attr)
                 buf.append((tag_name, value, attr))
-            
+
         if buf:
             yield (TAG, indents[-1], buf[-1])
-            
+
         #process dedent
         while len(tags) > 1:
             tag = tags[len(indents)-2]
             indents = indents[:-1]
             tags = tags[:-1]
             yield (CLOSE_TAG, indents[-1], tag)
-        
-            
+
+
 if __name__ == '__main__':
 #    print Parser(test).run()
 
@@ -248,7 +251,7 @@ form.form#form layout='table_line' color=red Test
         field name=field4
 """
         return Parser(text).run()
-        
+
 #    from timeit import Timer
 #    t = Timer("test()", "from __main__ import test")
 #    print t.timeit(1000)
