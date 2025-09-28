@@ -265,7 +265,40 @@ async def context_middleware(request, call_next):
 
 ### 4.5 中间件系统适配
 
-**创建 ASGI 中间件适配器：**
+**Uliweb 中间件组织方式分析：**
+
+Uliweb 的中间件系统采用模块化设计，中间件实现分散在各个 contrib app 中，每个功能对应一个独立的 app。例如：
+
+- `uliweb/contrib/auth/middle_auth.py` - 认证中间件
+- `uliweb/contrib/csrf/middleware.py` - CSRF 保护中间件
+- `uliweb/contrib/i18n/middle_i18n.py` - 国际化中间件
+- `uliweb/contrib/session/middle_session.py` - 会话管理中间件
+- `uliweb/contrib/orm/middle_transaction.py` - 数据库事务中间件
+
+**中间件基类定义：**
+```python
+class Middleware:
+    """Uliweb 中间件基类"""
+    ORDER = 500  # 默认优先级
+
+    def __init__(self, application, settings):
+        self.application = application
+        self.settings = settings
+
+    def process_request(self, request):
+        """处理请求前调用"""
+        pass
+
+    def process_response(self, request, response):
+        """处理响应后调用"""
+        return response
+
+    def process_exception(self, request, exception):
+        """处理异常时调用"""
+        pass
+```
+
+**ASGI 中间件适配器实现：**
 ```python
 class ASGIMiddlewareAdapter:
     def __init__(self, app, middleware_classes):
@@ -283,9 +316,12 @@ class ASGIMiddlewareAdapter:
         # 处理请求中间件
         response = None
         for middleware_cls in self.middleware_classes:
-            middleware = middleware_cls()
+            middleware = middleware_cls(self.app, self.settings)
             if hasattr(middleware, 'process_request'):
-                response = await middleware.process_request(request)
+                if asyncio.iscoroutinefunction(middleware.process_request):
+                    response = await middleware.process_request(request)
+                else:
+                    response = middleware.process_request(request)
                 if response is not None:
                     break
 
@@ -296,9 +332,12 @@ class ASGIMiddlewareAdapter:
             except Exception as e:
                 # 处理异常中间件
                 for middleware_cls in reversed(self.middleware_classes):
-                    middleware = middleware_cls()
+                    middleware = middleware_cls(self.app, self.settings)
                     if hasattr(middleware, 'process_exception'):
-                        response = await middleware.process_exception(request, e)
+                        if asyncio.iscoroutinefunction(middleware.process_exception):
+                            response = await middleware.process_exception(request, e)
+                        else:
+                            response = middleware.process_exception(request, e)
                         if response is not None:
                             break
                 if response is None:
@@ -306,11 +345,26 @@ class ASGIMiddlewareAdapter:
 
         # 处理响应中间件
         for middleware_cls in reversed(self.middleware_classes):
-            middleware = middleware_cls()
+            middleware = middleware_cls(self.app, self.settings)
             if hasattr(middleware, 'process_response'):
-                response = await middleware.process_response(request, response)
+                if asyncio.iscoroutinefunction(middleware.process_response):
+                    response = await middleware.process_response(request, response)
+                else:
+                    response = middleware.process_response(request, response)
 
         await response(scope, receive, send)
+```
+
+**中间件配置迁移：**
+```ini
+# 从 WSGI_MIDDLEWARES 配置迁移到 ASGI 中间件配置
+[MIDDLEWARES]
+# 格式: 中间件名称 = [中间件类路径, 优先级, 配置参数]
+auth = ['uliweb.contrib.auth.middle_auth.AuthMiddle', 100]
+csrf = ['uliweb.contrib.csrf.middleware.CSRFMiddleware', 150]
+i18n = ['uliweb.contrib.i18n.middle_i18n.I18nMiddle', 200]
+session = ['uliweb.contrib.session.middle_session.SessionMiddle', 50]
+transaction = ['uliweb.contrib.orm.middle_transaction.TransactionMiddle', 80]
 ```
 
 ### 4.6 模板系统异步化

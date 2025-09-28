@@ -7,7 +7,13 @@
 
 ### 1. 中间件系统迁移
 
-#### 1.1 ASGI 中间件适配器实现
+#### 1.1 Uliweb 中间件架构分析
+- [x] 分析 uliweb/contrib 目录下的中间件实现结构
+- [x] 了解每个功能模块对应的中间件组织方式
+- [x] 确认中间件基类 Middleware 的定义和使用方式
+- [x] 分析中间件配置（MIDDLEWARES）的注册机制
+
+#### 1.2 ASGI 中间件适配器实现
 - [ ] 创建 `ASGIMiddlewareAdapter` 类，支持 ASGI 3.0 接口
 - [ ] 实现请求处理中间件链（process_request）
 - [ ] 实现响应处理中间件链（process_response）
@@ -15,18 +21,22 @@
 - [ ] 支持同步和异步中间件的混合使用
 - [ ] 保持中间件执行顺序的兼容性
 
-#### 1.2 核心中间件迁移
-- [ ] 会话中间件（SessionMiddleware）异步化
-- [ ] 认证中间件（AuthMiddleware）异步化
-- [ ] CSRF 中间件（CSRFMiddleware）异步化
-- [ ] 国际化中间件（I18nMiddleware）异步化
-- [ ] 静态文件中间件（StaticFilesMiddleware）适配
-- [ ] 错误处理中间件（ErrorMiddleware）异步化
+#### 1.3 核心中间件迁移（基于 contrib 目录结构）
+- [ ] 认证中间件（uliweb/contrib/auth/middle_auth.py）异步化
+- [ ] CSRF 保护中间件（uliweb/contrib/csrf/middleware.py）异步化
+- [ ] 国际化中间件（uliweb/contrib/i18n/middle_i18n.py）异步化
+- [ ] 会话管理中间件（uliweb/contrib/session/middle_session.py）异步化
+- [ ] 数据库事务中间件（uliweb/contrib/orm/middle_transaction.py）异步化
+- [ ] 时区中间件（uliweb/contrib/timezone/middle_timezone.py）异步化
+- [ ] 记录器中间件（uliweb/contrib/recorder/middle_recorder.py）异步化
+- [ ] SQL 监控中间件（uliweb/contrib/orm/middle_sqlmonitor.py）异步化
+- [ ] 静态文件中间件适配（uliweb/contrib/staticfiles/wsgi_staticfiles.py）
 
-#### 1.3 中间件兼容性处理
+#### 1.4 中间件兼容性处理
 - [ ] 同步中间件到异步的自动包装
-- [ ] 中间件配置的向后兼容
+- [ ] 中间件配置的向后兼容（MIDDLEWARES 配置格式）
 - [ ] 中间件执行上下文的正确传递
+- [ ] 保持与现有 contrib app 中间件的兼容性
 
 ### 2. 模板系统异步化
 
@@ -191,12 +201,13 @@
 
 ### 关键代码变更
 
-#### 1. 异步中间件适配器
+#### 1. 异步中间件适配器（适配 uliweb 中间件结构）
 ```python
 class ASGIMiddlewareAdapter:
-    def __init__(self, app, middleware_classes):
+    def __init__(self, app, middleware_classes, settings):
         self.app = app
         self.middleware_classes = middleware_classes
+        self.settings = settings
         self._sort_middlewares()
 
     async def __call__(self, scope, receive, send):
@@ -209,7 +220,8 @@ class ASGIMiddlewareAdapter:
         # 处理请求中间件
         response = None
         for middleware_cls in self.middleware_classes:
-            middleware = middleware_cls()
+            # 按照 uliweb 中间件结构初始化，传递 application 和 settings
+            middleware = middleware_cls(self.app, self.settings)
             if hasattr(middleware, 'process_request'):
                 if asyncio.iscoroutinefunction(middleware.process_request):
                     response = await middleware.process_request(request)
@@ -225,7 +237,7 @@ class ASGIMiddlewareAdapter:
             except Exception as e:
                 # 处理异常中间件
                 for middleware_cls in reversed(self.middleware_classes):
-                    middleware = middleware_cls()
+                    middleware = middleware_cls(self.app, self.settings)
                     if hasattr(middleware, 'process_exception'):
                         if asyncio.iscoroutinefunction(middleware.process_exception):
                             response = await middleware.process_exception(request, e)
@@ -238,7 +250,7 @@ class ASGIMiddlewareAdapter:
 
         # 处理响应中间件
         for middleware_cls in reversed(self.middleware_classes):
-            middleware = middleware_cls()
+            middleware = middleware_cls(self.app, self.settings)
             if hasattr(middleware, 'process_response'):
                 if asyncio.iscoroutinefunction(middleware.process_response):
                     response = await middleware.process_response(request, response)
