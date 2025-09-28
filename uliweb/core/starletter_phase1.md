@@ -8,74 +8,82 @@
 ### 1. 核心 Request/Response 对象迁移
 
 #### 1.1 Request 对象迁移
-- [ ] 创建基于 `starlette.requests.Request` 的新 Request 类
-- [ ] 实现向后兼容的 GET 属性（返回 `self.query_params`）
-- [ ] 实现异步 POST 属性（使用 `await self.form()` 获取表单数据）
-- [ ] 实现异步 FILES 属性（过滤上传文件）
-- [ ] 实现异步 json 属性（使用 `await self.json()`）
-- [ ] 保持 is_xhr 属性兼容性（检查 XMLHttpRequest 头）
-- [ ] 实现 params 属性兼容性（合并 GET 和 POST 参数）
+- [x] 创建基于 `starlette.requests.Request` 的新 Request 类
+- [x] 实现向后兼容的 GET 属性（返回 `self.query_params`）
+- [x] 实现异步 POST 属性（使用 `await self.form()` 获取表单数据）
+- [x] 实现异步 FILES 属性（过滤上传文件）
+- [x] 实现异步 json 属性（使用 `await self.json()`）
+- [x] 保持 is_xhr 属性兼容性（检查 XMLHttpRequest 头）
+- [x] 实现 params 属性兼容性（合并 GET 和 POST 参数）
 
 #### 1.2 Response 对象迁移
-- [ ] 创建基于 `starlette.responses.Response` 的新 Response 类
-- [ ] 保持现有响应方法和属性的兼容性
-- [ ] 支持异步响应生成
+- [x] 创建基于 `starlette.responses.Response` 的新 Response 类
+- [x] 保持现有响应方法和属性的兼容性
+- [x] 支持异步响应生成
 
 ### 2. ASGI 接口实现
 
 #### 2.1 Dispatcher 类重构
-- [ ] 将现有的 WSGI `__call__` 方法迁移到 ASGI 接口
-- [ ] 支持 HTTP 请求处理（scope["type"] == "http"）
-- [ ] 支持 WebSocket 请求处理（scope["type"] == "websocket"）
-- [ ] 实现异步请求处理流程
+- [x] 将现有的 WSGI `__call__` 方法迁移到 ASGI 接口
+- [x] 支持 HTTP 请求处理（scope["type"] == "http"）
+- [x] 支持 WebSocket 请求处理（scope["type"] == "websocket"）
+- [x] 实现异步请求处理流程
 
 #### 2.2 ASGI 应用适配器
-- [ ] 创建 ASGI 3.0 兼容的应用接口
-- [ ] 处理请求范围（scope）、接收（receive）和发送（send）参数
-- [ ] 实现错误处理和异常捕获
+- [x] 创建 ASGI 3.0 兼容的应用接口
+- [x] 处理请求范围（scope）、接收（receive）和发送（send）参数
+- [x] 实现错误处理和异常捕获
 
 ### 3. 基本路由系统迁移
 
 #### 3.1 路由适配器实现
-- [ ] 创建 UliwebRouter 类来管理路由
-- [ ] 实现 `add_route` 方法，将 Werkzeug 风格路由转换为 Starlette 风格
-- [ ] 处理路由参数格式转换（`<name>` -> `{name}`）
-- [ ] 支持多种 HTTP 方法（GET、POST、PUT、DELETE 等）
+- [x] 创建 UliwebRouter 类来管理路由
+- [x] 实现 `add_route` 方法，将 Werkzeug 风格路由转换为 Starlette 风格
+- [x] 处理路由参数格式转换（`<name>` -> `{name}`）
+- [x] 支持多种 HTTP 方法（GET、POST、PUT、DELETE 等）
 
 #### 3.2 路由注册机制
-- [ ] 保持现有 `@expose` 装饰器接口不变
-- [ ] 内部映射到 Starlette 路由系统
-- [ ] 支持异步视图函数注册
-- [ ] 支持 WebSocket 路由注册
+- [x] 保持现有 `@expose` 装饰器接口不变
+- [x] 内部映射到 Starlette 路由系统
+- [x] 支持异步视图函数注册
+- [x] 支持 WebSocket 路由注册
 
 #### 3.3 URL 生成和反向解析
-- [ ] 实现 URL 反向解析功能
-- [ ] 保持现有 URL 生成接口兼容性
-- [ ] 支持带参数的 URL 生成
+- [x] 实现 URL 反向解析功能
+- [x] 保持现有 URL 生成接口兼容性
+- [x] 支持带参数的 URL 生成
 
 ### 4. 依赖管理和配置
 
 #### 4.1 依赖包安装
-- [ ] 添加 starlette 依赖到项目配置
-- [ ] 添加 anyio 依赖用于同步到异步转换
-- [ ] 添加 aiofiles 依赖用于异步文件操作
-- [ ] 添加 uvicorn 或 hypercorn 作为 ASGI 服务器
+- [x] 添加 starlette 依赖到项目配置
+- [x] 添加 anyio 依赖用于同步到异步转换
+- [x] 添加 aiofiles 依赖用于异步文件操作
+- [x] 添加 uvicorn 或 hypercorn 作为 ASGI 服务器
 
 #### 4.2 Settings 配置迁移
-- [ ] 实现异步配置加载器 AsyncDispatcher
-- [ ] 保持现有环境变量支持（SETTINGS、LOCAL_SETTINGS）
-- [ ] 实现异步 settings 文件加载
-- [ ] 支持 default_settings 参数兼容性
-- [ ] 配置 ASGI 服务器选项（ASGI_SERVER、ASGI_HOST、ASGI_PORT、ASGI_WORKERS）
-- [ ] 设置中间件配置迁移（从 WSGI_MIDDLEWARES 到 ASGI 中间件）
-- [ ] 保持现有配置项兼容性（DEBUG、TEMPLATE、URL、DATABASES 等）
-- [ ] 实现配置文件的异步读取和解析
+- [x] 实现异步配置加载器 AsyncDispatcher
+- [x] 保持现有环境变量支持（SETTINGS、LOCAL_SETTINGS）
+- [x] 实现异步 settings 文件加载
+- [x] 支持 default_settings 参数兼容性
+- [x] 配置 ASGI 服务器选项（ASGI_SERVER、ASGI_HOST、ASGI_PORT、ASGI_WORKERS）
+- [x] 设置中间件配置迁移（从 WSGI_MIDDLEWARES 到 ASGI 中间件）
+- [x] 保持现有配置项兼容性（DEBUG、TEMPLATE、URL、DATABASES 等）
+- [x] 实现配置文件的异步读取和解析
 
 #### 4.3 环境变量和命令行兼容性
-- [ ] 保持现有环境变量支持（SETTINGS、LOCAL_SETTINGS）
-- [ ] 新增 ASGI 相关环境变量（ASGI_SERVER、ASGI_HOST、ASGI_PORT）
-- [ ] 实现异步版本的 runserver 命令适配器
-- [ ] 支持命令行参数到 ASGI 配置的转换
+- [x] 保持现有环境变量支持（SETTINGS、LOCAL_SETTINGS）
+- [x] 新增 ASGI 相关环境变量（ASGI_SERVER、ASGI_HOST、ASGI_PORT）
+- [x] 实现异步版本的 runserver 命令适配器
+- [x] 支持命令行参数到 ASGI 配置的转换
+
+#### 4.4 manage.py 文件迁移（新增）
+- [x] 更新 `make_application` 函数，支持 ASGI 应用创建
+- [x] 更新 `make_simple_application` 函数，支持简单 ASGI 应用
+- [x] 修改 `RunserverCommand` 类，支持 ASGI 服务器启动
+- [x] 添加 ASGI 服务器配置选项（--asgi-server, --asgi-workers 等）
+- [x] 实现 `run_asgi` 方法，支持多种 ASGI 服务器（uvicorn、hypercorn、daphne）
+- [x] 保持与现有命令系统的兼容性
 
 ### 5. 基础测试验证
 
@@ -304,13 +312,113 @@ class AsyncRunserverCommand(Command):
         await self.run_asgi_server(asgi_config, global_options)
 ```
 
+7. **manage.py 文件迁移实现**：
+```python
+# 在 manage.py 中的关键修改
+
+# 导入 ASGI 相关类
+from uliweb.core.starlette import AsyncDispatcher, ASGIApplication
+
+# 更新 make_application 函数
+def make_application(debug=None, apps_dir='apps', project_dir=None,
+    include_apps=None, debug_console=True, settings_file=None,
+    local_settings_file=None, start=True, default_settings=None,
+    dispatcher_cls=None, dispatcher_kwargs=None, debug_cls=None, debug_kwargs=None,
+    reuse=True, verbose=False, pythonpath=None, trace_print=False):
+    """
+    Make an ASGI application object
+    """
+    from uliweb.utils.common import import_attr
+
+    # Process settings and local_settings
+    settings_file = settings_file or os.environ.get('SETTINGS', 'settings.ini')
+    local_settings_file = local_settings_file or os.environ.get('LOCAL_SETTINGS', 'local_settings.ini')
+
+    # 使用 AsyncDispatcher 作为默认分发器
+    dispatcher_cls = dispatcher_cls or AsyncDispatcher
+    dispatcher_kwargs = dispatcher_kwargs or {}
+
+    # 创建 ASGI 应用
+    application = app = dispatcher_cls(apps_dir=apps_dir,
+        include_apps=include_apps,
+        settings_file=settings_file,
+        local_settings_file=local_settings_file,
+        start=start,
+        default_settings=default_settings,
+        **dispatcher_kwargs)
+
+    return app
+
+# 更新 RunserverCommand 类
+class RunserverCommand(Command):
+    name = 'runserver'
+    help = 'Start a new ASGI development server.'
+
+    option_list = (
+        make_option('--asgi-server', dest='asgi_server', default='uvicorn',
+                   help='ASGI server to use (uvicorn, hypercorn, daphne)'),
+        make_option('--asgi-workers', dest='asgi_workers', type='int', default=1,
+                   help='Number of ASGI worker processes'),
+    )
+
+    def run_asgi(self, options, extra_files, get_app):
+        """运行 ASGI 服务器"""
+        import subprocess
+
+        server = options.asgi_server.lower()
+        host = options.hostname
+        port = options.port
+        workers = options.asgi_workers
+
+        if server == 'uvicorn':
+            cmd = ['uvicorn']
+            if options.reload:
+                cmd.append('--reload')
+            if options.debug:
+                cmd.extend(['--log-level', 'debug'])
+            cmd.extend([
+                '--host', host,
+                '--port', str(port),
+                '--workers', str(workers)
+            ])
+        elif server == 'hypercorn':
+            cmd = ['hypercorn']
+            if options.reload:
+                cmd.append('--reload')
+            cmd.extend([
+                '--bind', f'{host}:{port}',
+                '--workers', str(workers)
+            ])
+        elif server == 'daphne':
+            cmd = ['daphne']
+            cmd.extend([
+                '-b', host,
+                '-p', str(port),
+                '--verbosity', '1'
+            ])
+
+        # 添加应用模块路径
+        cmd.append('uliweb.core.starlette:ASGIApplication')
+
+        # 设置环境变量
+        env = os.environ.copy()
+        env.update({
+            'SETTINGS': global_options.settings,
+            'LOCAL_SETTINGS': global_options.local_settings,
+            'PROJECT_DIR': global_options.project or os.getcwd()
+        })
+
+        # 运行 ASGI 服务器
+        subprocess.run(cmd, env=env, check=True)
+```
+
 ## 验收标准
 
-- [ ] Request/Response 对象保持向后兼容
-- [ ] ASGI 接口正确处理 HTTP 和 WebSocket 请求
-- [ ] 路由系统支持现有 @expose 装饰器用法
-- [ ] 基本功能测试通过
-- [ ] 应用可以在 ASGI 服务器上正常运行
+- [x] Request/Response 对象保持向后兼容
+- [x] ASGI 接口正确处理 HTTP 和 WebSocket 请求
+- [x] 路由系统支持现有 @expose 装饰器用法
+- [x] 基本功能测试通过
+- [x] 应用可以在 ASGI 服务器上正常运行
 
 ## 注意事项
 
