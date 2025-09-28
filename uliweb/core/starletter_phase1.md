@@ -1,7 +1,7 @@
 # Uliweb 迁移到 Starlette - 阶段一：基础架构迁移详细任务清单
 
 ## 概述
-阶段一主要完成 Uliweb 从 Werkzeug 到 Starlette 的基础架构迁移，包括核心 Request/Response 对象迁移、ASGI 接口实现和基本路由系统迁移。
+阶段一主要完成 Uliweb 从 Werkzeug 到 Starlette 的基础架构迁移，包括核心 Request/Response 对象迁移、ASGI 接口实现和基本路由系统迁移。迁移将直接采用纯 ASGI 架构，不再支持 WSGI 兼容模式。
 
 ## 详细任务清单
 
@@ -59,12 +59,9 @@
 - [ ] 添加 starlette 依赖到项目配置
 - [ ] 添加 anyio 依赖用于同步到异步转换
 - [ ] 添加 aiofiles 依赖用于异步文件操作
-- [ ] 添加 asgiref 依赖用于 WSGI 到 ASGI 转换
-- [ ] 添加 uvicorn 或 hypercorn 作为 ASGI 服务器选项
+- [ ] 添加 uvicorn 或 hypercorn 作为 ASGI 服务器
 
 #### 4.2 配置设置
-- [ ] 添加 ASGI_MODE 配置开关（默认 False）
-- [ ] 配置默认运行模式（WSGI 或 ASGI）
 - [ ] 设置 ASGI 服务器配置选项（uvicorn、hypercorn、daphne）
 - [ ] 配置 ASGI 主机、端口和工作进程数
 - [ ] 设置相关中间件和组件配置
@@ -86,15 +83,13 @@
 #### 6.1 使用文档
 - [ ] 更新阶段一迁移的使用说明
 - [ ] 提供异步视图函数编写示例
-- [ ] 说明配置和启动方式
-- [ ] 添加双模式运行说明文档
+- [ ] 说明 ASGI 服务器配置和启动方式
 - [ ] 提供配置示例和最佳实践
 
 #### 6.2 代码示例
 - [ ] 提供基本的异步视图示例
 - [ ] 展示路由注册的代码示例
 - [ ] 演示请求处理的异步模式
-- [ ] 提供双模式应用配置示例
 - [ ] 展示 WebSocket 处理示例
 
 ## 技术实现要点
@@ -109,7 +104,7 @@ from starlette.datastructures import UploadFile, FormData
 import json
 
 class Request(StarletteRequest):
-    """保持向后兼容的 Request 对象"""
+    """纯 ASGI Request 对象"""
 
     @property
     def GET(self):
@@ -192,13 +187,53 @@ def expose(rule=None, **kwargs):
     return decorator
 ```
 
+4. **ASGI 应用处理器**：
+```python
+import sys, os
+import asyncio
+from uliweb.manage import make_application
+from uliweb.core.SimpleFrame import AsyncDispatcher
+
+# 将项目目录添加到 sys.path
+path = os.path.dirname(os.path.abspath(__file__))
+if path not in sys.path:
+    sys.path.insert(0, path)
+
+# 纯 ASGI 应用
+class ASGIApplication:
+    """纯 ASGI 应用处理器"""
+
+    def __init__(self, project_dir=None):
+        self.project_dir = project_dir or path
+        self.asgi_app = None
+        self._initialized = False
+
+    def _initialize(self):
+        """初始化 ASGI 应用"""
+        if not self._initialized:
+            # 创建 ASGI Dispatcher
+            self.asgi_app = AsyncDispatcher(
+                apps_dir=os.path.join(self.project_dir, 'apps'),
+                project_dir=self.project_dir
+            )
+            self._initialized = True
+
+    # ASGI 接口
+    async def __call__(self, scope, receive, send):
+        self._initialize()
+        await self.asgi_app(scope, receive, send)
+
+# 创建应用实例
+application = ASGIApplication(project_dir=path)
+```
+
 ## 验收标准
 
 - [ ] Request/Response 对象保持向后兼容
 - [ ] ASGI 接口正确处理 HTTP 和 WebSocket 请求
 - [ ] 路由系统支持现有 @expose 装饰器用法
 - [ ] 基本功能测试通过
-- [ ] 配置开关可以控制运行模式
+- [ ] 应用可以在 ASGI 服务器上正常运行
 
 ## 注意事项
 

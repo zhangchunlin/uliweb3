@@ -21,29 +21,22 @@
   - [4.8 命令系统迁移](#48-命令系统迁移)
   - [4.9 HTML 和 UAML 生成工具迁移](#49-html-和-uaml-生成工具迁移)
   - [4.10 JSON 编码工具迁移](#410-json-编码工具迁移)
-  - [4.11 WSGI 处理程序迁移](#411-wsgi-处理程序迁移)
-- [5. 兼容性处理方案](#5-兼容性处理方案)
-  - [5.1 双模式支持](#51-双模式支持)
-  - [5.2 渐进式迁移装饰器](#52-渐进式迁移装饰器)
-  - [5.3 同步到异步包装器](#53-同步到异步包装器)
-- [6. 技术挑战与解决方案](#6-技术挑战与解决方案)
-  - [6.1 同步到异步的迁移](#61-同步到异步的迁移)
-  - [6.2 全局状态管理](#62-全局状态管理)
-  - [6.3 URL 路由兼容性](#63-url-路由兼容性)
-- [7. 性能优化机会](#7-性能优化机会)
-  - [7.1 异步 I/O 操作](#71-异步-io-操作)
-  - [7.2 并发处理能力](#72-并发处理能力)
-  - [7.3 WebSocket 支持](#73-websocket-支持)
-- [8. 测试和验证策略](#8-测试和验证策略)
-  - [8.1 单元测试](#81-单元测试)
-  - [8.2 集成测试](#82-集成测试)
-  - [8.3 兼容性测试](#83-兼容性测试)
-  - [8.4 性能测试](#84-性能测试)
-- [9. 回滚方案](#9-回滚方案)
-  - [9.1 配置开关控制](#91-配置开关控制)
-  - [9.2 双模式运行](#92-双模式运行)
-- [10. 迁移检查清单](#10-迁移检查清单)
-- [11. 总结和最佳实践](#11-总结和最佳实践)
+  - [4.11 ASGI 处理程序实现](#411-asgi-处理程序实现)
+- [5. 技术挑战与解决方案](#5-技术挑战与解决方案)
+  - [5.1 同步到异步的迁移](#51-同步到异步的迁移)
+  - [5.2 全局状态管理](#52-全局状态管理)
+  - [5.3 URL 路由兼容性](#53-url-路由兼容性)
+- [6. 性能优化机会](#6-性能优化机会)
+  - [6.1 异步 I/O 操作](#61-异步-io-操作)
+  - [6.2 并发处理能力](#62-并发处理能力)
+  - [6.3 WebSocket 支持](#63-websocket-支持)
+- [7. 测试和验证策略](#7-测试和验证策略)
+  - [7.1 单元测试](#71-单元测试)
+  - [7.2 集成测试](#72-集成测试)
+  - [7.3 兼容性测试](#73-兼容性测试)
+  - [7.4 性能测试](#74-性能测试)
+- [8. 迁移检查清单](#8-迁移检查清单)
+- [9. 总结和最佳实践](#9-总结和最佳实践)
 
 ## 1. 概述
 
@@ -54,7 +47,7 @@
 - **更高性能**：更好的并发处理能力
 - **现代生态集成**：更好的 Python 异步生态整合
 
-迁移过程将保持向后兼容性，支持渐进式迁移策略。
+迁移过程将直接采用纯 ASGI 架构，不再支持 WSGI 兼容模式。
 
 ## 2. 架构对比分析
 
@@ -103,7 +96,6 @@ Starlette 是一个轻量级的 ASGI 框架/工具包，具有以下特性：
 
 ### 3.4 阶段四：生态兼容
 - 插件系统适配
-- 向后兼容性保证
 - 文档更新
 
 ## 4. 核心组件迁移实现
@@ -136,7 +128,7 @@ from starlette.datastructures import UploadFile, FormData
 import json
 
 class Request(StarletteRequest):
-    """保持向后兼容的 Request 对象"""
+    """纯 ASGI Request 对象"""
 
     @property
     def GET(self):
@@ -169,7 +161,6 @@ class Request(StarletteRequest):
         """检查是否为 AJAX 请求"""
         return self.headers.get('x-requested-with', '').lower() == 'xmlhttprequest'
 ```
-
 
 ### 4.2 Dispatcher 类重构
 
@@ -398,6 +389,7 @@ async def acall(sender, topic, *args, **kwargs):
         else:
             await anyio.to_thread.run_sync(func, sender, *args, **kwargs)
 ```
+
 ### 4.8 命令系统迁移
 
 **当前基于同步命令处理：**
@@ -421,15 +413,6 @@ class AsyncCommand(Command):
         """同步到异步的适配器"""
         import asyncio
         return asyncio.run(self.handle_async(options, global_options, *args))
-
-# 支持异步中间件处理
-class AsyncCommandMiddleware:
-    async def process_command(self, command, options, global_options, args):
-        """异步命令中间件"""
-        # 预处理命令
-        result = await command.handle_async(options, global_options, *args)
-        # 后处理结果
-        return result
 ```
 
 ### 4.9 HTML 和 UAML 生成工具迁移
@@ -466,7 +449,7 @@ async def json_dumps_async(obj, **kwargs):
     return await encoder.aencode(obj)
 ```
 
-### 4.11 WSGI 处理程序迁移
+### 4.11 ASGI 处理程序实现
 
 **当前 WSGI 处理程序：**
 ```python
@@ -480,110 +463,54 @@ from uliweb.manage import make_simple_application
 application = make_simple_application(project_dir=path)
 ```
 
-**迁移到 ASGI 处理程序：**
+**迁移到纯 ASGI 处理程序：**
 ```python
 import sys, os
 import asyncio
-from uliweb.manage import make_simple_application, make_application
-from uliweb import settings
+from uliweb.manage import make_application
+from uliweb.core.SimpleFrame import AsyncDispatcher
 
 # 将项目目录添加到 sys.path
 path = os.path.dirname(os.path.abspath(__file__))
 if path not in sys.path:
     sys.path.insert(0, path)
 
-# 支持双模式运行（WSGI 和 ASGI）
-class DualModeApplication:
-    """支持 WSGI 和 ASGI 双模式的应用处理器"""
+# 纯 ASGI 应用
+class ASGIApplication:
+    """纯 ASGI 应用处理器"""
 
     def __init__(self, project_dir=None):
         self.project_dir = project_dir or path
-        self.wsgi_app = None
         self.asgi_app = None
         self._initialized = False
 
     def _initialize(self):
-        """延迟初始化应用"""
+        """初始化 ASGI 应用"""
         if not self._initialized:
-            # 创建 WSGI 应用
-            self.wsgi_app = make_simple_application(project_dir=self.project_dir)
-
-            # 创建 ASGI 应用（如果启用了 ASGI 模式）
-            if settings.GLOBAL.get('ASGI_MODE', False):
-                from uliweb.core.SimpleFrame import Dispatcher
-                from asgiref.wsgi import WsgiToAsgi
-
-                # 创建支持 ASGI 的 Dispatcher
-                class AsyncDispatcher(Dispatcher):
-                    """支持 ASGI 3.0 接口的 Dispatcher"""
-
-                    async def __call__(self, scope, receive, send):
-                        if scope["type"] == "http":
-                            from uliweb.core.SimpleFrame import Request, Response
-                            request = Request(scope, receive, send)
-                            response = await self._open_async(request)
-                            await response(scope, receive, send)
-                        elif scope["type"] == "websocket":
-                            await self.handle_websocket(scope, receive, send)
-                        else:
-                            raise ValueError(f"Unsupported scope type: {scope['type']}")
-
-                    async def _open_async(self, request):
-                        """异步处理请求"""
-                        # 这里需要实现异步的请求处理逻辑
-                        # 可以重用现有的 _open 方法，但需要适配异步环境
-                        from asgiref.sync import sync_to_async
-                        return await sync_to_async(self._open)(request.environ)
-
-                # 创建 ASGI 应用
-                self.asgi_app = AsyncDispatcher(
-                    apps_dir=os.path.join(self.project_dir, 'apps'),
-                    project_dir=self.project_dir
-                )
-
+            # 创建 ASGI Dispatcher
+            self.asgi_app = AsyncDispatcher(
+                apps_dir=os.path.join(self.project_dir, 'apps'),
+                project_dir=self.project_dir
+            )
             self._initialized = True
-
-    # WSGI 接口
-    def __call__(self, environ, start_response):
-        self._initialize()
-
-        if settings.GLOBAL.get('ASGI_MODE', False) and self.asgi_app:
-            # 使用 ASGI 模式
-            from asgiref.wsgi import WsgiToAsgi
-            asgi_app = WsgiToAsgi(self.asgi_app)
-            return asgi_app(environ, start_response)
-        else:
-            # 使用 WSGI 模式
-            return self.wsgi_app(environ, start_response)
 
     # ASGI 接口
     async def __call__(self, scope, receive, send):
         self._initialize()
-
-        if not settings.GLOBAL.get('ASGI_MODE', False):
-            # 在 ASGI 环境中运行 WSGI 应用
-            from asgiref.wsgi import WsgiToAsgi
-            wsgi_to_asgi = WsgiToAsgi(self.wsgi_app)
-            await wsgi_to_asgi(scope, receive, send)
-        else:
-            # 使用原生的 ASGI 应用
-            await self.asgi_app(scope, receive, send)
+        await self.asgi_app(scope, receive, send)
 
 # 创建应用实例
-application = DualModeApplication(project_dir=path)
+application = ASGIApplication(project_dir=path)
 
-# 保持向后兼容的简单版本
-def create_simple_application():
-    """创建简单的应用（向后兼容）"""
-    return make_simple_application(project_dir=path)
+# 创建应用的便捷函数
+def create_application():
+    """创建 ASGI 应用"""
+    return ASGIApplication(project_dir=path)
 ```
 
 **配置示例：**
 ```ini
 [GLOBAL]
-# 启用 ASGI 模式（默认 False）
-ASGI_MODE = False
-
 # ASGI 服务器配置
 ASGI_SERVER = uvicorn  # 可选: uvicorn, hypercorn, daphne
 ASGI_HOST = 0.0.0.0
@@ -592,213 +519,19 @@ ASGI_WORKERS = 1
 ```
 
 **使用方式：**
-1. **WSGI 模式**（默认）：使用传统的 WSGI 服务器如 Gunicorn、uWSGI
-2. **ASGI 模式**：使用 ASGI 服务器如 Uvicorn、Hypercorn、Daphne
+- 使用 ASGI 服务器如 Uvicorn、Hypercorn、Daphne 运行应用
+- 不再支持 WSGI 服务器
 
-**迁移建议：**
-1. 首先在开发环境中测试 ASGI 模式
-2. 逐步迁移到生产环境
-3. 使用配置开关控制运行模式
-4. 保持向后兼容性，确保现有项目可以平滑迁移
-```
+## 5. 技术挑战与解决方案
 
-
-
-
-**迁移到 ASGI 处理程序：**
-```python
-import sys, os
-import asyncio
-from uliweb.manage import make_simple_application, make_application
-from uliweb import settings
-
-# 将项目目录添加到 sys.path
-path = os.path.dirname(os.path.abspath(__file__))
-if path not in sys.path:
-    sys.path.insert(0, path)
-
-# 支持双模式运行（WSGI 和 ASGI）
-class DualModeApplication:
-    """支持 WSGI 和 ASGI 双模式的应用处理器"""
-
-    def __init__(self, project_dir=None):
-        self.project_dir = project_dir or path
-        self.wsgi_app = None
-        self.asgi_app = None
-        self._initialized = False
-
-    def _initialize(self):
-        """延迟初始化应用"""
-        if not self._initialized:
-            # 创建 WSGI 应用
-            self.wsgi_app = make_simple_application(project_dir=self.project_dir)
-
-            # 创建 ASGI 应用（如果启用了 ASGI 模式）
-            if settings.GLOBAL.get('ASGI_MODE', False):
-                from uliweb.core.SimpleFrame import Dispatcher
-                from asgiref.wsgi import WsgiToAsgi
-
-                # 创建支持 ASGI 的 Dispatcher
-                class AsyncDispatcher(Dispatcher):
-                    """支持 ASGI 3.0 接口的 Dispatcher"""
-
-                    async def __call__(self, scope, receive, send):
-                        if scope["type"] == "http":
-                            from uliweb.core.SimpleFrame import Request, Response
-                            request = Request(scope, receive, send)
-                            response = await self._open_async(request)
-                            await response(scope, receive, send)
-                        elif scope["type"] == "websocket":
-                            await self.handle_websocket(scope, receive, send)
-                        else:
-                            raise ValueError(f"Unsupported scope type: {scope['type']}")
-
-                    async def _open_async(self, request):
-                        """异步处理请求"""
-                        # 这里需要实现异步的请求处理逻辑
-                        # 可以重用现有的 _open 方法，但需要适配异步环境
-                        from asgiref.sync import sync_to_async
-                        return await sync_to_async(self._open)(request.environ)
-
-                # 创建 ASGI 应用
-                self.asgi_app = AsyncDispatcher(
-                    apps_dir=os.path.join(self.project_dir, 'apps'),
-                    project_dir=self.project_dir
-                )
-
-            self._initialized = True
-
-    # WSGI 接口
-    def __call__(self, environ, start_response):
-        self._initialize()
-
-        if settings.GLOBAL.get('ASGI_MODE', False) and self.asgi_app:
-            # 使用 ASGI 模式
-            from asgiref.wsgi import WsgiToAsgi
-            asgi_app = WsgiToAsgi(self.asgi_app)
-            return asgi_app(environ, start_response)
-        else:
-            # 使用 WSGI 模式
-            return self.wsgi_app(environ, start_response)
-
-    # ASGI 接口
-    async def __call__(self, scope, receive, send):
-        self._initialize()
-
-        if not settings.GLOBAL.get('ASGI_MODE', False):
-            # 在 ASGI 环境中运行 WSGI 应用
-            from asgiref.wsgi import WsgiToAsgi
-            wsgi_to_asgi = WsgiToAsgi(self.wsgi_app)
-            await wsgi_to_asgi(scope, receive, send)
-        else:
-            # 使用原生的 ASGI 应用
-            await self.asgi_app(scope, receive, send)
-
-# 创建应用实例
-application = DualModeApplication(project_dir=path)
-
-# 保持向后兼容的简单版本
-def create_simple_application():
-    """创建简单的应用（向后兼容）"""
-    return make_simple_application(project_dir=path)
-```
-
-**配置示例：**
-```ini
-[GLOBAL]
-# 启用 ASGI 模式（默认 False）
-ASGI_MODE = False
-
-# ASGI 服务器配置
-ASGI_SERVER = uvicorn  # 可选: uvicorn, hypercorn, daphne
-ASGI_HOST = 0.0.0.0
-ASGI_PORT = 8000
-ASGI_WORKERS = 1
-```
-
-**使用方式：**
-1. **WSGI 模式**（默认）：使用传统的 WSGI 服务器如 Gunicorn、uWSGI
-2. **ASGI 模式**：使用 ASGI 服务器如 Uvicorn、Hypercorn、Daphne
-
-**迁移建议：**
-1. 首先在开发环境中测试 ASGI 模式
-2. 逐步迁移到生产环境
-3. 使用配置开关控制运行模式
-4. 保持向后兼容性，确保现有项目可以平滑迁移
-
-
-## 5. 兼容性处理方案
-
-### 5.1 双模式支持
-
-```python
-class DualModeDispatcher:
-    """支持 WSGI 和 ASGI 双模式"""
-
-    def __init__(self, apps_dir='apps', project_dir=None, **kwargs):
-        self.wsgi_app = Dispatcher(apps_dir, project_dir, **kwargs)
-        self.asgi_app = AsyncDispatcher(apps_dir, project_dir, **kwargs)
-
-    # WSGI 接口
-    def __call__(self, environ, start_response):
-        if settings.GLOBAL.ASGI_MODE:
-            from asgiref.wsgi import WsgiToAsgi
-            asgi_app = WsgiToAsgi(self.asgi_app)
-            return asgi_app(environ, start_response)
-        else:
-            return self.wsgi_app(environ, start_response)
-
-    # ASGI 接口
-    async def __call__(self, scope, receive, send):
-        if not settings.GLOBAL.ASGI_MODE:
-            from asgiref.sync import sync_to_async
-            # 转换并处理 WSGI 请求
-            # ...
-        else:
-            await self.asgi_app(scope, receive, send)
-```
-
-### 5.2 渐进式迁移装饰器
-
-```python
-def gradual_migration(async_func=None, sync_func=None):
-    """渐进式迁移装饰器"""
-    def decorator(func):
-        if settings.GLOBAL.ASGI_MODE and async_func:
-            return async_func
-        elif not settings.GLOBAL.ASGI_MODE and sync_func:
-            return sync_func
-        return func
-    return decorator
-```
-
-### 5.3 同步到异步包装器
-
-```python
-import anyio
-
-def auto_async(func):
-    """自动包装同步函数为异步"""
-    if asyncio.iscoroutinefunction(func):
-        return func
-
-    @functools.wraps(func)
-    async def async_wrapper(*args, **kwargs):
-        return await anyio.to_thread.run_sync(func, *args, **kwargs)
-
-    return async_wrapper
-```
-
-## 6. 技术挑战与解决方案
-
-### 6.1 同步到异步的迁移
+### 5.1 同步到异步的迁移
 
 **问题：** 现有代码库大量使用同步代码
 
 **解决方案：**
-1. 提供同步到异步的包装器
+1. 使用 `anyio.to_thread.run_sync` 处理阻塞操作
 2. 逐步迁移关键路径到异步
-3. 使用 `anyio.to_thread.run_sync` 处理阻塞操作
+3. 提供同步到异步的包装器
 
 ```python
 async def run_sync_in_thread(func, *args):
@@ -806,7 +539,7 @@ async def run_sync_in_thread(func, *args):
     return await anyio.to_thread.run_sync(func, *args)
 ```
 
-### 6.2 全局状态管理
+### 5.2 全局状态管理
 
 **问题：** Uliweb 使用 `werkzeug.local` 进行线程局部存储
 
@@ -815,7 +548,7 @@ async def run_sync_in_thread(func, *args):
 2. 实现请求上下文管理
 3. 保持向后兼容的代理对象
 
-### 6.3 URL 路由兼容性
+### 5.3 URL 路由兼容性
 
 **问题：** Werkzeug 和 Starlette 路由语法差异
 
@@ -824,19 +557,19 @@ async def run_sync_in_thread(func, *args):
 2. 保持现有 `@expose` 装饰器接口不变
 3. 内部映射到 Starlette 路由系统
 
-## 7. 性能优化机会
+## 6. 性能优化机会
 
-### 7.1 异步 I/O 操作
+### 6.1 异步 I/O 操作
 - 数据库查询异步化
 - 文件操作异步化
 - 外部 API 调用异步化
 
-### 7.2 并发处理能力
+### 6.2 并发处理能力
 - 利用 ASGI 的并发特性
 - 支持更多并发连接
 - 更好的资源利用率
 
-### 7.3 WebSocket 支持
+### 6.3 WebSocket 支持
 - 实时通信功能
 - 双向数据流
 - 服务器推送能力
@@ -850,42 +583,28 @@ async def websocket_endpoint(websocket: WebSocket):
         await websocket.send_text(f"Message: {data}")
 ```
 
-## 8. 测试和验证策略
+## 7. 测试和验证策略
 
-### 8.1 单元测试
+### 7.1 单元测试
 - 保持现有测试用例通过
 - 新增异步测试用例
 - 测试覆盖核心组件
 
-### 8.2 集成测试
-- WSGI/ASGI 双模式测试
+### 7.2 集成测试
 - 端到端功能测试
 - 性能对比测试
 
-### 8.3 兼容性测试
+### 7.3 兼容性测试
 - 现有项目迁移测试
 - 第三方插件兼容性
 - 配置和设置验证
 
-### 8.4 性能测试
+### 7.4 性能测试
 - 并发连接测试
 - 响应时间测试
 - 资源使用测试
 
-## 9. 回滚方案
-
-### 9.1 配置开关控制
-
-通过配置文件选择运行模式：
-```ini
-[GLOBAL]
-ASGI_MODE = False  # 默认 WSGI 模式
-```
-
-### 9.2 双模式运行
-在过渡期间支持 WSGI 和 ASGI 双模式运行，确保平滑回滚。
-
-## 10. 迁移检查清单
+## 8. 迁移检查清单
 
 ### 核心组件迁移
 - [ ] Request/Response 对象迁移
@@ -915,17 +634,9 @@ ASGI_MODE = False  # 默认 WSGI 模式
 - [ ] 热重载支持迁移
 - [ ] 开发服务器异步化
 
-### 兼容性处理
-- [ ] 双模式支持实现（WSGI/ASGI）
-- [ ] 同步函数自动包装器
-- [ ] 渐进式迁移装饰器
-- [ ] 配置开关实现
-- [ ] 错误处理兼容
-- [ ] 向后兼容性保证
-
 ### 测试验证
 - [ ] 单元测试更新（异步测试用例）
-- [ ] 集成测试验证（双模式测试）
+- [ ] 集成测试验证
 - [ ] 性能测试对比（并发性能）
 - [ ] 兼容性测试（现有项目）
 - [ ] WebSocket 功能测试
@@ -947,7 +658,7 @@ ASGI_MODE = False  # 默认 WSGI 模式
 - [ ] WebSocket 客户端库支持
 - [ ] 异步监控和日志工具
 
-## 11. 总结和最佳实践
+## 9. 总结和最佳实践
 
 ### 迁移收益
 1. **性能提升**：异步处理能力，支持更高并发
@@ -967,4 +678,4 @@ ASGI_MODE = False  # 默认 WSGI 模式
 3. **依赖管理**：异步事件处理可能依赖其他异步服务，需要妥善管理
 4. **错误处理**：为异步操作添加适当的错误处理和重试机制
 
-通过这个完整的迁移方案，可以确保 Uliweb 从 Werkzeug 到 Starlette 的迁移过程中所有关键组件都被妥善处理，同时保持向后兼容性和平滑的迁移体验。
+通过这个完整的迁移方案，可以确保 Uliweb 从 Werkzeug 到 Starlette 的迁移过程中所有关键组件都被妥善处理，实现纯 ASGI 架构。
