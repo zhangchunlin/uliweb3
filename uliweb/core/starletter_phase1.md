@@ -61,10 +61,21 @@
 - [ ] 添加 aiofiles 依赖用于异步文件操作
 - [ ] 添加 uvicorn 或 hypercorn 作为 ASGI 服务器
 
-#### 4.2 配置设置
-- [ ] 设置 ASGI 服务器配置选项（uvicorn、hypercorn、daphne）
-- [ ] 配置 ASGI 主机、端口和工作进程数
-- [ ] 设置相关中间件和组件配置
+#### 4.2 Settings 配置迁移
+- [ ] 实现异步配置加载器 AsyncDispatcher
+- [ ] 保持现有环境变量支持（SETTINGS、LOCAL_SETTINGS）
+- [ ] 实现异步 settings 文件加载
+- [ ] 支持 default_settings 参数兼容性
+- [ ] 配置 ASGI 服务器选项（ASGI_SERVER、ASGI_HOST、ASGI_PORT、ASGI_WORKERS）
+- [ ] 设置中间件配置迁移（从 WSGI_MIDDLEWARES 到 ASGI 中间件）
+- [ ] 保持现有配置项兼容性（DEBUG、TEMPLATE、URL、DATABASES 等）
+- [ ] 实现配置文件的异步读取和解析
+
+#### 4.3 环境变量和命令行兼容性
+- [ ] 保持现有环境变量支持（SETTINGS、LOCAL_SETTINGS）
+- [ ] 新增 ASGI 相关环境变量（ASGI_SERVER、ASGI_HOST、ASGI_PORT）
+- [ ] 实现异步版本的 runserver 命令适配器
+- [ ] 支持命令行参数到 ASGI 配置的转换
 
 ### 5. 基础测试验证
 
@@ -225,6 +236,72 @@ class ASGIApplication:
 
 # 创建应用实例
 application = ASGIApplication(project_dir=path)
+```
+
+5. **Settings 配置加载器**：
+```python
+class AsyncDispatcher:
+    def __init__(self, apps_dir='apps', project_dir=None, include_apps=None,
+                 start=True, default_settings=None, settings_file='settings.ini',
+                 local_settings_file='local_settings.ini', **kwargs):
+
+        # 保持与现有配置加载逻辑兼容
+        self.settings_file = settings_file or os.environ.get('SETTINGS', 'settings.ini')
+        self.local_settings_file = local_settings_file or os.environ.get('LOCAL_SETTINGS', 'local_settings.ini')
+
+        # 异步配置加载
+        self.settings = await self.load_settings_async(
+            project_dir, include_apps, self.settings_file,
+            self.local_settings_file, default_settings
+        )
+
+    async def load_settings_async(self, project_dir, include_apps, settings_file,
+                                 local_settings_file, default_settings):
+        """异步加载配置"""
+        settings_paths = await self.collect_settings_paths_async(
+            project_dir, include_apps, settings_file, local_settings_file
+        )
+
+        settings = pyini.Ini(lazy=True, basepath=os.path.join(project_dir, 'apps'))
+        for path in settings_paths:
+            async with aiofiles.open(path, 'r', encoding='utf-8') as f:
+                content = await f.read()
+                settings.read_string(content, path)
+
+        # 应用默认配置
+        if default_settings:
+            settings.update(default_settings)
+
+        return settings
+```
+
+6. **异步 runserver 命令**：
+```python
+class AsyncRunserverCommand(Command):
+    """异步版本的 runserver 命令"""
+
+    option_list = (
+        make_option('--asgi-server', dest='asgi_server', default='uvicorn',
+                   help='ASGI server to use (uvicorn, hypercorn, daphne)'),
+        make_option('--asgi-host', dest='asgi_host', default='localhost',
+                   help='Hostname to bind to'),
+        make_option('--asgi-port', dest='asgi_port', type='int', default=8000,
+                   help='Port to bind to'),
+        make_option('--asgi-workers', dest='asgi_workers', type='int', default=1,
+                   help='Number of worker processes'),
+    )
+
+    async def handle_async(self, options, global_options, *args):
+        """异步处理运行服务器命令"""
+        # 将命令行参数转换为 ASGI 服务器配置
+        asgi_config = {
+            'server': options.asgi_server,
+            'host': options.asgi_host,
+            'port': options.asgi_port,
+            'workers': options.asgi_workers,
+        }
+
+        await self.run_asgi_server(asgi_config, global_options)
 ```
 
 ## 验收标准

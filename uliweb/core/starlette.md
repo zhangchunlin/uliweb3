@@ -516,15 +516,197 @@ ASGI_SERVER = uvicorn  # 可选: uvicorn, hypercorn, daphne
 ASGI_HOST = 0.0.0.0
 ASGI_PORT = 8000
 ASGI_WORKERS = 1
+
+# 兼容性设置 - 保持与现有配置的兼容性
+DEBUG = True
+DEBUG_TEMPLATE = False
+TEMPLATE_SUFFIX = '.html'
+DEFAULT_CORS = False
+FILESYSTEM_ENCODING = utf-8
+DEFAULT_ENCODING = utf-8
+ERROR_PAGE = 'error.html'
+
+# 中间件配置 - 从 WSGI_MIDDLEWARES 迁移到 ASGI 中间件
+MIDDLEWARES = {
+    'context_middleware': ['uliweb.core.starlette.ContextMiddleware', 100],
+    'static_middleware': ['uliweb.contrib.staticfiles.middleware', 200],
+}
+
+# 模板配置
+TEMPLATE = {
+    'auto_reload': True,
+    'cache_size': 50,
+}
+
+# URL 配置 - 保持与现有配置兼容
+URL = {
+    '/': 'views.index',
+}
+
+# 数据库配置（异步版本）
+DATABASES = {
+    'default': {
+        'ENGINE': 'uliweb.contrib.orm',  # 需要异步 ORM 支持
+        'CONNECTION': 'postgresql://user:pass@localhost/dbname',
+        'ASYNC': True,
+    }
+}
+
+# 命令系统配置 - 保持与 manage.py 兼容
+[COMMANDS]
+# 异步命令处理器
+ASYNC_COMMAND_HANDLER = 'uliweb.core.starlette.AsyncCommandHandler'
+
+# 开发服务器配置
+[DEVELOPMENT]
+# 异步开发服务器选项
+ASGI_DEV_SERVER = 'uvicorn'
+ASGI_RELOAD = True
+ASGI_DEBUG = True
 ```
 
 **使用方式：**
 - 使用 ASGI 服务器如 Uvicorn、Hypercorn、Daphne 运行应用
 - 不再支持 WSGI 服务器
+- 保持与现有配置文件的兼容性
 
-## 5. 技术挑战与解决方案
+## 5. Settings 配置迁移策略
 
-### 5.1 同步到异步的迁移
+### 5.1 现有 Settings 系统分析
+
+基于 `manage.py` 和 `uliweb/core/SimpleFrame.py` 的分析，Uliweb 当前的 settings 系统具有以下特点：
+
+**配置加载流程：**
+1. 从环境变量获取 `SETTINGS` 和 `LOCAL_SETTINGS` 文件名
+2. 按顺序加载：默认配置 → 应用配置 → 项目配置 → 本地配置
+3. 支持 `default_settings` 参数进行运行时配置覆盖
+
+**关键配置项：**
+- `DEBUG`: 调试模式开关
+- `WSGI_MIDDLEWARES`: WSGI 中间件配置
+- `TEMPLATE`: 模板系统配置
+- `URL`: URL 路由映射
+- `DATABASES`: 数据库配置
+- `GLOBAL_OBJECTS`: 全局对象注册
+
+### 5.2 ASGI Settings 迁移方案
+
+**配置加载兼容性：**
+```python
+class AsyncDispatcher:
+    def __init__(self, apps_dir='apps', project_dir=None, include_apps=None,
+                 start=True, default_settings=None, settings_file='settings.ini',
+                 local_settings_file='local_settings.ini', **kwargs):
+
+        # 保持与现有配置加载逻辑兼容
+        self.settings_file = settings_file or os.environ.get('SETTINGS', 'settings.ini')
+        self.local_settings_file = local_settings_file or os.environ.get('LOCAL_SETTINGS', 'local_settings.ini')
+
+        # 异步配置加载
+        self.settings = await self.load_settings_async(
+            project_dir, include_apps, self.settings_file,
+            self.local_settings_file, default_settings
+        )
+
+    async def load_settings_async(self, project_dir, include_apps, settings_file,
+                                 local_settings_file, default_settings):
+        """异步加载配置"""
+        settings_paths = await self.collect_settings_paths_async(
+            project_dir, include_apps, settings_file, local_settings_file
+        )
+
+        settings = pyini.Ini(lazy=True, basepath=os.path.join(project_dir, 'apps'))
+        for path in settings_paths:
+            async with aiofiles.open(path, 'r', encoding='utf-8') as f:
+                content = await f.read()
+                settings.read_string(content, path)
+
+        # 应用默认配置
+        if default_settings:
+            settings.update(default_settings)
+
+        return settings
+```
+
+**中间件配置迁移：**
+```ini
+# 从 WSGI_MIDDLEWARES 迁移到 ASGI 中间件
+[MIDDLEWARES]
+# 格式: 中间件名称 = [中间件类路径, 优先级, 配置参数]
+context_middleware = ['uliweb.core.starlette.ContextMiddleware', 100]
+static_middleware = ['uliweb.contrib.staticfiles.AsyncStaticFilesMiddleware', 200, {'directory': 'static'}]
+
+# 兼容性配置 - 支持现有 WSGI 中间件的自动转换
+[COMPATIBILITY]
+AUTO_CONVERT_WSGI_MIDDLEWARES = True
+```
+
+**开发服务器配置：**
+```ini
+[DEVELOPMENT]
+# 异步开发服务器配置
+ASGI_DEV_SERVER = uvicorn
+ASGI_HOST = localhost
+ASGI_PORT = 8000
+ASGI_RELOAD = True
+ASGI_DEBUG = True
+ASGI_WORKERS = 1
+
+# 兼容现有 runserver 命令参数
+DEV_SERVER_OPTIONS = {
+    '--host': 'ASGI_HOST',
+    '--port': 'ASGI_PORT',
+    '--no-reload': 'ASGI_RELOAD=False',
+    '--no-debug': 'ASGI_DEBUG=False',
+}
+```
+
+### 5.3 环境变量和命令行参数兼容性
+
+**环境变量兼容：**
+```python
+# 保持现有环境变量支持
+SETTINGS_FILE = os.environ.get('SETTINGS', 'settings.ini')
+LOCAL_SETTINGS_FILE = os.environ.get('LOCAL_SETTINGS', 'local_settings.ini')
+
+# 新增 ASGI 相关环境变量
+ASGI_SERVER = os.environ.get('ASGI_SERVER', 'uvicorn')
+ASGI_HOST = os.environ.get('ASGI_HOST', 'localhost')
+ASGI_PORT = int(os.environ.get('ASGI_PORT', '8000'))
+```
+
+**命令行参数适配：**
+```python
+class AsyncRunserverCommand(Command):
+    """异步版本的 runserver 命令"""
+
+    option_list = (
+        make_option('--asgi-server', dest='asgi_server', default='uvicorn',
+                   help='ASGI server to use (uvicorn, hypercorn, daphne)'),
+        make_option('--asgi-host', dest='asgi_host', default='localhost',
+                   help='Hostname to bind to'),
+        make_option('--asgi-port', dest='asgi_port', type='int', default=8000,
+                   help='Port to bind to'),
+        make_option('--asgi-workers', dest='asgi_workers', type='int', default=1,
+                   help='Number of worker processes'),
+    )
+
+    async def handle_async(self, options, global_options, *args):
+        """异步处理运行服务器命令"""
+        # 将命令行参数转换为 ASGI 服务器配置
+        asgi_config = {
+            'server': options.asgi_server,
+            'host': options.asgi_host,
+            'port': options.asgi_port,
+            'workers': options.asgi_workers,
+        }
+
+        await self.run_asgi_server(asgi_config, global_options)
+```
+
+## 6. 技术挑战与解决方案
+
+### 6.1 同步到异步的迁移
 
 **问题：** 现有代码库大量使用同步代码
 
@@ -539,7 +721,7 @@ async def run_sync_in_thread(func, *args):
     return await anyio.to_thread.run_sync(func, *args)
 ```
 
-### 5.2 全局状态管理
+### 6.2 全局状态管理
 
 **问题：** Uliweb 使用 `werkzeug.local` 进行线程局部存储
 
@@ -548,7 +730,7 @@ async def run_sync_in_thread(func, *args):
 2. 实现请求上下文管理
 3. 保持向后兼容的代理对象
 
-### 5.3 URL 路由兼容性
+### 6.3 URL 路由兼容性
 
 **问题：** Werkzeug 和 Starlette 路由语法差异
 
@@ -557,19 +739,19 @@ async def run_sync_in_thread(func, *args):
 2. 保持现有 `@expose` 装饰器接口不变
 3. 内部映射到 Starlette 路由系统
 
-## 6. 性能优化机会
+## 7. 性能优化机会
 
-### 6.1 异步 I/O 操作
+### 7.1 异步 I/O 操作
 - 数据库查询异步化
 - 文件操作异步化
 - 外部 API 调用异步化
 
-### 6.2 并发处理能力
+### 7.2 并发处理能力
 - 利用 ASGI 的并发特性
 - 支持更多并发连接
 - 更好的资源利用率
 
-### 6.3 WebSocket 支持
+### 7.3 WebSocket 支持
 - 实时通信功能
 - 双向数据流
 - 服务器推送能力

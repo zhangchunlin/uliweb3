@@ -153,13 +153,28 @@
 
 #### 10.1 依赖包更新
 - [ ] 确认所有依赖包的异步兼容性
-- [ ] 添加必要的异步依赖包
+- [ ] 添加必要的异步依赖包（starlette、anyio、aiofiles、uvicorn等）
 - [ ] 更新项目配置和需求文件
+- [ ] 验证依赖包版本兼容性
 
-#### 10.2 配置系统适配
-- [ ] 异步配置加载和处理
-- [ ] 配置热重载的异步支持
-- [ ] 环境变量配置的异步处理
+#### 10.2 Settings 配置系统适配
+- [ ] 实现异步配置文件的动态加载和热重载
+- [ ] 支持现有 settings.ini 配置格式的异步解析
+- [ ] 实现配置项的异步验证和类型转换
+- [ ] 支持配置变更的异步事件通知
+- [ ] 保持与现有配置加载逻辑的兼容性
+
+#### 10.3 中间件配置迁移
+- [ ] 从 WSGI_MIDDLEWARES 配置迁移到 ASGI 中间件配置
+- [ ] 实现中间件配置的自动转换和兼容性处理
+- [ ] 支持异步中间件的配置参数验证
+- [ ] 保持现有中间件配置的向后兼容性
+
+#### 10.4 数据库和缓存配置
+- [ ] 异步数据库连接池配置适配
+- [ ] 异步缓存后端配置支持
+- [ ] 数据库连接字符串的异步解析
+- [ ] 缓存配置的异步验证和初始化
 
 ## 技术实现要点
 
@@ -336,6 +351,161 @@ class AsyncCommandMiddleware:
         # 后处理
         final_result = await self.postprocess(result)
         return final_result
+```
+
+#### 5. 异步配置加载器
+```python
+class AsyncSettingsLoader:
+    def __init__(self, project_dir, apps_dir):
+        self.project_dir = project_dir
+        self.apps_dir = apps_dir
+        self.settings_cache = {}
+
+    async def load_settings_async(self, settings_file='settings.ini',
+                                 local_settings_file='local_settings.ini',
+                                 default_settings=None):
+        """异步加载配置"""
+        cache_key = f"{settings_file}:{local_settings_file}"
+
+        if cache_key in self.settings_cache:
+            return self.settings_cache[cache_key]
+
+        # 异步收集配置文件路径
+        settings_paths = await self._collect_settings_paths_async(
+            settings_file, local_settings_file
+        )
+
+        # 异步读取和解析配置
+        settings = pyini.Ini(lazy=True, basepath=self.apps_dir)
+        for path in settings_paths:
+            async with aiofiles.open(path, 'r', encoding='utf-8') as f:
+                content = await f.read()
+                settings.read_string(content, path)
+
+        # 应用默认配置
+        if default_settings:
+            settings.update(default_settings)
+
+        self.settings_cache[cache_key] = settings
+        return settings
+
+    async def _collect_settings_paths_async(self, settings_file, local_settings_file):
+        """异步收集配置文件路径"""
+        paths = []
+
+        # 项目级配置
+        project_settings = os.path.join(self.project_dir, settings_file)
+        if await self._file_exists_async(project_settings):
+            paths.append(project_settings)
+
+        # 本地配置
+        local_settings = os.path.join(self.project_dir, local_settings_file)
+        if await self._file_exists_async(local_settings):
+            paths.append(local_settings)
+
+        # 应用配置
+        apps = await self._get_apps_async()
+        for app in apps:
+            app_settings = os.path.join(self.apps_dir, app, settings_file)
+            if await self._file_exists_async(app_settings):
+                paths.append(app_settings)
+
+        return paths
+
+    async def _file_exists_async(self, path):
+        """异步检查文件是否存在"""
+        return await anyio.to_thread.run_sync(os.path.exists, path)
+```
+
+#### 6. 中间件配置迁移器
+```python
+class MiddlewareConfigMigrator:
+    def __init__(self, settings):
+        self.settings = settings
+
+    async def migrate_wsgi_to_asgi(self):
+        """将 WSGI 中间件配置迁移到 ASGI 中间件配置"""
+        wsgi_middlewares = self.settings.get('WSGI_MIDDLEWARES', {})
+        asgi_middlewares = {}
+
+        for name, config in wsgi_middlewares.items():
+            if not config:
+                continue
+
+            # 解析 WSGI 中间件配置
+            middleware_cls, order, kwargs = self._parse_wsgi_middleware(config)
+
+            # 转换为 ASGI 中间件配置
+            asgi_config = await self._convert_to_asgi(middleware_cls, order, kwargs)
+            asgi_middlewares[name] = asgi_config
+
+        # 更新配置
+        self.settings['MIDDLEWARES'] = asgi_middlewares
+        return asgi_middlewares
+
+    def _parse_wsgi_middleware(self, config):
+        """解析 WSGI 中间件配置"""
+        if isinstance(config, (list, tuple)):
+            if len(config) == 1:
+                return config[0], 500, {}
+            elif len(config) == 2:
+                if isinstance(config[1], int):
+                    return config[0], config[1], {}
+                else:
+                    return config[0], 500, config[1]
+            else:
+                return config[0], config[1], config[2]
+        else:
+            return config, 500, {}
+
+    async def _convert_to_asgi(self, middleware_cls, order, kwargs):
+        """将 WSGI 中间件转换为 ASGI 中间件配置"""
+        # 检查是否已经是 ASGI 中间件
+        if await self._is_asgi_middleware(middleware_cls):
+            return [middleware_cls, order, kwargs]
+        else:
+            # 创建 ASGI 包装器
+            asgi_wrapper = await self._create_asgi_wrapper(middleware_cls)
+            return [asgi_wrapper, order, kwargs]
+
+    async def _is_asgi_middleware(self, middleware_cls):
+        """检查中间件是否已经是 ASGI 中间件"""
+        try:
+            cls = import_attr(middleware_cls)
+            # 检查是否支持 ASGI 接口
+            return hasattr(cls, '__call__') and asyncio.iscoroutinefunction(cls.__call__)
+        except:
+            return False
+
+    async def _create_asgi_wrapper(self, wsgi_middleware_cls):
+        """创建 ASGI 包装器"""
+        class ASGIWrapper:
+            def __init__(self, app):
+                self.app = app
+                self.wsgi_middleware = import_attr(wsgi_middleware_cls)(app)
+
+            async def __call__(self, scope, receive, send):
+                if scope["type"] != "http":
+                    await self.app(scope, receive, send)
+                    return
+
+                # 将 ASGI 请求转换为 WSGI 环境
+                environ = await self._scope_to_environ(scope, receive)
+
+                # 使用 WSGI 中间件处理
+                def start_response(status, headers, exc_info=None):
+                    # 处理响应头
+                    pass
+
+                # 在线程中运行 WSGI 中间件
+                response = await anyio.to_thread.run_sync(
+                    lambda: self.wsgi_middleware(environ, start_response)
+                )
+
+                # 发送响应
+                await self._send_response(response, send)
+
+        return f"{__name__}.ASGIWrapper"
 ```
 
 ## 验收标准

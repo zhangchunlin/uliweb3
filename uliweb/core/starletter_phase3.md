@@ -152,6 +152,36 @@
 - [ ] 内存碎片整理
 - [ ] 内存使用监控和告警
 
+### 9. 性能相关配置优化
+
+#### 9.1 数据库性能配置
+- [ ] 异步数据库连接池配置迁移
+- [ ] 数据库连接超时和重试配置
+- [ ] 查询超时和性能监控配置
+- [ ] 数据库连接字符串异步解析优化
+- [ ] 数据库连接池大小动态调整配置
+
+#### 9.2 缓存性能配置
+- [ ] 异步缓存后端配置迁移
+- [ ] 缓存过期策略和清理配置
+- [ ] 缓存压缩和序列化配置
+- [ ] 分布式缓存配置支持
+- [ ] 缓存预热和预加载配置
+
+#### 9.3 WebSocket 性能配置
+- [ ] WebSocket 连接限制配置
+- [ ] 消息大小和频率限制配置
+- [ ] 心跳检测和超时配置
+- [ ] WebSocket 压缩和加密配置
+- [ ] 连接池和资源限制配置
+
+#### 9.4 性能监控配置
+- [ ] 异步性能监控指标配置
+- [ ] 慢查询和性能告警配置
+- [ ] 资源使用监控配置
+- [ ] 日志级别和性能日志配置
+- [ ] 性能分析工具集成配置
+
 ## 技术实现要点
 
 ### 关键代码变更
@@ -360,16 +390,196 @@ class AsyncConnectionPool:
         # 实现具体的连接关闭逻辑
         pass
 
-    async def close_all(self):
-        """关闭所有连接"""
-        async with self._lock:
-            for conn in list(self._pool):
-                await self._close_connection(conn)
-            self._pool.clear()
+        async def close_all(self):
+            """关闭所有连接"""
+            async with self._lock:
+                for conn in list(self._pool):
+                    await self._close_connection(conn)
+                self._pool.clear()
 
-            for conn in list(self._in_use):
-                await self._close_connection(conn)
-            self._in_use.clear()
+                for conn in list(self._in_use):
+                    await self._close_connection(conn)
+                self._in_use.clear()
+```
+
+#### 5. 性能配置管理器
+```python
+class PerformanceConfigManager:
+    """性能相关配置管理器"""
+
+    def __init__(self, settings):
+        self.settings = settings
+        self._config_cache = {}
+
+    async def get_database_config_async(self, database_name='default'):
+        """异步获取数据库性能配置"""
+        cache_key = f"database_{database_name}"
+        if cache_key in self._config_cache:
+            return self._config_cache[cache_key]
+
+        # 异步读取数据库配置
+        db_config = await self._load_database_config_async(database_name)
+
+        # 应用性能优化配置
+        optimized_config = await self._optimize_database_config_async(db_config)
+
+        self._config_cache[cache_key] = optimized_config
+        return optimized_config
+
+    async def _load_database_config_async(self, database_name):
+        """异步加载数据库配置"""
+        db_section = f"DATABASES/{database_name}"
+
+        config = {
+            'engine': self.settings.get(f"{db_section}/ENGINE"),
+            'name': self.settings.get(f"{db_section}/NAME"),
+            'user': self.settings.get(f"{db_section}/USER"),
+            'password': self.settings.get(f"{db_section}/PASSWORD"),
+            'host': self.settings.get(f"{db_section}/HOST", 'localhost'),
+            'port': self.settings.get(f"{db_section}/PORT"),
+            'pool_size': self.settings.get_int(f"{db_section}/POOL_SIZE", 10),
+            'max_overflow': self.settings.get_int(f"{db_section}/MAX_OVERFLOW", 20),
+            'pool_timeout': self.settings.get_int(f"{db_section}/POOL_TIMEOUT", 30),
+            'pool_recycle': self.settings.get_int(f"{db_section}/POOL_RECYCLE", 3600),
+        }
+
+        return config
+
+    async def _optimize_database_config_async(self, config):
+        """异步优化数据库配置"""
+        # 根据环境自动调整连接池大小
+        if os.environ.get('ENVIRONMENT') == 'production':
+            config['pool_size'] = max(config.get('pool_size', 10), 20)
+            config['max_overflow'] = max(config.get('max_overflow', 20), 50)
+
+        # 异步验证配置有效性
+        await self._validate_database_config_async(config)
+        return config
+
+    async def get_cache_config_async(self, cache_backend='default'):
+        """异步获取缓存性能配置"""
+        cache_key = f"cache_{cache_backend}"
+        if cache_key in self._config_cache:
+            return self._config_cache[cache_key]
+
+        config = await self._load_cache_config_async(cache_backend)
+        optimized_config = await self._optimize_cache_config_async(config)
+
+        self._config_cache[cache_key] = optimized_config
+        return optimized_config
+
+    async def _load_cache_config_async(self, cache_backend):
+        """异步加载缓存配置"""
+        cache_section = f"CACHE/{cache_backend}"
+
+        config = {
+            'backend': self.settings.get(f"{cache_section}/BACKEND"),
+            'location': self.settings.get(f"{cache_section}/LOCATION"),
+            'timeout': self.settings.get_int(f"{cache_section}/TIMEOUT", 300),
+            'max_entries': self.settings.get_int(f"{cache_section}/MAX_ENTRIES", 1000),
+            'compression': self.settings.get_bool(f"{cache_section}/COMPRESSION", True),
+            'key_prefix': self.settings.get(f"{cache_section}/KEY_PREFIX", 'uliweb'),
+        }
+
+        return config
+
+    async def get_websocket_config_async(self):
+        """异步获取 WebSocket 性能配置"""
+        config = {
+            'max_connections': self.settings.get_int('WEBSOCKET/MAX_CONNECTIONS', 1000),
+            'message_size_limit': self.settings.get_int('WEBSOCKET/MESSAGE_SIZE_LIMIT', 1024 * 1024),
+            'ping_interval': self.settings.get_int('WEBSOCKET/PING_INTERVAL', 30),
+            'ping_timeout': self.settings.get_int('WEBSOCKET/PING_TIMEOUT', 10),
+            'compression': self.settings.get_bool('WEBSOCKET/COMPRESSION', True),
+            'rate_limit': self.settings.get_int('WEBSOCKET/RATE_LIMIT', 100),
+        }
+
+        return await self._optimize_websocket_config_async(config)
+
+    async def _optimize_websocket_config_async(self, config):
+        """异步优化 WebSocket 配置"""
+        # 根据可用内存调整连接限制
+        import psutil
+        memory_info = psutil.virtual_memory()
+        available_memory_gb = memory_info.available / (1024 ** 3)
+
+        # 每GB内存支持1000个连接
+        max_connections = min(config['max_connections'], int(available_memory_gb * 1000))
+        config['max_connections'] = max_connections
+
+        return config
+```
+
+#### 6. 性能监控配置器
+```python
+class PerformanceMonitorConfig:
+    """性能监控配置器"""
+
+    def __init__(self, settings):
+        self.settings = settings
+
+    async def setup_monitoring_async(self):
+        """异步设置性能监控"""
+        # 数据库性能监控
+        await self._setup_database_monitoring_async()
+
+        # 缓存性能监控
+        await self._setup_cache_monitoring_async()
+
+        # WebSocket 性能监控
+        await self._setup_websocket_monitoring_async()
+
+        # 内存和资源监控
+        await self._setup_resource_monitoring_async()
+
+    async def _setup_database_monitoring_async(self):
+        """异步设置数据库性能监控"""
+        if self.settings.get_bool('MONITORING/DATABASE_ENABLED', True):
+            from uliweb.contrib.monitoring import DatabaseMonitor
+
+            monitor_config = {
+                'slow_query_threshold': self.settings.get_int('MONITORING/SLOW_QUERY_THRESHOLD', 1000),
+                'query_log_enabled': self.settings.get_bool('MONITORING/QUERY_LOG_ENABLED', False),
+                'connection_pool_monitoring': self.settings.get_bool('MONITORING/CONNECTION_POOL_MONITORING', True),
+            }
+
+            await DatabaseMonitor.setup_async(monitor_config)
+
+    async def _setup_cache_monitoring_async(self):
+        """异步设置缓存性能监控"""
+        if self.settings.get_bool('MONITORING/CACHE_ENABLED', True):
+            from uliweb.contrib.monitoring import CacheMonitor
+
+            monitor_config = {
+                'hit_rate_threshold': self.settings.get_float('MONITORING/HIT_RATE_THRESHOLD', 0.8),
+                'memory_usage_threshold': self.settings.get_float('MONITORING/MEMORY_USAGE_THRESHOLD', 0.8),
+                'eviction_monitoring': self.settings.get_bool('MONITORING/EVICTION_MONITORING', True),
+            }
+
+            await CacheMonitor.setup_async(monitor_config)
+
+    async def get_performance_alerts_async(self):
+        """异步获取性能告警配置"""
+        alerts = {
+            'database': {
+                'slow_query_alert': self.settings.get_bool('ALERTS/SLOW_QUERY_ALERT', True),
+                'connection_pool_alert': self.settings.get_bool('ALERTS/CONNECTION_POOL_ALERT', True),
+                'thresholds': {
+                    'slow_query_ms': self.settings.get_int('ALERTS/SLOW_QUERY_MS', 5000),
+                    'pool_utilization': self.settings.get_float('ALERTS/POOL_UTILIZATION', 0.9),
+                }
+            },
+            'cache': {
+                'hit_rate_alert': self.settings.get_bool('ALERTS/HIT_RATE_ALERT', True),
+                'memory_alert': self.settings.get_bool('ALERTS/MEMORY_ALERT', True),
+                'thresholds': {
+                    'hit_rate': self.settings.get_float('ALERTS/HIT_RATE_THRESHOLD', 0.7),
+                    'memory_usage': self.settings.get_float('ALERTS/MEMORY_USAGE_THRESHOLD', 0.8),
+                }
+            }
+        }
+
+        return alerts
 ```
 
 ## 验收标准
