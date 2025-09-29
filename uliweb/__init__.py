@@ -29,7 +29,7 @@ class RedirectException(Exception):
 ASGI_AVAILABLE = False
 
 # 导入管理命令需要的函数（避免循环导入）
-from .core.SimpleFrame import get_apps, get_app_dir
+from .core.SimpleFrame import get_apps, get_app_dir, functions
 
 # 尝试导入 ASGI 组件
 try:
@@ -103,5 +103,5 @@ __all__ = [
     'SimpleFrame', 'dispatch', 'template', 'html', 'js', 'uaml',
     'common', 'date', 'files', 'storage', 'sorteddict',
     'form', 'orm', 'i18n', 'mail', 'ASGI_AVAILABLE',
-    'get_apps', 'get_app_dir'  # 添加缺失的函数
+    'get_apps', 'get_app_dir', 'functions'  # 添加缺失的函数
 ]
