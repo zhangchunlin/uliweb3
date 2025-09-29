@@ -367,7 +367,7 @@ class AsyncDispatcher:
         if project_dir is None:
             project_dir = os.getcwd()
 
-        # 使用线程池执行同步的 settings 加载
+        # 使用协程池执行同步的 settings 加载
         loop = asyncio.get_event_loop()
         settings = await loop.run_in_executor(
             None,
@@ -378,13 +378,14 @@ class AsyncDispatcher:
             self.local_settings_file,
             self.default_settings
         )
+
         return settings
 
     async def _get_apps(self):
         """异步获取应用列表"""
         from uliweb.core.SimpleFrame import get_apps as get_sync_apps
 
-        # 使用线程池执行同步的应用获取
+        # 使用协程池执行同步的应用获取
         loop = asyncio.get_event_loop()
         apps = await loop.run_in_executor(
             None,
@@ -394,6 +395,7 @@ class AsyncDispatcher:
             self.settings_file,
             self.local_settings_file
         )
+
         return apps
 
     async def _prepare_env(self):
@@ -818,7 +820,7 @@ class AsyncDispatcher:
         if iscoroutinefunction(handler):
             result = await handler(*call_args, **call_kwargs)
         else:
-            # 同步函数需要在线程池中执行
+            # 同步函数需要在协程池中执行
             loop = asyncio.get_event_loop()
             result = await loop.run_in_executor(None, handler, *call_args, **call_kwargs)
 
@@ -880,9 +882,103 @@ class AsyncDispatcher:
 
     async def _render_template(self, template_file, vars, env):
         """异步渲染模板"""
-        # 这里需要实现异步模板渲染
-        # 暂时简单实现
-        return f"Template: {template_file}"
+        # 使用协程池执行同步的模板渲染
+        loop = asyncio.get_event_loop()
+        content = await loop.run_in_executor(
+            None,
+            self._sync_render_template,
+            template_file, vars, env
+        )
+
+        return content
+
+    def _sync_render_template(self, template_file, vars, env):
+        """同步渲染模板（在协程池中执行）"""
+        # 获取模板目录
+        template_dirs = []
+
+        # 首先尝试直接查找模板文件
+        # 检查应用级模板目录
+        apps_template_dir = os.path.join(self.project_dir, 'apps', 'templates')
+        if os.path.exists(apps_template_dir):
+            template_dirs.append(apps_template_dir)
+
+        # 检查项目级模板目录
+        project_template_dir = os.path.join(self.project_dir, 'templates')
+        if os.path.exists(project_template_dir):
+            template_dirs.append(project_template_dir)
+
+        # 添加应用级模板目录（相对于项目目录）
+        for app in self.apps:
+            # 应用级模板目录
+            app_template_dir = os.path.join(self.project_dir, 'apps', app, 'templates')
+            if os.path.exists(app_template_dir):
+                template_dirs.append(app_template_dir)
+
+            # 应用视图级模板目录
+            app_views_template_dir = os.path.join(self.project_dir, 'apps', app, 'views', 'templates')
+            if os.path.exists(app_views_template_dir):
+                template_dirs.append(app_views_template_dir)
+
+        # 如果模板目录为空，尝试使用 SimpleFrame 的方式获取模板目录
+        if not template_dirs:
+            from uliweb.core.SimpleFrame import Dispatcher
+            try:
+                # 创建一个临时的 Dispatcher 来获取模板目录
+                temp_dispatcher = Dispatcher(
+                    apps_dir=self.apps_dir,
+                    project_dir=self.project_dir,
+                    start=False
+                )
+                template_dirs = temp_dispatcher.template_dirs
+            except Exception:
+                pass
+
+        # 如果仍然为空，尝试直接搜索项目目录下的模板
+        if not template_dirs:
+            # 直接搜索项目目录下的所有 templates 目录
+            for root, dirs, files in os.walk(self.project_dir):
+                if 'templates' in dirs:
+                    template_dir = os.path.join(root, 'templates')
+                    if os.path.exists(template_dir):
+                        template_dirs.append(template_dir)
+
+        # 尝试从各个模板目录中查找模板文件
+        for template_dir in template_dirs:
+            template_path = os.path.join(template_dir, template_file)
+            if os.path.exists(template_path):
+                # 找到模板文件，使用 uliweb 的模板系统进行渲染
+                try:
+                    # 创建模板加载器
+                    from uliweb.core.template import Loader
+                    loader = Loader(template_dirs)
+
+                    # 加载并渲染模板
+                    template_obj = loader.load(template_file)
+
+                    # 确保 vars 是字典格式
+                    if isinstance(vars, dict):
+                        template_vars = vars
+                    else:
+                        template_vars = dict(vars) if hasattr(vars, '__iter__') else {}
+
+                    # 确保 env 是字典格式
+                    if isinstance(env, dict):
+                        template_env = env
+                    else:
+                        template_env = dict(env) if hasattr(env, '__iter__') else {}
+
+                    content = template_obj.generate(template_vars, template_env)
+                    return content
+                except Exception as e:
+                    # 如果模板渲染失败，返回错误信息
+                    import traceback
+                    error_msg = f"Template rendering error: {str(e)}\n{traceback.format_exc()}"
+                    return error_msg
+
+        # 如果找不到模板文件，返回错误信息
+        error_msg = f"Template not found: {template_file}. Searched in: {template_dirs}"
+        return error_msg
 
     async def _process_middleware(self, request, response, mod, handler_cls, handler, values):
         """异步处理中间件"""
