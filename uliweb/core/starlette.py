@@ -299,7 +299,8 @@ class AsyncDispatcher:
         self.router.router.routes.clear()
 
         # 注册路由到路由器
-        for appname, endpoint, url, kw in enumerate(merged_rules):
+        for rule_info in merged_rules:
+            appname, endpoint, url, kw = rule_info
             # 转换 Werkzeug 风格路由到 Starlette 风格
             starlette_rule = re.sub(r'<([^:>]+)(?::[^>]+)?>', r'{\1}', url)
 
