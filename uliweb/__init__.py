@@ -8,6 +8,9 @@ __author_email__ = 'limodou@gmail.com'
 __url__ = 'https://github.com/limodou/uliweb3'
 __license__ = 'BSD'
 
+# 导入管理命令需要的函数（避免循环导入）
+from .core.SimpleFrame import get_apps, get_app_dir, functions
+
 
 # 首先定义错误类，避免循环导入
 class UliwebError(Exception):
@@ -25,11 +28,25 @@ class RedirectException(Exception):
     pass
 
 
+class Middleware(object):
+    """Uliweb 中间件基类 - 遵循 ASGI 3.0 规范"""
+    ORDER = 500  # 默认优先级
+
+    def __init__(self, application, settings):
+        self.application = application
+        self.settings = settings
+
+    async def __call__(self, scope, receive, send):
+        """
+        核心 ASGI 接口。
+        所有中间件逻辑（修改 scope/包装 receive/包装 send/异常处理）
+        都应该在这个方法内实现。
+        """
+        await self.application(scope, receive, send)
+
+
 # 标记 ASGI 可用性
 ASGI_AVAILABLE = False
-
-# 导入管理命令需要的函数（避免循环导入）
-from .core.SimpleFrame import get_apps, get_app_dir, functions
 
 # 尝试导入 ASGI 组件
 try:
@@ -99,7 +116,7 @@ except ImportError:
 __all__ = [
     'Request', 'Response', 'Dispatcher', 'expose', 'POST', 'GET',
     'redirect', 'json', 'request', 'response', 'settings', 'application',
-    'UliwebError', 'HTTPError', 'RedirectException',
+    'UliwebError', 'HTTPError', 'RedirectException', 'Middleware',
     'SimpleFrame', 'dispatch', 'template', 'html', 'js', 'uaml',
     'common', 'date', 'files', 'storage', 'sorteddict',
     'form', 'orm', 'i18n', 'mail', 'ASGI_AVAILABLE',

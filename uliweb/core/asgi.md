@@ -486,107 +486,561 @@ async def context_middleware(app):
 
 ### 4.5 中间件系统适配
 
-**Uliweb 中间件组织方式分析：**
+#### 4.5.1 WSGI vs. ASGI：核心区别
 
-Uliweb 的中间件系统采用模块化设计，中间件实现分散在各个 contrib app 中，每个功能对应一个独立的 app。例如：
+Uliweb3 的 Middleware（中间件）实现需要进行彻底的修改，从 request, response 模式改为基于 scope, receive, send 的接口。
 
-- `uliweb/contrib/auth/middle_auth.py` - 认证中间件
-- `uliweb/contrib/csrf/middleware.py` - CSRF 保护中间件
-- `uliweb/contrib/i18n/middle_i18n.py` - 国际化中间件
-- `uliweb/contrib/session/middle_session.py` - 会话管理中间件
-- `uliweb/contrib/orm/middle_transaction.py` - 数据库事务中间件
+**WSGI (Web Server Gateway Interface)**
+- **模型**: 同步、请求-响应（Request-Response）
+- **接口核心**: `environ`, `start_response`
+- **中间件工作方式**: 修改 environ（请求），通过 start_response 修改响应头
 
-**中间件基类定义：**
+**ASGI (Asynchronous Server Gateway Interface)**
+- **模型**: 异步、事件驱动（Event-Driven）
+- **接口核心**: `scope`, `receive`, `send`
+- **中间件工作方式**: 在事件流层面上工作，处理数据流而不是完整的请求对象
+
+**为什么不能沿用 request, response 接口？**
+- ASGI 没有完整的 request 对象，需要从 receive 中异步读取所有事件才能拼凑出完整的请求体
+- ASGI 设计用于处理异步 I/O 和长连接，中间件需要在事件流层面上工作
+- ASGI 处理 HTTP、WebSocket 和 Lifespan 等多种连接类型，需要通用接口
+
+#### 4.5.2 新的 ASGI 中间件基类设计
+
+基于 ASGI 3.0 标准，新的 Middleware 基类采用简洁的 scope/receive/send 接口：
+
 ```python
-class Middleware:
-    """Uliweb 中间件基类"""
+class Middleware(object):
+    """Uliweb 中间件基类 - 遵循 ASGI 3.0 规范"""
     ORDER = 500  # 默认优先级
 
     def __init__(self, application, settings):
         self.application = application
         self.settings = settings
 
-    def process_request(self, request):
-        """处理请求前调用"""
-        pass
-
-    def process_response(self, request, response):
-        """处理响应后调用"""
-        return response
-
-    def process_exception(self, request, exception):
-        """处理异常时调用"""
-        pass
+    async def __call__(self, scope, receive, send):
+        """
+        核心 ASGI 接口。
+        所有中间件逻辑（修改 scope/包装 receive/包装 send/异常处理）
+        都应该在这个方法内实现。
+        """
+        await self.application(scope, receive, send)
 ```
 
-**ASGI 中间件适配器实现：**
+**设计优化说明：**
+
+1. **移除分层方法**：删除了 `process_scope`, `process_receive`, `process_send`, `process_exception` 等分层方法
+2. **简化接口**：所有中间件逻辑都在 `__call__` 方法内实现，更符合 ASGI 规范
+3. **效率优先**：避免不必要的函数调用和抽象层，直接操作流和状态
+
+**为什么这样设计更好？**
+
+- **最小化抽象**：ASGI 接口本身就是 scope, receive, send，任何额外的抽象方法只会增加复杂性
+- **强制遵守 ASGI 习惯**：鼓励开发者直接在 `__call__` 内部使用 try/except 和包装 send
+- **生态兼容**：与 Starlette/FastAPI 生态中最常用的模式保持一致
+- **性能优化**：减少函数调用开销，直接操作事件流
+
+#### 4.5.3 Scope 状态管理机制
+
+**ASGI Scope 状态传递机制：**
+
+在 ASGI 架构中，`scope` 字典是请求的共享状态容器，用于在中间件和应用之间传递信息。与 WSGI 中通过 `request` 对象属性传递状态不同，ASGI 使用 `scope` 字典来共享状态。
+
+**状态传递的最佳实践：**
+
+1. **使用标准化的状态键**：建议使用 `scope['state']` 作为通用状态存储容器
+2. **避免直接修改 scope 根级键**：除非是标准化的键（如 `user`）
+3. **保持状态键的一致性**：在整个中间件链中使用相同的键名约定
+
+**状态传递示例：**
+
 ```python
-class ASGIMiddlewareAdapter:
-    def __init__(self, app, middleware_classes):
-        self.app = app
-        self.middleware_classes = middleware_classes
-        self._sort_middlewares()
+class AuthenticationMiddleware(Middleware):
+    """认证中间件示例 - 包含状态传递"""
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] != "http":
-            await self.app(scope, receive, send)
-            return
-
-        request = Request(scope, receive, send)
-
-        # 处理请求中间件
-        response = None
-        for middleware_cls in self.middleware_classes:
-            middleware = middleware_cls(self.app, self.settings)
-            if hasattr(middleware, 'process_request'):
-                if asyncio.iscoroutinefunction(middleware.process_request):
-                    response = await middleware.process_request(request)
-                else:
-                    response = middleware.process_request(request)
-                if response is not None:
+        if scope["type"] == "http":
+            # 检查认证
+            auth_header = None
+            for key, value in scope.get("headers", []):
+                if key == b"authorization":
+                    auth_header = value.decode()
                     break
 
-        # 处理视图
-        if response is None:
-            try:
-                response = await self.app(scope, receive, send)
-            except Exception as e:
-                # 处理异常中间件
-                for middleware_cls in reversed(self.middleware_classes):
-                    middleware = middleware_cls(self.app, self.settings)
-                    if hasattr(middleware, 'process_exception'):
-                        if asyncio.iscoroutinefunction(middleware.process_exception):
-                            response = await middleware.process_exception(request, e)
-                        else:
-                            response = middleware.process_exception(request, e)
-                        if response is not None:
-                            break
-                if response is None:
-                    raise
+            # 认证用户
+            authenticated_user = self.authenticate(auth_header)
 
-        # 处理响应中间件
-        for middleware_cls in reversed(self.middleware_classes):
-            middleware = middleware_cls(self.app, self.settings)
-            if hasattr(middleware, 'process_response'):
-                if asyncio.iscoroutinefunction(middleware.process_response):
-                    response = await middleware.process_response(request, response)
+            if authenticated_user:
+                # 将认证信息添加到 scope 的 state 中
+                if 'state' not in scope:
+                    scope['state'] = {}
+                scope['state']['user'] = authenticated_user
+
+                # 认证通过，继续处理
+                await self.application(scope, receive, send)
+                return
+            else:
+                # 认证失败，返回 401 响应
+                await send({
+                    "type": "http.response.start",
+                    "status": 401,
+                    "headers": [(b"content-type", b"text/plain")],
+                })
+                await send({
+                    "type": "http.response.body",
+                    "body": b"Unauthorized",
+                })
+                return
+
+        # 非 HTTP 请求，直接传递
+        await self.application(scope, receive, send)
+
+    def authenticate(self, auth_header):
+        """认证逻辑"""
+        if auth_header and auth_header.startswith("Bearer "):
+            # 这里实现实际的认证逻辑
+            # 返回认证后的用户对象
+            return {"id": 1, "username": "testuser", "roles": ["user"]}
+        return None
+
+class SessionMiddleware(Middleware):
+    """会话管理中间件示例"""
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            # 初始化会话状态
+            if 'state' not in scope:
+                scope['state'] = {}
+
+            # 从请求中获取会话 ID
+            session_id = self._get_session_id(scope)
+            session_data = await self._load_session(session_id)
+
+            # 将会话数据添加到 scope state
+            scope['state']['session'] = session_data
+
+            # 包装 send 函数来保存会话
+            async def send_wrapper(message):
+                if message["type"] == "http.response.start":
+                    # 在响应头中设置会话 Cookie
+                    headers = list(message.get("headers", []))
+                    headers.append((b"set-cookie", f"session_id={session_id}; Path=/".encode()))
+                    message["headers"] = headers
+
+                await send(message)
+
+                # 响应完成后保存会话
+                if message["type"] == "http.response.body" and not message.get("more_body", False):
+                    await self._save_session(session_id, scope['state']['session'])
+
+            await self.application(scope, receive, send_wrapper)
+        else:
+            await self.application(scope, receive, send)
+
+    def _get_session_id(self, scope):
+        """从请求中获取会话 ID"""
+        # 从 Cookie 中获取会话 ID
+        for key, value in scope.get("headers", []):
+            if key == b"cookie":
+                cookies = value.decode().split(';')
+                for cookie in cookies:
+                    if 'session_id=' in cookie:
+                        return cookie.split('=')[1].strip()
+        # 如果没有找到，生成新的会话 ID
+        return str(uuid.uuid4())
+
+    async def _load_session(self, session_id):
+        """加载会话数据"""
+        # 这里实现实际的会话加载逻辑
+        return {"user_id": None, "last_activity": datetime.now()}
+
+    async def _save_session(self, session_id, session_data):
+        """保存会话数据"""
+        # 这里实现实际的会话保存逻辑
+        pass
+```
+
+**状态访问约定：**
+
+在应用层（视图函数）中，可以通过以下方式访问中间件设置的状态：
+
+```python
+@expose('/profile')
+async def user_profile():
+    """访问用户信息的视图函数"""
+    # 从请求的 scope 中获取状态
+    request = get_request()
+    user = request.scope.get('state', {}).get('user')
+    session = request.scope.get('state', {}).get('session')
+
+    if not user:
+        raise HTTPError(401, "Unauthorized")
+
+    return {"user": user, "session": session}
+```
+
+**状态管理的最佳实践：**
+
+1. **统一的状态容器**：所有中间件都使用 `scope['state']` 作为状态存储容器
+2. **键名约定**：使用有意义的键名，如 `user`, `session`, `db_connection` 等
+3. **状态清理**：在请求处理完成后，确保及时清理敏感状态信息
+4. **类型安全**：确保存储的状态对象具有明确的类型和结构
+5. **状态传递顺序**：中间件应该按照配置顺序处理状态，确保依赖关系正确
+
+**状态传递的通用模式：**
+
+```python
+# 在中间件中设置状态
+if 'state' not in scope:
+    scope['state'] = {}
+scope['state']['middleware_key'] = value
+
+# 在应用层访问状态
+def get_middleware_state(request, key, default=None):
+    """安全地获取中间件状态"""
+    return request.scope.get('state', {}).get(key, default)
+
+# 在视图函数中使用
+@expose('/api/data')
+async def get_data():
+    request = get_request()
+    user = get_middleware_state(request, 'user')
+    session = get_middleware_state(request, 'session')
+
+    if not user:
+        raise HTTPError(401, "Authentication required")
+
+    # 使用状态信息处理业务逻辑
+    return {"data": await fetch_user_data(user['id'])}
+```
+
+**状态传递的注意事项：**
+
+1. **避免状态污染**：每个中间件应该只修改自己负责的状态键
+2. **状态验证**：在访问状态前进行必要的验证
+3. **错误处理**：处理状态不存在或格式错误的情况
+4. **性能考虑**：避免在状态中存储过大的对象
+5. **线程安全**：确保状态对象在多线程环境下的安全性
+
+**推荐的中间件状态键名约定：**
+
+- `user`: 认证用户信息
+- `session`: 会话数据
+- `db`: 数据库连接
+- `cache`: 缓存连接
+- `auth`: 认证上下文
+- `i18n`: 国际化信息
+- `csrf`: CSRF 令牌
+- `rate_limit`: 限流信息
+
+#### 4.5.4 中间件开发指南
+
+**创建新的 ASGI 中间件示例：**
+
+```python
+from uliweb import Middleware
+
+class LoggingMiddleware(Middleware):
+    """日志记录中间件示例"""
+
+    async def __call__(self, scope, receive, send):
+        # 记录请求开始
+        if scope["type"] == "http":
+            print(f"HTTP Request: {scope['method']} {scope['path']}")
+
+        # 包装 send 函数来记录响应
+        async def send_wrapper(message):
+            if message["type"] == "http.response.start":
+                print(f"HTTP Response: {message['status']}")
+            await send(message)
+
+        # 调用上游应用
+        await self.application(scope, receive, send_wrapper)
+
+class AuthenticationMiddleware(Middleware):
+    """认证中间件示例"""
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            # 检查认证 - 使用更高效的 Header 查找方式
+            auth_header = None
+            for key, value in scope.get("headers", []):
+                if key == b"authorization":
+                    auth_header = value.decode()
+                    break
+
+            if not self.authenticate(auth_header):
+                # 直接返回 401 响应，不调用上游应用
+                await send({
+                    "type": "http.response.start",
+                    "status": 401,
+                    "headers": [(b"content-type", b"text/plain")],
+                })
+                await send({
+                    "type": "http.response.body",
+                    "body": b"Unauthorized",
+                })
+                return
+
+        # 认证通过，继续处理
+        await self.application(scope, receive, send)
+
+    def authenticate(self, auth_header):
+        """简单的认证逻辑"""
+        return auth_header and auth_header.startswith("Bearer ")
+
+class ExceptionHandlingMiddleware(Middleware):
+    """异常处理中间件示例 - 优化版本"""
+
+    async def __call__(self, scope, receive, send):
+        # 标记是否已经开始发送响应
+        response_started = False
+
+        async def send_wrapper(message):
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
+
+        try:
+            # 调用上游应用，使用包装的 send 函数
+            await self.application(scope, receive, send_wrapper)
+        except Exception as e:
+            # 只有在还没有开始发送响应时才处理异常
+            if not response_started:
+                await self._handle_exception(scope, send, e)
+            else:
+                # 如果已经开始发送响应，重新抛出异常
+                raise
+
+    async def _handle_exception(self, scope, send, exception):
+        """处理异常并发送错误响应"""
+        if scope["type"] == "http":
+            # 根据异常类型确定状态码和消息
+            if isinstance(exception, HTTPError):
+                status_code = exception.status_code
+                message = str(exception)
+            else:
+                status_code = 500
+                # 生产环境下返回通用错误页面，开发环境下显示详细错误信息
+                if self.settings.get_var('GLOBAL/DEBUG'):
+                    message = f"Internal Server Error: {str(exception)}"
                 else:
-                    response = middleware.process_response(request, response)
+                    message = "Internal Server Error"
 
-        await response(scope, receive, send)
+            # 直接发送错误响应，避免使用 Starlette 依赖
+            await send({
+                "type": "http.response.start",
+                "status": status_code,
+                "headers": [
+                    (b"content-type", b"application/json; charset=utf-8"),
+                    (b"cache-control", b"no-cache")
+                ],
+            })
+            await send({
+                "type": "http.response.body",
+                "body": f'{{"error": "{message}"}}'.encode('utf-8'),
+            })
 ```
 
-**中间件配置迁移：**
+#### 4.5.4 异常处理机制
+
+**ASGI 中间件的异常处理特点：**
+
+1. **异常捕获范围**：中间件可以捕获上游应用抛出的任何异常
+2. **响应生成**：中间件可以生成自定义的错误响应，而不是让异常传播到服务器
+3. **调试支持**：在调试模式下可以提供详细的错误信息
+4. **连接类型感知**：可以根据 scope["type"] 判断是 HTTP 还是 WebSocket 连接
+
+**异常处理中间件的执行流程：**
+1. 在 `__call__` 方法中使用 try/except 块包装上游应用调用
+2. 使用 `send_wrapper` 跟踪响应是否已经开始发送
+3. 捕获异常后检查响应是否已经开始发送
+4. 如果响应未开始发送，则生成并发送错误响应
+5. 如果响应已经开始发送，则重新抛出异常（让服务器处理）
+
+**异常处理配置示例：**
 ```ini
-# 从 WSGI_MIDDLEWARES 配置迁移到 ASGI 中间件配置
 [MIDDLEWARES]
-# 格式: 中间件名称 = [中间件类路径, 优先级, 配置参数]
-auth = ['uliweb.contrib.auth.middle_auth.AuthMiddle', 100]
-csrf = ['uliweb.contrib.csrf.middleware.CSRFMiddleware', 150]
-i18n = ['uliweb.contrib.i18n.middle_i18n.I18nMiddle', 200]
-session = ['uliweb.contrib.session.middle_session.SessionMiddle', 50]
-transaction = ['uliweb.contrib.orm.middle_transaction.TransactionMiddle', 80]
+# 异常处理中间件应该放在最后，以便捕获所有其他中间件的异常
+exception = ['myapp.middleware.ExceptionHandlingMiddleware', 1000]
 ```
+
+#### 4.5.4 中间件配置
+
+**中间件配置（纯 ASGI 版本）：**
+```ini
+# ASGI 中间件配置（不再支持 WSGI_MIDDLEWARES）
+[MIDDLEWARES]
+# 格式: 中间件名称 = [ASGI 中间件类路径, 优先级]
+logging = ['myapp.middleware.LoggingMiddleware', 50]
+auth = ['myapp.middleware.AuthMiddleware', 100]
+csrf = ['myapp.middleware.CSRFMiddleware', 150]
+i18n = ['myapp.middleware.I18nMiddleware', 200]
+session = ['myapp.middleware.SessionMiddleware', 50]
+```
+
+#### 4.5.5 性能优化考虑
+
+1. **异步流式处理**：中间件可以处理流式数据，支持大文件上传/下载
+2. **WebSocket 支持**：相同的接口可以处理 WebSocket 连接
+3. **连接复用**：支持 HTTP/2 和连接复用场景
+4. **资源管理**：更好的异步资源管理
+
+#### 4.5.6 Request 对象创建的最佳实践
+
+**重要：避免重复创建 Request 对象**
+
+在 ASGI 中间件开发中，Request 对象的创建位置至关重要。如果 Request 对象封装了 `receive` 流的读取逻辑，多次创建会导致重复读取流数据，造成性能问题和数据不一致。
+
+**最佳实践：**
+
+1. **框架层统一创建**：框架应该在最外层统一创建一次 Request 对象，并在整个中间件链和应用层共享
+2. **中间件避免创建 Request**：中间件应该直接从 `scope` 中获取所需信息，避免创建 Request 对象
+3. **状态传递使用 scope**：中间件间的状态传递应该使用 `scope['state']` 而不是通过 Request 对象属性
+
+**错误示例（避免使用）：**
+```python
+class AuthMiddleware(Middleware):
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            # ❌ 错误：每次调用都创建新的 Request 对象
+            request = Request(scope, receive, send)
+            user = await self.authenticate(request)
+            # ...
+```
+
+**正确示例（推荐使用）：**
+```python
+class AuthMiddleware(Middleware):
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            # ✅ 正确：直接从 scope 获取认证信息
+            user = await self.authenticate_from_scope(scope)
+            # 将用户信息存储在 scope state 中
+            if 'state' not in scope:
+                scope['state'] = {}
+            scope['state']['user'] = user
+            # ...
+```
+
+**框架层的 Request 对象管理：**
+
+在 Dispatcher 中应该统一创建 Request 对象：
+```python
+async def handle_http(self, scope, receive, send):
+    """处理 HTTP 请求"""
+    # 统一创建 Request 对象
+    request = Request(scope, receive, send)
+
+    # 设置请求上下文
+    request_token = request_var.set(request)
+
+    try:
+        # 处理请求，所有中间件和应用层共享同一个 Request 对象
+        response = await self._open(request)
+        await response(scope, receive, send)
+    finally:
+        # 清理上下文
+        request_var.reset(request_token)
+```
+
+#### 4.5.7 纯 ASGI 中间件策略
+
+**设计原则：**
+1. **只支持 ASGI 中间件接口**：不再提供对 WSGI 中间件的兼容性支持
+2. **简化架构**：避免复杂的适配器层，直接使用 ASGI 3.0 标准接口
+3. **性能优先**：专注于 ASGI 架构的性能优势，不承担兼容性带来的性能损失
+
+**迁移策略：**
+
+1. **新项目**：直接使用新的 ASGI 中间件接口
+2. **现有项目**：需要将现有的 WSGI 中间件重写为 ASGI 中间件
+3. **不提供适配器**：不提供 WSGI 到 ASGI 的中间件适配器，强制使用纯 ASGI 接口
+
+**Uliweb 中间件重写指南：**
+
+现有的 Uliweb 中间件需要按照以下模式重写为 ASGI 中间件：
+
+**WSGI 中间件（旧版本）：**
+```python
+class AuthMiddle(Middleware):
+    def process_request(self, request):
+        # WSGI 中间件逻辑
+        user = self.authenticate(request)
+        if user:
+            request.user = user
+        else:
+            return redirect('/login')
+
+    def process_response(self, request, response):
+        # 响应处理逻辑
+        return response
+```
+
+**ASGI 中间件（新版本）：**
+```python
+class AuthMiddleware(Middleware):
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            # 初始化状态容器
+            if 'state' not in scope:
+                scope['state'] = {}
+
+            # 认证逻辑 - 直接从 scope 中获取认证信息，避免创建 Request 对象
+            user = await self.authenticate_from_scope(scope)
+
+            if user:
+                # 将用户信息存储在 scope state 中
+                scope['state']['user'] = user
+                # 继续处理请求
+                await self.application(scope, receive, send)
+            else:
+                # 认证失败，返回重定向响应
+                response = RedirectResponse('/login')
+                await response(scope, receive, send)
+        else:
+            # 非 HTTP 请求直接传递
+            await self.application(scope, receive, send)
+
+    async def authenticate_from_scope(self, scope):
+        """直接从 scope 中获取认证信息，避免创建 Request 对象"""
+        # 从 scope 的 headers 中获取认证信息
+        auth_header = None
+        for key, value in scope.get("headers", []):
+            if key == b"authorization":
+                auth_header = value.decode()
+                break
+
+        # 实现认证逻辑
+        if auth_header and auth_header.startswith("Bearer "):
+            # 这里实现实际的认证逻辑
+            return {"id": 1, "username": "testuser", "roles": ["user"]}
+        return None
+```
+
+**中间件配置（纯 ASGI 版本）：**
+```ini
+# ASGI 中间件配置（不再支持 WSGI_MIDDLEWARES）
+[MIDDLEWARES]
+# 格式: 中间件名称 = [ASGI 中间件类路径, 优先级]
+logging = ['myapp.middleware.LoggingMiddleware', 50]
+auth = ['myapp.middleware.AuthMiddleware', 100]
+csrf = ['myapp.middleware.CSRFMiddleware', 150]
+i18n = ['myapp.middleware.I18nMiddleware', 200]
+session = ['myapp.middleware.SessionMiddleware', 50]
+```
+
+**优势：**
+1. **性能更好**：避免了适配器层的性能开销
+2. **架构更清晰**：统一的 ASGI 接口，没有兼容性负担
+3. **开发更简单**：开发者只需要学习一种中间件接口
+4. **维护更容易**：代码库更简洁，没有复杂的兼容性逻辑
+
+**注意事项：**
+1. **需要重写现有中间件**：所有现有的 WSGI 中间件都需要重写为 ASGI 版本
+2. **学习曲线**：开发者需要学习 ASGI 中间件的开发模式
+3. **生态迁移**：相关的 contrib app 需要提供 ASGI 版本的中间件
 
 ### 4.6 模板系统异步化
 
@@ -1119,4 +1573,49 @@ async def websocket_endpoint(websocket: WebSocket):
 - WebSocket 协议的支持
 - 错误处理和调试信息的完善
 
-通过这个完整的迁移方案，可以确保 Uliweb 从 Werkzeug 到 Starlette 的迁移过程中所有关键组件都被妥善处理，实现纯 ASGI 架构。
+### 关于 Scope 状态管理的特别说明
+
+**Scope 状态管理是 ASGI 架构的核心优势：**
+
+1. **统一的状态传递机制**：`scope['state']` 提供了标准化的状态容器，避免了 WSGI 中通过 `request` 对象属性传递状态的混乱
+2. **类型安全**：通过明确的键名约定，确保状态对象的类型安全
+3. **中间件协作**：不同中间件可以通过 `scope['state']` 进行协作，实现复杂的功能组合
+4. **性能优化**：避免了不必要的对象属性访问，直接通过字典键访问状态
+
+**推荐的中间件开发模式：**
+
+```python
+class MyMiddleware(Middleware):
+    async def __call__(self, scope, receive, send):
+        # 1. 初始化状态容器
+        if 'state' not in scope:
+            scope['state'] = {}
+
+        # 2. 设置中间件状态
+        scope['state']['my_middleware'] = self._initialize_state()
+
+        # 3. 处理请求
+        try:
+            await self.application(scope, receive, send)
+        except Exception as e:
+            # 4. 异常处理
+            await self._handle_exception(scope, send, e)
+
+    def _initialize_state(self):
+        """初始化中间件状态"""
+        return {"initialized_at": datetime.now()}
+
+    async def _handle_exception(self, scope, send, exception):
+        """异常处理逻辑"""
+        # 使用 scope 中的状态信息进行错误处理
+        pass
+```
+
+**状态管理的未来扩展性：**
+
+1. **类型化状态**：未来可以考虑使用 TypedDict 或 dataclass 来定义状态结构
+2. **状态验证**：添加状态验证机制，确保中间件设置的状态符合预期格式
+3. **状态监控**：实现状态监控和调试工具，便于开发调试
+4. **状态持久化**：支持状态在不同请求间的持久化（如会话状态）
+
+通过这个完整的迁移方案，可以确保 Uliweb 从 Werkzeug 到 Starlette 的迁移过程中所有关键组件都被妥善处理，实现纯 ASGI 架构。特别是 Scope 状态管理机制的引入，为 Uliweb 提供了更现代化、更高效的状态管理方式。
