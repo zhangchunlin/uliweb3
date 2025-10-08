@@ -47,7 +47,10 @@
 - **更高性能**：更好的并发处理能力
 - **现代生态集成**：更好的 Python 异步生态整合
 
-迁移过程将直接采用纯 ASGI 架构，不再支持 WSGI 兼容模式。
+**重要改进：渐进式迁移策略**
+- **同步适配器机制**：引入框架层自动同步/异步适配器，支持现有同步代码平滑过渡
+- **强制异步化接口**：避免 async property 兼容性陷阱，采用明确的异步方法
+- **渐进式迁移**：支持外部异步、内部同步的平滑过渡，降低迁移风险
 
 ## 2. 架构对比分析
 
@@ -79,28 +82,42 @@ Starlette 是一个轻量级的 ASGI 框架/工具包，具有以下特性：
 
 ## 3. 迁移策略和阶段划分
 
-### 3.1 阶段一：基础架构迁移
-- 核心 Request/Response 对象迁移
-- ASGI 接口实现
-- 基本路由系统
+### 3.1 阶段一：基础架构迁移（渐进式兼容）
+- 核心 Request/Response 对象迁移（修复 async property 陷阱）
+- ASGI 接口实现（包含同步适配器机制）
+- 基本路由系统（支持同步视图函数自动适配）
 
-### 3.2 阶段二：功能完整性
-- 中间件系统迁移
-- 模板系统适配
-- 会话管理
+**关键改进：同步适配器机制**
+```python
+# 在 Dispatcher 中实现同步视图函数自动适配
+async def _call_view_function(self, func, request, *args, **kwargs):
+    """智能调用视图函数，支持同步和异步函数"""
+    if asyncio.iscoroutinefunction(func):
+        # 异步函数直接调用
+        return await func(request, *args, **kwargs)
+    else:
+        # 同步函数在线程池中执行，避免阻塞事件循环
+        return await anyio.to_thread.run_sync(func, request, *args, **kwargs)
+```
 
-### 3.3 阶段三：性能优化
-- 异步数据库驱动集成
-- 缓存系统优化
-- WebSocket 支持
+### 3.2 阶段二：功能完整性（兼容性优先）
+- 中间件系统迁移（保持现有接口兼容性）
+- 模板系统适配（同步/异步渲染支持）
+- 会话管理（异步化改造）
 
-### 3.4 阶段四：生态兼容
-- 插件系统适配
-- 文档更新
+### 3.3 阶段三：性能优化（渐进异步化）
+- 异步数据库驱动集成（可选，保持同步驱动兼容）
+- 缓存系统优化（支持同步/异步后端）
+- WebSocket 支持（纯异步功能）
+
+### 3.4 阶段四：生态兼容（平滑过渡）
+- 插件系统适配（提供迁移指南和工具）
+- 文档更新（包含兼容性说明和最佳实践）
+- 弃用策略（明确迁移时间表和兼容性保证）
 
 ## 4. 核心组件迁移实现
 
-### 4.1 Request/Response 对象迁移
+### 4.1 Request/Response 对象迁移（修复兼容性陷阱）
 
 **旧的实现：**
 ```python
@@ -120,8 +137,7 @@ class Request(OriginalRequest):
                       .lower() == 'xmlhttprequest')
 ```
 
-
-**实际实现（与规划一致）：**
+**改进的实现（修复 async property 陷阱）：**
 ```python
 from starlette.requests import Request as StarletteRequest
 from starlette.responses import Response as StarletteResponse
@@ -129,44 +145,80 @@ from starlette.datastructures import UploadFile, FormData
 import json as jsn
 
 class Request(StarletteRequest):
-    """基于 Starlette 的 Request 类，保持与现有 Uliweb 的兼容性"""
+    """基于 Starlette 的 Request 类，修复兼容性陷阱"""
 
     @property
     def GET(self):
-        """兼容 GET 参数访问"""
+        """兼容 GET 参数访问（同步属性）"""
         return self.query_params
 
-    @property
-    async def POST(self):
-        """异步获取 POST 表单数据"""
+    async def get_POST(self):
+        """异步获取 POST 表单数据（强制异步方法）"""
         if self.method == "POST":
             form = await self.form()
             return form
         return {}
 
-    @property
-    async def FILES(self):
-        """异步获取上传文件"""
+    async def get_FILES(self):
+        """异步获取上传文件（强制异步方法）"""
         if self.method == "POST":
             form = await self.form()
             return {k: v for k, v in form.items() if isinstance(v, UploadFile)}
         return {}
 
-    @property
-    async def json(self):
-        """异步获取 JSON 数据"""
-        return await self.json()
+    async def get_json(self):
+        """异步获取 JSON 数据（强制异步方法，修复递归调用）"""
+        return await super().json()
 
     @property
     def is_xhr(self):
-        """检查是否为 AJAX 请求"""
+        """检查是否为 AJAX 请求（同步属性）"""
         return self.headers.get('x-requested-with', '').lower() == 'xmlhttprequest'
+
+    async def get_params(self):
+        """异步获取合并参数（强制异步方法，避免阻塞）"""
+        # 由于 POST 数据需要异步读取，params 必须也是异步方法
+        get_params = self.query_params
+        post_params = await self.get_POST()
+
+        # 合并 GET 和 POST 参数
+        merged_params = {}
+        merged_params.update(get_params)
+        merged_params.update(post_params)
+        return merged_params
+
+    # 向后兼容的同步属性（标记为已弃用）
+    @property
+    def POST(self):
+        """已弃用：同步访问 POST 数据会抛出异常"""
+        raise RuntimeError(
+            "POST 属性已弃用，请使用 await request.get_POST() 方法。"
+            "同步代码可以使用同步适配器机制。"
+        )
+
+    @property
+    def FILES(self):
+        """已弃用：同步访问 FILES 数据会抛出异常"""
+        raise RuntimeError(
+            "FILES 属性已弃用，请使用 await request.get_FILES() 方法。"
+            "同步代码可以使用同步适配器机制。"
+        )
+
+    @property
+    def json(self):
+        """已弃用：同步访问 JSON 数据会抛出异常"""
+        raise RuntimeError(
+            "json 属性已弃用，请使用 await request.get_json() 方法。"
+            "同步代码可以使用同步适配器机制。"
+        )
 
     @property
     def params(self):
-        """兼容 params 属性，合并 GET 和 POST 参数"""
-        # 注意：在异步环境中需要特殊处理
-        return self.query_params
+        """已弃用：同步访问合并参数会抛出异常"""
+        raise RuntimeError(
+            "params 属性已弃用，请使用 await request.get_params() 方法。"
+            "由于 POST 数据需要异步读取，params 无法同步实现。"
+        )
 
 class Response(StarletteResponse):
     """基于 Starlette 的 Response 类，保持与现有 Uliweb 的兼容性"""
@@ -176,6 +228,41 @@ class Response(StarletteResponse):
         # 在异步环境中，write 方法需要特殊处理
         # 这里暂时保持接口兼容性
         pass
+```
+
+**兼容性改进说明：**
+
+1. **避免 async property 陷阱**：将 `async def POST`、`async def FILES`、`async def json` 改为明确的异步方法 `get_POST()`、`get_FILES()`、`get_json()`
+2. **修复递归调用错误**：`async def json` 中的 `return await self.json()` 改为 `return await super().json()`
+3. **强制异步化**：`params` 属性改为异步方法 `get_params()`，因为需要异步读取 POST 数据
+4. **明确的弃用策略**：保留同步属性但抛出异常，指导用户使用正确的异步方法
+5. **同步适配器支持**：框架层提供同步到异步的自动适配，支持现有同步代码
+
+**使用示例：**
+```python
+# 异步视图函数（推荐）
+@expose('/api/data')
+async def async_view():
+    # 正确的异步访问方式
+    post_data = await request.get_POST()
+    json_data = await request.get_json()
+    files = await request.get_FILES()
+    params = await request.get_params()
+
+    return {"status": "success"}
+
+# 同步视图函数（通过适配器支持）
+@expose('/sync/data')
+def sync_view():
+    # 框架会自动将同步函数包装为异步执行
+    # 在同步函数内部，request.POST 等属性会抛出异常
+    # 应该使用同步版本的替代方法或重构为异步
+
+    # 错误示例（会抛出异常）：
+    # post_data = request.POST  # ❌ RuntimeError
+
+    # 正确做法：重构为异步或使用同步适配器
+    return {"status": "sync function supported via adapter"}
 ```
 
 ### 4.2 Dispatcher 类重构
@@ -1428,19 +1515,108 @@ async def _match_route(self, request):
 
 ## 6. 技术挑战与解决方案
 
-### 6.1 同步到异步的迁移
+### 6.1 同步到异步的迁移（同步适配器机制）
 
-**问题：** 现有代码库大量使用同步代码
+**问题：** 现有代码库大量使用同步代码，直接迁移会导致"大爆炸式"重写
 
-**解决方案：**
-1. 使用 `anyio.to_thread.run_sync` 处理阻塞操作
-2. 逐步迁移关键路径到异步
-3. 提供同步到异步的包装器
+**解决方案：引入同步适配器机制**
 
+**框架层同步适配器实现：**
 ```python
-async def run_sync_in_thread(func, *args):
-    """在线程中运行同步函数"""
-    return await anyio.to_thread.run_sync(func, *args)
+class AsyncDispatcher:
+    """支持同步视图函数自动适配的异步 Dispatcher"""
+
+    async def _call_view_function(self, func, request, *args, **kwargs):
+        """智能调用视图函数，支持同步和异步函数"""
+        if asyncio.iscoroutinefunction(func):
+            # 异步函数直接调用
+            return await func(request, *args, **kwargs)
+        else:
+            # 同步函数在线程池中执行，避免阻塞事件循环
+            return await anyio.to_thread.run_sync(func, request, *args, **kwargs)
+
+    async def _handle_sync_request_data(self, request):
+        """为同步函数预加载请求数据"""
+        # 在调用同步函数前，预加载所有需要的异步数据
+        if request.method == "POST":
+            # 预加载 POST 数据，避免同步函数中调用异步方法
+            request._cached_post_data = await request.get_POST()
+            request._cached_files_data = await request.get_FILES()
+
+        # 预加载 JSON 数据
+        if request.headers.get('content-type', '').startswith('application/json'):
+            request._cached_json_data = await request.get_json()
+
+        return request
+
+    async def _open(self, request):
+        """处理请求的核心方法，包含同步适配逻辑"""
+        # 预加载请求数据
+        request = await self._handle_sync_request_data(request)
+
+        # 路由匹配和视图函数调用
+        # ... 其他逻辑
+
+        # 调用视图函数
+        response = await self._call_view_function(view_func, request, **kwargs)
+        return response
+```
+
+**同步适配器的优势：**
+1. **渐进式迁移**：现有同步代码无需立即重写，可以逐步迁移
+2. **性能平衡**：同步函数在独立线程中执行，不阻塞事件循环
+3. **兼容性保证**：支持混合使用同步和异步代码
+4. **开发友好**：降低迁移门槛，减少停机时间
+
+**同步适配器的使用场景：**
+```python
+# 场景1：现有同步视图函数（无需修改）
+@expose('/legacy/sync-view')
+def legacy_sync_view():
+    # 这个函数会被框架自动适配为异步执行
+    # 注意：在同步函数中不能直接调用异步方法
+    # 应该使用预加载的数据或重构为异步
+
+    # 错误示例：
+    # data = await request.get_POST()  # ❌ 同步函数中不能使用 await
+
+    # 正确做法1：使用预加载的数据
+    if hasattr(request, '_cached_post_data'):
+        post_data = request._cached_post_data
+
+    # 正确做法2：重构为异步函数
+    return {"status": "legacy sync function"}
+
+# 场景2：新的异步视图函数（推荐）
+@expose('/new/async-view')
+async def new_async_view():
+    # 可以直接使用异步方法
+    post_data = await request.get_POST()
+    json_data = await request.get_json()
+    return {"status": "new async function"}
+
+# 场景3：混合使用（过渡期）
+@expose('/mixed/view')
+async def mixed_view():
+    # 可以调用现有的同步业务逻辑
+    sync_result = await anyio.to_thread.run_sync(sync_business_logic, data)
+    # 同时使用新的异步功能
+    async_result = await async_operation(data)
+    return {"sync": sync_result, "async": async_result}
+```
+
+**同步适配器的配置选项：**
+```python
+# 在 settings.ini 中配置同步适配器行为
+[ASGI]
+# 同步函数线程池大小
+SYNC_THREAD_POOL_SIZE = 20
+# 是否启用请求数据预加载
+PRELOAD_REQUEST_DATA = true
+# 同步函数超时时间（秒）
+SYNC_FUNCTION_TIMEOUT = 30
+# 是否记录同步适配器使用情况
+LOG_SYNC_ADAPTER_USAGE = true
 ```
 
 ### 6.2 全局状态管理
@@ -1547,23 +1723,130 @@ async def websocket_endpoint(websocket: WebSocket):
 
 ## 8. 总结和最佳实践
 
+### 改进方案总结
+
+**核心改进点：**
+
+1. **同步适配器机制**：解决了"大爆炸式"迁移问题，支持现有同步代码平滑过渡
+2. **强制异步化接口**：避免了 async property 兼容性陷阱，采用明确的异步方法
+3. **渐进式迁移策略**：支持外部异步、内部同步的架构，降低迁移风险
+
+**技术架构改进：**
+
+- **Request/Response 对象**：修复了 async property 陷阱，改为明确的异步方法
+- **Dispatcher 类**：内置同步适配器，自动处理同步/异步视图函数
+- **中间件系统**：采用纯 ASGI 接口，简化架构并提升性能
+- **状态管理**：使用 contextvars 替代 threading.local，支持异步环境
+
 ### 迁移收益
 1. **性能提升**：异步处理能力，支持更高并发
 2. **功能增强**：WebSocket、Server-Sent Events 等现代功能
 3. **生态整合**：更好的 Python 异步生态集成
 4. **未来兼容**：符合现代 Web 标准和发展趋势
+5. **平滑迁移**：同步适配器机制支持渐进式升级
 
 ### 最佳实践
-1. **渐进式迁移**：先在小规模项目中试点，逐步推广
-2. **充分测试**：确保每个迁移步骤都经过充分测试
-3. **监控性能**：迁移前后进行性能对比监控
-4. **文档更新**：及时更新相关文档和示例
+
+**迁移策略最佳实践：**
+
+1. **渐进式迁移**：
+   - 先在小规模项目中试点，验证同步适配器机制
+   - 逐步将关键路径迁移到异步，保持业务连续性
+   - 使用混合模式过渡，逐步减少同步代码比例
+
+2. **代码重构指导**：
+   - 优先重构高并发、I/O 密集的视图函数为异步
+   - 保持现有同步代码，利用同步适配器机制
+   - 避免在同步函数中调用异步方法，使用预加载数据
+
+3. **测试验证策略**：
+   - 单元测试：验证同步/异步函数在适配器中的行为
+   - 集成测试：确保混合模式下的功能完整性
+   - 性能测试：对比迁移前后的性能表现
+
+**开发最佳实践：**
+
+1. **异步代码编写**：
+   ```python
+   # 推荐：明确的异步方法调用
+   post_data = await request.get_POST()
+   json_data = await request.get_json()
+
+   # 避免：使用已弃用的同步属性
+   # post_data = request.POST  # ❌ 会抛出异常
+   ```
+
+2. **同步代码适配**：
+   ```python
+   # 现有同步代码可以继续使用
+   @expose('/legacy/view')
+   def legacy_view():
+       # 框架会自动适配为异步执行
+       # 注意：不能直接调用异步方法
+       return {"status": "legacy function"}
+   ```
+
+3. **混合模式开发**：
+   ```python
+   @expose('/mixed/view')
+   async def mixed_view():
+       # 可以混合使用同步和异步代码
+       sync_result = await anyio.to_thread.run_sync(sync_function)
+       async_result = await async_function()
+       return {"sync": sync_result, "async": async_result}
+   ```
 
 ### 注意事项
+
+**技术注意事项：**
+
 1. **线程安全**：在异步环境中使用同步函数时注意线程安全问题
 2. **上下文管理**：确保事件处理函数能够正确访问请求上下文
 3. **依赖管理**：异步事件处理可能依赖其他异步服务，需要妥善管理
 4. **错误处理**：为异步操作添加适当的错误处理和重试机制
+
+**迁移注意事项：**
+
+1. **兼容性保证**：同步适配器机制确保现有代码继续工作
+2. **性能监控**：同步函数在线程池中执行，需要监控线程池使用情况
+3. **资源管理**：预加载请求数据会增加内存使用，需要合理配置
+4. **调试支持**：同步/异步混合模式需要更好的调试工具支持
+
+**配置优化建议：**
+
+```ini
+[ASGI]
+# 同步适配器配置优化
+SYNC_THREAD_POOL_SIZE = 20        # 根据并发需求调整
+PRELOAD_REQUEST_DATA = true       # 启用数据预加载
+SYNC_FUNCTION_TIMEOUT = 30        # 同步函数超时时间
+LOG_SYNC_ADAPTER_USAGE = true     # 记录适配器使用情况
+
+[GLOBAL]
+DEBUG = true                      # 开发阶段启用调试模式
+```
+
+### 迁移时间线建议
+
+**阶段一（1-2个月）：基础架构迁移**
+- 部署新的 ASGI 架构
+- 验证同步适配器机制
+- 培训开发团队
+
+**阶段二（2-4个月）：功能迁移**
+- 逐步迁移关键业务逻辑到异步
+- 优化性能敏感路径
+- 完善测试覆盖
+
+**阶段三（4-6个月）：性能优化**
+- 全面异步化优化
+- 性能调优和监控
+- 生产环境验证
+
+**阶段四（长期）：生态完善**
+- 贡献插件异步化
+- 社区生态建设
+- 持续优化和改进
 
 ### 实际实现验证
 基于 `starlette.py` 的实际实现已经验证了以下关键功能：
