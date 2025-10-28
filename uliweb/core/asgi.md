@@ -578,10 +578,238 @@ async def context_middleware(app):
 
 ### 4.5 中间件系统适配
 
-Uliweb3 迁移到 Starlette 后，中间件系统将采用 Starlette 的标准中间件接口。Starlette 提供了两种主要的中间件实现方式：
+Uliweb3 迁移到 Starlette 后，中间件系统将采用更合适与 ASGI 的接口，仿照 Starlette 的两种方式，但不直接使用 Starlette 的中间件类。和原来 Werkzeug 类似，有自己的一套中间件接口，不直接使用 Werkzeug 的中间件类。
+
+Starlette 提供了两种主要的中间件实现方式：
 
 1. **BaseHTTPMiddleware** - 高级中间件接口，适用于大多数场景
 2. **纯 ASGI 中间件** - 底层接口，提供更大的灵活性
+
+Uliweb 将实现自己的中间件接口，提供两种方式：
+
+1. **高级中间件接口** - 仿照 Starlette 的 `BaseHTTPMiddleware`，提供 `async def dispatch(self, request, call_next):` 抽象程度较高的接口
+2. **底层 ASGI 中间件接口** - 仿照 Starlette 的纯 ASGI 中间件，提供 `async def __call__(self, scope, receive, send):` 比较底层的接口
+
+#### Uliweb 中间件接口实现
+
+Uliweb 的中间件接口设计将保持与原有 Werkzeug 风格的兼容性，同时支持 ASGI 的异步特性：
+
+##### 1. 高级中间件接口（推荐）
+
+```python
+from uliweb import Middleware
+
+class MyAdvancedMiddleware(Middleware):
+    """高级中间件接口 - 仿照 Starlette 的 BaseHTTPMiddleware"""
+
+    def __init__(self, application, settings):
+        super().__init__(application, settings)
+        # 初始化中间件配置
+
+    async def dispatch(self, request, call_next):
+        """
+        高级中间件处理方法
+        :param request: 请求对象
+        :param call_next: 调用下一个中间件或视图函数的异步函数
+        :return: 响应对象
+        """
+        # 请求预处理
+        await self.before_request(request)
+
+        # 调用下一个中间件或视图函数
+        response = await call_next(request)
+
+        # 响应后处理
+        response = await self.after_response(request, response)
+
+        return response
+
+    async def before_request(self, request):
+        """请求预处理钩子"""
+        # 在这里实现请求预处理逻辑
+        pass
+
+    async def after_response(self, request, response):
+        """响应后处理钩子"""
+        # 在这里实现响应后处理逻辑
+        return response
+
+# 使用示例
+class LoggingMiddleware(Middleware):
+    """请求日志记录中间件"""
+
+    async def dispatch(self, request, call_next):
+        import time
+        import logging
+
+        start_time = time.time()
+        logging.info(f"Request started: {request.method} {request.url.path}")
+
+        try:
+            response = await call_next(request)
+            process_time = time.time() - start_time
+            logging.info(f"Request completed: {response.status_code} in {process_time:.3f}s")
+            return response
+        except Exception as e:
+            process_time = time.time() - start_time
+            logging.error(f"Request failed: {str(e)} in {process_time:.3f}s")
+            raise
+```
+
+##### 2. 底层 ASGI 中间件接口
+
+```python
+from uliweb import Middleware
+from typing import Dict, Any
+
+class MyASGIMiddleware(Middleware):
+    """底层 ASGI 中间件接口 - 仿照 Starlette 的纯 ASGI 中间件"""
+
+    def __init__(self, application, settings):
+        super().__init__(application, settings)
+        # 初始化中间件配置
+
+    async def __call__(self, scope: Dict[str, Any], receive, send):
+        """
+        ASGI 应用入口点
+        :param scope: ASGI scope 字典
+        :param receive: 接收消息的异步函数
+        :param send: 发送消息的异步函数
+        """
+        # 只处理 HTTP 请求
+        if scope["type"] != "http":
+            await self.application(scope, receive, send)
+            return
+
+        # 请求预处理
+        await self.process_request(scope)
+
+        try:
+            # 调用下一个应用
+            await self.application(scope, receive, send)
+        except Exception as e:
+            await self.handle_exception(scope, receive, send, e)
+
+    async def process_request(self, scope):
+        """请求预处理"""
+        # 在这里实现请求预处理逻辑
+        pass
+
+    async def handle_exception(self, scope, receive, send, exception):
+        """异常处理"""
+        # 在这里实现异常处理逻辑
+        raise exception
+
+# 使用示例
+class CORSMiddleware(Middleware):
+    """CORS 中间件实现"""
+
+    def __init__(self, application, settings):
+        super().__init__(application, settings)
+        self.allow_origins = settings.get_var('CORS/allow_origins', [])
+        self.allow_methods = settings.get_var('CORS/allow_methods', ['GET', 'POST', 'PUT', 'DELETE'])
+        self.allow_headers = settings.get_var('CORS/allow_headers', ['*'])
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.application(scope, receive, send)
+            return
+
+        # 包装 send 函数以添加 CORS 头
+        async def send_with_cors(message):
+            if message["type"] == "http.response.start":
+                # 添加 CORS 头
+                headers = message.get("headers", [])
+                headers.extend([
+                    (b"access-control-allow-origin", b"*"),
+                    (b"access-control-allow-methods", ", ".join(self.allow_methods).encode()),
+                    (b"access-control-allow-headers", ", ".join(self.allow_headers).encode()),
+                ])
+                message["headers"] = headers
+            await send(message)
+
+        # 处理预检请求
+        if scope["method"] == "OPTIONS":
+            await self.handle_preflight(scope, receive, send_with_cors)
+        else:
+            await self.application(scope, receive, send_with_cors)
+
+    async def handle_preflight(self, scope, receive, send):
+        """处理 CORS 预检请求"""
+        from starlette.responses import Response
+
+        response = Response(status_code=204)
+        response.headers["access-control-allow-origin"] = "*"
+        response.headers["access-control-allow-methods"] = ", ".join(self.allow_methods)
+        response.headers["access-control-allow-headers"] = ", ".join(self.allow_headers)
+        response.headers["access-control-max-age"] = "86400"  # 24小时
+
+        await response(scope, receive, send)
+```
+
+##### 3. 兼容性设计
+
+Uliweb 的中间件设计保持了与原有 WSGI 中间件的兼容性：
+
+```python
+# 保持原有 WSGI 中间件接口的兼容性
+class CompatibleMiddleware(Middleware):
+    """兼容性中间件 - 支持原有接口"""
+
+    def __init__(self, application, settings):
+        super().__init__(application, settings)
+
+    def process_request(self, request):
+        """同步请求处理（兼容原有接口）"""
+        # 可以在 ASGI 环境中使用，但会自动适配为异步执行
+        pass
+
+    def process_response(self, request, response):
+        """同步响应处理（兼容原有接口）"""
+        # 可以在 ASGI 环境中使用，但会自动适配为异步执行
+        return response
+
+    def process_exception(self, request, exception):
+        """同步异常处理（兼容原有接口）"""
+        # 可以在 ASGI 环境中使用，但会自动适配为异步执行
+        pass
+
+# 异步版本（推荐）
+class AsyncCompatibleMiddleware(Middleware):
+    """异步兼容中间件"""
+
+    async def process_request(self, request):
+        """异步请求处理"""
+        pass
+
+    async def process_response(self, request, response):
+        """异步响应处理"""
+        return response
+
+    async def process_exception(self, request, exception):
+        """异步异常处理"""
+        pass
+```
+
+##### 4. 中间件配置和使用
+
+在 `settings.ini` 中配置中间件：
+
+```ini
+[MIDDLEWARES]
+# 高级中间件
+logging = 'myapp.middleware.LoggingMiddleware', 100
+auth = 'uliweb.contrib.auth.middle_auth.AuthMiddle', 200
+
+# 底层 ASGI 中间件
+cors = 'myapp.middleware.CORSMiddleware', 50
+gzip = 'myapp.middleware.GZipMiddleware', 300
+
+# 兼容性中间件
+session = 'uliweb.contrib.session.middle_session.SessionMiddle', 150
+```
+
+通过这种设计，Uliweb 的中间件系统既保持了与原有 WSGI 架构的兼容性，又充分利用了 ASGI 的异步特性，为开发者提供了灵活的中间件开发选择。
 
 #### 4.5.1 内置中间件
 
@@ -1226,38 +1454,166 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         return response
 ```
 
-#### 4.5.6 Uliweb 中间件配置
+#### 4.5.6 Uliweb 中间件配置（兼容现有架构）
 
-在 Uliweb 的 settings.ini 中配置 Starlette 中间件：
+**问题分析与解决方案：**
+
+Uliweb 现有的中间件架构是基于类的实例化方式，而 Starlette 中间件采用不同的配置模式。为了保持与现有 Uliweb 架构的兼容性，我们需要提供一个适配层，将 Starlette 中间件包装为 Uliweb 兼容的中间件类。
+
+**现有 Uliweb 中间件架构：**
+```python
+# 现有 Uliweb 中间件基类
+class Middleware(object):
+    def __init__(self, application, settings):
+        self.application = application
+        self.settings = settings
+
+    def process_request(self, request):
+        """处理请求前钩子"""
+        pass
+
+    def process_response(self, request, response):
+        """处理响应后钩子"""
+        pass
+
+    def process_exception(self, request, exception):
+        """处理异常钩子"""
+        pass
+```
+
+**兼容性适配方案：**
+
+##### 1. Starlette 中间件适配器
+
+创建一个适配器类，将 Starlette 中间件包装为 Uliweb 兼容的中间件：
+
+```python
+from starlette.middleware import Middleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from uliweb.core.SimpleFrame import Handler
+import asyncio
+
+class StarletteMiddlewareAdapter(Middleware):
+    """Starlette 中间件适配器，将 Starlette 中间件包装为 Uliweb 中间件"""
+
+    def __init__(self, application, settings):
+        super(StarletteMiddlewareAdapter, self).__init__(application, settings)
+        self.starlette_middleware_class = None
+        self.middleware_config = {}
+        self._setup_middleware()
+
+    def _setup_middleware(self):
+        """设置 Starlette 中间件"""
+        # 从配置中获取中间件类和配置
+        middleware_name = getattr(self, 'middleware_name', None)
+        if not middleware_name:
+            raise ValueError("middleware_name must be set in subclass")
+
+        # 动态导入中间件类
+        module_path, class_name = middleware_name.rsplit('.', 1)
+        module = __import__(module_path, fromlist=[class_name])
+        self.starlette_middleware_class = getattr(module, class_name)
+
+        # 获取中间件配置
+        config_prefix = getattr(self, 'config_prefix', middleware_name.split('.')[-1].lower())
+        self.middleware_config = self._get_middleware_config(config_prefix)
+
+    def _get_middleware_config(self, prefix):
+        """从 settings 中获取中间件配置"""
+        config = {}
+        if hasattr(self.settings, 'MIDDLEWARE_CONFIG'):
+            middleware_config = getattr(self.settings, 'MIDDLEWARE_CONFIG')
+            if isinstance(middleware_config, dict):
+                for key, value in middleware_config.items():
+                    if key.startswith(f'{prefix}.'):
+                        config_key = key[len(f'{prefix}.'):]
+                        config[config_key] = value
+        return config
+
+    def process_request(self, request):
+        """处理请求前钩子"""
+        # 创建 Starlette 中间件实例
+        if self.starlette_middleware_class:
+            # 创建临时的 ASGI 应用
+            async def asgi_app(scope, receive, send):
+                # 这里需要将 Uliweb request 转换为 ASGI scope
+                # 暂时返回空响应
+                await send({
+                    'type': 'http.response.start',
+                    'status': 200,
+                    'headers': [[b'content-type', b'text/plain']],
+                })
+                await send({
+                    'type': 'http.response.body',
+                    'body': b'',
+                })
+
+            # 创建中间件实例
+            middleware_instance = self.starlette_middleware_class(asgi_app, **self.middleware_config)
+
+            # 将中间件实例存储在 request 中，供后续使用
+            request._starlette_middleware = middleware_instance
+
+        return None
+
+    def process_response(self, request, response):
+        """处理响应后钩子"""
+        # 在这里可以处理响应
+        return response
+
+# CORS 中间件适配器
+class CORSMiddlewareAdapter(StarletteMiddlewareAdapter):
+    middleware_name = 'starlette.middleware.cors.CORSMiddleware'
+    config_prefix = 'cors'
+
+# GZip 中间件适配器
+class GZipMiddlewareAdapter(StarletteMiddlewareAdapter):
+    middleware_name = 'starlette.middleware.gzip.GZipMiddleware'
+    config_prefix = 'gzip'
+
+# TrustedHost 中间件适配器
+class TrustedHostMiddlewareAdapter(StarletteMiddlewareAdapter):
+    middleware_name = 'starlette.middleware.trustedhost.TrustedHostMiddleware'
+    config_prefix = 'trusted_host'
+```
+
+##### 2. Uliweb 兼容的配置方式
+
+在 Uliweb 的 settings.ini 中使用现有的中间件配置格式：
 
 ```ini
+# 使用现有的 MIDDLEWARES 配置格式
 [MIDDLEWARES]
-# 格式: 中间件名称 = [中间件类路径, 优先级]
-# 优先级数字越小，越先执行
+# 格式: 中间件名称 = 中间件类路径
+# 保持与现有 Uliweb 架构一致
 
-# 内置中间件
-cors = ['starlette.middleware.cors.CORSMiddleware', 100]
-gzip = ['starlette.middleware.gzip.GZipMiddleware', 200]
-trusted_host = ['starlette.middleware.trustedhost.TrustedHostMiddleware', 300]
+# Starlette 内置中间件（通过适配器）
+cors = 'uliweb.core.asgi.CORSMiddlewareAdapter'
+gzip = 'uliweb.core.asgi.GZipMiddlewareAdapter'
+trusted_host = 'uliweb.core.asgi.TrustedHostMiddlewareAdapter'
 
-# 自定义中间件
-timing = ['myapp.middleware.TimingMiddleware', 50]
-logging = ['myapp.middleware.LoggingMiddleware', 60]
-auth = ['myapp.middleware.AuthenticationMiddleware', 100]
-rate_limit = ['myapp.middleware.RateLimitMiddleware', 150]
-response_formatter = ['myapp.middleware.ResponseFormatterMiddleware', 200]
+# 自定义中间件（保持现有方式）
+timing = 'myapp.middleware.TimingMiddleware'
+logging = 'myapp.middleware.LoggingMiddleware'
+auth = 'myapp.middleware.AuthenticationMiddleware'
+rate_limit = 'myapp.middleware.RateLimitMiddleware'
+response_formatter = 'myapp.middleware.ResponseFormatterMiddleware'
 
-# 中间件配置参数
+# 中间件配置参数（保持现有格式）
 [MIDDLEWARE_CONFIG]
 # CORS 配置
 cors.allow_origins = ["http://localhost:3000", "https://example.com"]
 cors.allow_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
 cors.allow_headers = ["*"]
 cors.allow_credentials = true
+cors.max_age = 600
 
 # GZip 配置
 gzip.minimum_size = 1000
 gzip.compresslevel = 6
+
+# TrustedHost 配置
+trusted_host.allowed_hosts = ["example.com", "*.example.com", "localhost"]
 
 # 认证中间件配置
 auth.secret_key = "your-secret-key-here"
@@ -1271,6 +1627,180 @@ response_formatter.enable_formatting = true
 response_formatter.include_timestamp = true
 response_formatter.include_request_id = true
 ```
+
+##### 3. 渐进式迁移路径
+
+为了支持现有项目的平滑迁移，提供三种迁移策略：
+
+**阶段一：适配器模式（兼容现有代码）**
+```python
+# 现有中间件无需修改，继续使用
+class MyMiddleware(Middleware):
+    def process_request(self, request):
+        # 现有逻辑保持不变
+        return None
+
+    def process_response(self, request, response):
+        # 现有逻辑保持不变
+        return response
+
+# 配置方式保持不变
+[MIDDLEWARES]
+my_middleware = 'myapp.middleware.MyMiddleware'
+```
+
+**阶段二：混合模式（新旧共存）**
+```python
+# 新中间件可以直接使用 Starlette 接口
+class NewMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        # 新的异步中间件逻辑
+        response = await call_next(request)
+        return response
+
+# 通过适配器包装
+class NewMiddlewareAdapter(StarletteMiddlewareAdapter):
+    middleware_name = 'myapp.middleware.NewMiddleware'
+    config_prefix = 'new_middleware'
+
+# 配置
+[MIDDLEWARES]
+old_middleware = 'myapp.middleware.OldMiddleware'  # 现有中间件
+new_middleware = 'myapp.middleware.NewMiddlewareAdapter'  # 新中间件
+```
+
+**阶段三：纯 ASGI 模式（完全迁移）**
+```python
+# 完全使用 Starlette 中间件
+from starlette.applications import Starlette
+from starlette.middleware import Middleware
+
+app = Starlette(
+    middleware=[
+        Middleware(CORSMiddleware, allow_origins=["*"]),
+        Middleware(GZipMiddleware, minimum_size=1000),
+        Middleware(NewMiddleware, config_param="value"),
+    ]
+)
+```
+
+##### 4. 迁移工具和辅助函数
+
+提供迁移工具帮助开发者从现有中间件迁移到新的架构：
+
+```python
+# 迁移辅助工具
+class MigrationHelper:
+    @staticmethod
+    def convert_uliweb_to_starlette(uliweb_middleware_class):
+        """将 Uliweb 中间件转换为 Starlette 中间件"""
+        class ConvertedMiddleware(BaseHTTPMiddleware):
+            def __init__(self, app, **kwargs):
+                super().__init__(app)
+                self.uliweb_middleware = uliweb_middleware_class(None, kwargs)
+
+            async def dispatch(self, request, call_next):
+                # 调用 process_request
+                request_result = self.uliweb_middleware.process_request(request)
+                if request_result is not None:
+                    return request_result
+
+                # 调用下一个中间件
+                try:
+                    response = await call_next(request)
+                except Exception as e:
+                    # 调用 process_exception
+                    exception_result = self.uliweb_middleware.process_exception(request, e)
+                    if exception_result is not None:
+                        return exception_result
+                    raise
+
+                # 调用 process_response
+                response_result = self.uliweb_middleware.process_response(request, response)
+                return response_result or response
+
+        return ConvertedMiddleware
+
+    @staticmethod
+    def generate_migration_script(middleware_class_path):
+        """生成迁移脚本"""
+        return f"""
+# 自动生成的迁移脚本
+# 原始中间件: {middleware_class_path}
+
+from starlette.middleware.base import BaseHTTPMiddleware
+
+class MigratedMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        # TODO: 在这里实现迁移后的逻辑
+        response = await call_next(request)
+        return response
+
+# 使用适配器
+class MigratedMiddlewareAdapter(StarletteMiddlewareAdapter):
+    middleware_name = 'your.module.MigratedMiddleware'
+    config_prefix = 'migrated_middleware'
+"""
+
+# 使用示例
+# helper = MigrationHelper()
+# StarletteMiddleware = helper.convert_uliweb_to_starlette(MyUliwebMiddleware)
+# migration_script = helper.generate_migration_script('myapp.middleware.MyMiddleware')
+```
+
+##### 5. 最佳实践建议
+
+**现有项目迁移建议：**
+
+1. **保持现有配置不变**：继续使用现有的 `[MIDDLEWARES]` 配置格式
+2. **逐步引入新中间件**：通过适配器逐步引入 Starlette 中间件
+3. **测试兼容性**：确保现有中间件在新架构下正常工作
+4. **监控性能**：观察适配器层的性能影响
+
+**新项目开发建议：**
+
+1. **直接使用 Starlette 中间件**：对于新项目，可以直接使用 Starlette 中间件接口
+2. **采用异步中间件**：充分利用异步性能优势
+3. **使用配置参数**：通过 `[MIDDLEWARE_CONFIG]` 传递配置参数
+4. **遵循 Starlette 最佳实践**：参考 Starlette 官方文档
+
+**配置示例（完整兼容方案）：**
+
+```ini
+# settings.ini - 完全兼容现有 Uliweb 架构
+[MIDDLEWARES]
+# 现有中间件（无需修改）
+auth = 'uliweb.contrib.auth.middleware.AuthMiddleware'
+session = 'uliweb.contrib.session.middleware.SessionMiddleware'
+i18n = 'uliweb.i18n.middle_i18n.I18nMiddleware'
+
+# Starlette 中间件（通过适配器）
+cors = 'uliweb.core.asgi.CORSMiddlewareAdapter'
+gzip = 'uliweb.core.asgi.GZipMiddlewareAdapter'
+security = 'uliweb.core.asgi.SecurityHeadersMiddlewareAdapter'
+
+# 自定义中间件（可以是现有或新的）
+logging = 'myapp.middleware.LoggingMiddleware'
+timing = 'myapp.middleware.TimingMiddleware'
+
+[MIDDLEWARE_CONFIG]
+# CORS 配置（适配器会自动传递给 Starlette 中间件）
+cors.allow_origins = ["http://localhost:3000", "https://example.com"]
+cors.allow_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+cors.allow_headers = ["*"]
+cors.allow_credentials = true
+cors.max_age = 600
+
+# GZip 配置
+gzip.minimum_size = 1024
+gzip.compresslevel = 6
+
+# 自定义中间件配置
+logging.log_level = "INFO"
+timing.include_header = true
+```
+
+通过这种兼容性方案，现有 Uliweb 项目可以无缝迁移到新的 ASGI 架构，同时保持现有中间件代码和配置的完全兼容性。开发者可以根据项目需求选择合适的迁移策略，实现渐进式升级。
 
 #### 4.5.7 中间件开发最佳实践
 
