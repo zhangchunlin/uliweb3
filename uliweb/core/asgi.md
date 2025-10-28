@@ -1408,6 +1408,306 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
 #### 4.5.6 中间件开发最佳实践
 
+##### 4.5.7 SimpleFrame.py 中间件实现分析与修改方案
+
+在 `SimpleFrame.py` 中，Uliweb 实现了一套基于 WSGI 的中间件系统。为了迁移到 ASGI 架构，我们需要对这套中间件系统进行重新设计，使其完全支持 ASGI 接口。
+
+**SimpleFrame.py 中间件实现分析：**
+
+1. **中间件定义**：
+   - 中间件类需要继承自 `Middleware` 基类
+   - 中间件类需要实现 `process_request`、`process_response` 或 `process_exception` 方法
+   - 中间件在 `settings.ini` 中通过 `MIDDLEWARES` 配置项进行注册
+
+2. **中间件执行流程**：
+   - 在 `Dispatcher._open` 方法中处理中间件
+   - 按顺序执行 `process_request` 方法
+   - 在视图函数执行后，按逆序执行 `process_response` 方法
+   - 在异常处理时，按逆序执行 `process_exception` 方法
+
+3. **中间件排序**：
+   - 通过 `ORDER` 属性或配置中的顺序值来确定中间件执行顺序
+   - 默认排序值为 500
+
+**迁移到纯 ASGI 的修改方案：**
+
+为了完全支持 ASGI 架构，我们需要重新设计中间件系统，使其只支持 ASGI 接口：
+
+1. **中间件基类重新设计**：
+   - 重新设计 `Middleware` 基类，使其完全基于 ASGI
+   - 提供两种中间件接口：
+     - 高级接口：提供 `async def dispatch(self, request, call_next)` 方法
+     - 底层接口：提供 `async def __call__(self, scope, receive, send)` 方法
+
+2. **中间件执行流程重新设计**：
+   - 在 ASGI Dispatcher 中实现新的中间件执行逻辑
+   - 支持两种中间件接口的混合使用
+   - 实现中间件链式调用机制
+
+3. **中间件配置更新**：
+   - 更新 `settings.ini` 中 `MIDDLEWARES` 配置项的处理方式
+   - 支持新的中间件接口
+
+**具体实现方案：**
+
+```python
+# 重新设计 Middleware 基类以支持纯 ASGI
+class Middleware(object):
+    """纯 ASGI 中间件基类"""
+
+    def __init__(self, application, settings):
+        self.application = application
+        self.settings = settings
+
+    async def __call__(self, scope, receive, send):
+        """
+        底层 ASGI 中间件接口
+        :param scope: ASGI scope 字典
+        :param receive: 接收消息的异步函数
+        :param send: 发送消息的异步函数
+        """
+        # 只处理 HTTP 请求
+        if scope["type"] != "http":
+            await self.application(scope, receive, send)
+            return
+
+        # 请求预处理
+        await self.process_request(scope)
+
+        try:
+            # 调用下一个应用
+            await self.application(scope, receive, send)
+        except Exception as e:
+            await self.handle_exception(scope, receive, send, e)
+
+    async def process_request(self, scope):
+        """请求预处理"""
+        # 在这里实现请求预处理逻辑
+        pass
+
+    async def handle_exception(self, scope, receive, send, exception):
+        """异常处理"""
+        # 在这里实现异常处理逻辑
+        # 默认重新抛出异常
+        raise exception
+
+    async def dispatch(self, request, call_next):
+        """
+        高级中间件接口
+        :param request: 请求对象
+        :param call_next: 调用下一个中间件或视图函数的异步函数
+        :return: 响应对象
+        """
+        # 调用下一个中间件或视图函数
+        response = await call_next(request)
+        return response
+
+# 在 ASGI Dispatcher 中实现新的中间件执行逻辑
+class AsyncDispatcher:
+    async def __call__(self, scope, receive, send):
+        """ASGI 3.0 接口实现"""
+        if scope["type"] == "http":
+            await self.handle_http(scope, receive, send)
+        elif scope["type"] == "websocket":
+            await self.handle_websocket(scope, receive, send)
+        else:
+            raise ValueError(f"Unsupported scope type: {scope['type']}")
+
+    async def handle_http(self, scope, receive, send):
+        """处理 HTTP 请求"""
+        # 确保应用已初始化
+        if not self._initialized:
+            await self._async_init()
+
+        # 构建中间件链
+        app = self._build_middleware_stack()
+
+        # 处理请求
+        await app(scope, receive, send)
+
+    def _build_middleware_stack(self):
+        """构建中间件调用链"""
+        # 从内到外包装应用，形成中间件链
+        app = self._handle_request
+
+        # 按逆序添加中间件（确保按配置顺序执行）
+        for middleware_cls in reversed(self.middlewares):
+            middleware_instance = middleware_cls(self, self.settings)
+
+            # 检查中间件类型
+            if hasattr(middleware_instance, 'dispatch') and callable(middleware_instance.dispatch):
+                # 高级中间件接口
+                app = self._wrap_advanced_middleware(middleware_instance, app)
+            elif hasattr(middleware_instance, '__call__') and callable(middleware_instance.__call__):
+                # 底层 ASGI 中间件接口
+                app = self._wrap_asgi_middleware(middleware_instance, app)
+            else:
+                # 不是有效的中间件，跳过
+                continue
+
+        return app
+
+    def _wrap_advanced_middleware(self, middleware, next_app):
+        """包装高级中间件"""
+        async def app(scope, receive, send):
+            # 只处理 HTTP 请求
+            if scope["type"] != "http":
+                await next_app(scope, receive, send)
+                return
+
+            # 创建请求对象
+            request = Request(scope, receive, send)
+
+            # 创建 call_next 函数
+            async def call_next(request):
+                # 创建新的 scope，可能需要修改
+                new_scope = scope.copy()
+                # 调用下一个应用
+                response = await next_app(new_scope, receive, send)
+                return response
+
+            # 调用中间件
+            response = await middleware.dispatch(request, call_next)
+
+            # 发送响应
+            await response(scope, receive, send)
+
+        return app
+
+    def _wrap_asgi_middleware(self, middleware, next_app):
+        """包装底层 ASGI 中间件"""
+        async def app(scope, receive, send):
+            # 创建中间件实例的副本，设置下一个应用
+            middleware.application = next_app
+            # 调用中间件
+            await middleware(scope, receive, send)
+
+        return app
+
+    async def _handle_request(self, scope, receive, send):
+        """处理请求的核心逻辑"""
+        request = Request(scope, receive, send)
+
+        # 设置请求上下文
+        request_token = request_var.set(request)
+
+        try:
+            # 路由匹配
+            rule, values = await self._match_route(request)
+            mod, handler_cls, handler = self.prepare_request(request, rule)
+
+            # 处理请求
+            response = await self._open(request, values)
+            await response(scope, receive, send)
+        finally:
+            # 清理上下文
+            request_var.reset(request_token)
+
+# 在 settings.ini 中配置中间件（更新格式）
+[MIDDLEWARES]
+# 高级中间件
+logging = 'myapp.middleware.LoggingMiddleware', 100
+auth = 'uliweb.contrib.auth.middle_auth.AuthMiddle', 200
+
+# 底层 ASGI 中间件
+cors = 'myapp.middleware.CORSMiddleware', 50
+gzip = 'myapp.middleware.GZipMiddleware', 300
+```
+
+**新的中间件开发方式：**
+
+1. **高级中间件接口（推荐）**：
+```python
+from uliweb import Middleware
+
+class LoggingMiddleware(Middleware):
+    """请求日志记录中间件 - 使用高级接口"""
+
+    async def dispatch(self, request, call_next):
+        import time
+        import logging
+
+        start_time = time.time()
+        logging.info(f"Request started: {request.method} {request.url.path}")
+
+        try:
+            response = await call_next(request)
+            process_time = time.time() - start_time
+            logging.info(f"Request completed: {response.status_code} in {process_time:.3f}s")
+            return response
+        except Exception as e:
+            process_time = time.time() - start_time
+            logging.error(f"Request failed: {str(e)} in {process_time:.3f}s")
+            raise
+```
+
+2. **底层 ASGI 中间件接口**：
+```python
+from uliweb import Middleware
+from starlette.responses import Response
+
+class CORSMiddleware(Middleware):
+    """CORS 中间件 - 使用底层 ASGI 接口"""
+
+    def __init__(self, application, settings):
+        super().__init__(application, settings)
+        self.allow_origins = settings.get_var('CORS/allow_origins', [])
+        self.allow_methods = settings.get_var('CORS/allow_methods', ['GET', 'POST', 'PUT', 'DELETE'])
+        self.allow_headers = settings.get_var('CORS/allow_headers', ['*'])
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.application(scope, receive, send)
+            return
+
+        # 包装 send 函数以添加 CORS 头
+        async def send_with_cors(message):
+            if message["type"] == "http.response.start":
+                # 添加 CORS 头
+                headers = message.get("headers", [])
+                headers.extend([
+                    (b"access-control-allow-origin", b"*"),
+                    (b"access-control-allow-methods", ", ".join(self.allow_methods).encode()),
+                    (b"access-control-allow-headers", ", ".join(self.allow_headers).encode()),
+                ])
+                message["headers"] = headers
+            await send(message)
+
+        # 处理预检请求
+        if scope["method"] == "OPTIONS":
+            await self.handle_preflight(scope, receive, send_with_cors)
+        else:
+            await self.application(scope, receive, send_with_cors)
+
+    async def handle_preflight(self, scope, receive, send):
+        """处理 CORS 预检请求"""
+        response = Response(status_code=204)
+        response.headers["access-control-allow-origin"] = "*"
+        response.headers["access-control-allow-methods"] = ", ".join(self.allow_methods)
+        response.headers["access-control-allow-headers"] = ", ".join(self.allow_headers)
+        response.headers["access-control-max-age"] = "86400"  # 24小时
+
+        # 构造 ASGI 响应
+        await response(scope, receive, send)
+```
+
+**配置更新：**
+
+在 `settings.ini` 中配置中间件的方式保持不变，但中间件实现需要更新为纯 ASGI 接口：
+
+```ini
+[MIDDLEWARES]
+# 高级中间件
+logging = 'myapp.middleware.LoggingMiddleware', 100
+auth = 'uliweb.contrib.auth.middle_auth.AuthMiddle', 200
+
+# 底层 ASGI 中间件
+cors = 'myapp.middleware.CORSMiddleware', 50
+gzip = 'myapp.middleware.GZipMiddleware', 300
+```
+
+通过这种方式，我们可以确保中间件系统完全基于 ASGI 架构，不再兼容原有的 WSGI 方式，为 Uliweb 提供更现代、更高效的中间件处理机制。
+
 ##### 1. 选择合适的中间件类型
 
 - **使用 BaseHTTPMiddleware**：适用于大多数 HTTP 请求处理场景
