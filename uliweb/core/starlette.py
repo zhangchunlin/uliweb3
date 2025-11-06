@@ -313,15 +313,8 @@ class AsyncDispatcher:
         # 从设置中加载中间件配置
         middleware_configs = self.settings.get('MIDDLEWARES', {})
 
-        # 调试信息
-        import logging
-        logging.info(f"Loading middleware configs: {middleware_configs}")
-
         # 按顺序排序中间件
         sorted_middleware_configs = self._sort_middlewares(middleware_configs.values())
-
-        # 调试信息
-        logging.info(f"Sorted middleware configs: {sorted_middleware_configs}")
 
         # 初始化中间件列表
         self.middlewares = []
@@ -334,23 +327,16 @@ class AsyncDispatcher:
             # 添加到中间件列表
             self.middlewares.append(middleware_cls)
 
-            # 调试信息
-            logging.info(f"Initializing middleware: {middleware_cls}")
-            logging.info(f"Middleware methods: {[attr for attr in dir(middleware_cls) if not attr.startswith('_')]}")
-
             # 检查中间件方法并分类
             if hasattr(middleware_cls, 'process_request'):
                 self.process_request_classes.append(middleware_cls)
-                logging.info(f"Added to process_request_classes: {middleware_cls}")
 
             # 注意：响应和异常中间件需要逆序处理
             if hasattr(middleware_cls, 'process_response'):
                 self.process_response_classes.insert(0, middleware_cls)
-                logging.info(f"Added to process_response_classes: {middleware_cls}")
 
             if hasattr(middleware_cls, 'process_exception'):
                 self.process_exception_classes.insert(0, middleware_cls)
-                logging.info(f"Added to process_exception_classes: {middleware_cls}")
 
     def _sort_middlewares(self, middlewares):
         """对中间件进行排序"""
@@ -646,7 +632,6 @@ class AsyncDispatcher:
                 # 对于 Starlette Route 对象，使用更直接的方法
                 try:
                     route_path = route.path
-                    route_methods = getattr(route, 'methods', ['GET'])
 
                     # 检查路径是否匹配
                     path_matches = self._path_matches(route_path, path)
@@ -1131,25 +1116,10 @@ class AsyncDispatcher:
         # 从内到外包装应用，形成中间件链
         app = self._handle_request
 
-        # 调试信息
-        import logging
-        logging.info(f"Building middleware stack with {len(self.middlewares)} middlewares")
-
         # 按逆序添加中间件（确保按配置顺序执行）
-        for i, middleware_cls in enumerate(reversed(self.middlewares)):
+        for middleware_cls in reversed(self.middlewares):
             try:
                 middleware_instance = middleware_cls(self, self.settings)
-                logging.info(f"Processing middleware {i+1}: {middleware_cls.__name__}")
-
-                # 检查中间件类型
-                logging.info(f"Middleware {middleware_cls.__name__} has dispatch: {hasattr(middleware_instance, 'dispatch')}")
-                logging.info(f"Middleware {middleware_cls.__name__} has __call__: {hasattr(middleware_instance, '__call__')}")
-                logging.info(f"Middleware {middleware_cls.__name__} has process_request: {hasattr(middleware_instance, 'process_request')}")
-
-                # 检查中间件类型
-                # 1. 优先检查是否是专门的 ASGI 中间件（重写了 __call__ 方法）
-                # 2. 然后检查是否是高级中间件（重写了 dispatch 方法）
-                # 3. 最后检查是否是传统中间件（有 process_* 方法）
 
                 # 检查中间件类型
                 # 1. 优先检查是否是专门的 ASGI 中间件（重写了 __call__ 方法）
@@ -1185,34 +1155,25 @@ class AsyncDispatcher:
                 # 注意：ASGI 中间件优先于高级中间件，因为 ASGI 中间件有更底层的控制能力
                 if has_custom_call:
                     # 底层 ASGI 中间件接口（有 __call__ 方法）
-                    logging.info(f"Wrapping ASGI middleware: {middleware_cls.__name__}")
                     app = self._wrap_asgi_middleware(middleware_instance, app)
                 elif has_custom_dispatch:
                     # 高级中间件接口（有 dispatch 方法）
-                    logging.info(f"Wrapping advanced middleware: {middleware_cls.__name__}")
                     app = self._wrap_advanced_middleware(middleware_instance, app)
                 elif has_traditional_methods:
                     # 传统中间件接口
-                    logging.error("unsupported traditional wsgi style middleware")
                     continue
                 else:
                     # 不是有效的中间件，跳过
-                    logging.info(f"Skipping middleware (no valid interface): {middleware_cls.__name__}")
                     continue
-            except Exception as e:
-                # 如果中间件初始化失败，记录错误并跳过
-                import logging
-                logging.warning(f"Failed to initialize middleware {middleware_cls}: {e}")
+            except Exception:
+                # 如果中间件初始化失败，跳过
                 continue
 
-        logging.info("Middleware stack built successfully")
         return app
 
     def _wrap_advanced_middleware(self, middleware, next_app):
         """包装高级中间件"""
         async def app(scope, receive, send):
-            import logging
-            logging.info(f"Advanced middleware wrapper called with scope type: {scope.get('type')}")
             # 只处理 HTTP 请求
             if scope["type"] != "http":
                 await next_app(scope, receive, send)
@@ -1220,14 +1181,9 @@ class AsyncDispatcher:
 
             # 创建请求对象
             request = Request(scope, receive, send)
-            logging.info(f"Created request object for {request.method} {request.url.path}")
 
             # 创建 call_next 函数
             async def call_next(request):
-                import logging
-                logging.info(f"call_next: Calling next_app with scope type: {scope.get('type')}")
-                logging.info(f"call_next: next_app is {next_app}")
-
                 # 创建一个缓冲区来捕获响应
                 response_body = b""
                 response_status = None
@@ -1239,22 +1195,18 @@ class AsyncDispatcher:
                     if message["type"] == "http.response.start":
                         response_status = message["status"]
                         response_headers = list(message.get("headers", []))  # 确保是可变的列表
-                        logging.info(f"call_next: Captured response start: status={response_status}, headers={response_headers}")
                     elif message["type"] == "http.response.body":
                         body_chunk = message.get("body", b"")
                         response_body += body_chunk
-                        logging.info(f"call_next: Captured response body chunk: {len(body_chunk)} bytes")
                         # 如果是最后一个 chunk，创建响应对象
                         if not message.get("more_body", False):
-                            logging.info(f"call_next: Response complete, body size: {len(response_body)} bytes")
+                            pass
 
                 # 创建新的 scope，可能需要修改
                 new_scope = scope.copy()
                 # 调用下一个应用
                 try:
-                    logging.info(f"call_next: Calling next_app")
                     await next_app(new_scope, receive, capture_send)
-                    logging.info(f"call_next: next_app call completed")
 
                     # 创建响应对象
                     from starlette.responses import Response as StarletteResponse
@@ -1277,36 +1229,24 @@ class AsyncDispatcher:
                         status_code=response_status or 200,
                         headers=converted_headers if converted_headers else None
                     )
-                    logging.info(f"call_next: Created response object: status={response.status_code}, body_size={len(response_body)}")
                     return response
                 except Exception as e:
                     # 如果下一个应用抛出异常，重新抛出
-                    logging.error(f"call_next: next_app raised exception: {e}")
-                    import traceback
-                    logging.error(f"call_next: traceback: {traceback.format_exc()}")
                     raise e
 
             # 调用中间件
             try:
-                logging.info(f"Calling middleware.dispatch for {middleware.__class__.__name__}")
                 response = await middleware.dispatch(request, call_next)
-                logging.info(f"Middleware.dispatch returned response: {response}")
-                logging.info(f"Middleware.dispatch response type: {type(response)}")
                 # 发送响应
                 if response is not None:
-                    logging.info(f"Sending response via response(scope, receive, send)")
                     await response(scope, receive, send)
                     return response
                 else:
-                    logging.info(f"Middleware returned None, calling next_app directly")
                     # 如果中间件返回 None，调用下一个应用
                     response = await next_app(scope, receive, send)
                     return response
             except Exception as e:
                 # 如果中间件抛出异常，重新抛出
-                logging.error(f"Middleware.dispatch raised exception: {e}")
-                import traceback
-                logging.error(f"Middleware.dispatch traceback: {traceback.format_exc()}")
                 raise e
 
         return app
@@ -1314,25 +1254,13 @@ class AsyncDispatcher:
     def _wrap_asgi_middleware(self, middleware, next_app):
         """包装底层 ASGI 中间件"""
         async def app(scope, receive, send):
-            import logging
-            logging.info(f"Wrapping ASGI middleware: {middleware.__class__.__name__}")
-            logging.info(f"Middleware instance: {middleware}")
-            logging.info(f"Next app: {next_app}")
-            logging.info(f"Scope: {scope}")
-
             # 设置中间件的下一个应用
             middleware.application = next_app
-            logging.info(f"Set middleware application to next_app")
 
             # 调用中间件
-            logging.info(f"Calling middleware with scope type: {scope.get('type')}")
             try:
                 await middleware(scope, receive, send)
-                logging.info(f"Middleware call completed successfully")
             except Exception as e:
-                logging.error(f"Middleware call failed: {e}")
-                import traceback
-                logging.error(f"Middleware call traceback: {traceback.format_exc()}")
                 raise
 
         return app
@@ -1402,8 +1330,6 @@ class AsyncDispatcher:
     async def _internal_error(self, exception):
         """处理 500 错误"""
         from starlette.responses import JSONResponse
-        import logging
-        logging.exception(exception)
         return JSONResponse(
             {'error': 'Internal Server Error'},
             status_code=500
