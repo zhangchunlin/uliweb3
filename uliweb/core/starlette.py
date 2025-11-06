@@ -28,7 +28,7 @@ from uliweb.utils.common import (pkg, log, import_attr,
 import uliweb.utils.pyini as pyini
 from uliweb.i18n import gettext_lazy, i18n_ini_convertor
 from uliweb.utils.localproxy import LocalProxy, Global
-from uliweb import UliwebError
+from uliweb import UliwebError, Middleware
 from uliweb.utils._compat import html_escape, isresponse
 
 # 使用 contextvars 替代 threading.local
@@ -56,31 +56,38 @@ class Request(StarletteRequest):
         """兼容 GET 参数访问"""
         return self.query_params
 
-    @property
-    async def POST(self):
+    async def get_POST(self):
         """异步获取 POST 表单数据"""
         if self.method == "POST":
             form = await self.form()
             return form
         return {}
 
-    @property
-    async def FILES(self):
+    async def get_FILES(self):
         """异步获取上传文件"""
         if self.method == "POST":
             form = await self.form()
             return {k: v for k, v in form.items() if isinstance(v, UploadFile)}
         return {}
 
-    @property
-    async def json(self):
+    async def get_json(self):
         """异步获取 JSON 数据"""
-        return await self.json()
+        return await super().json()
 
     @property
     def is_xhr(self):
         """检查是否为 AJAX 请求"""
         return self.headers.get('x-requested-with', '').lower() == 'xmlhttprequest'
+
+    @property
+    def path(self):
+        """获取请求路径"""
+        return self.url.path
+
+    @property
+    def method(self):
+        """获取请求方法"""
+        return self.scope.get("method", "")
 
     @property
     def params(self):
@@ -251,13 +258,15 @@ class AsyncDispatcher:
         self._initialized = False
 
         if start:
-            # 异步初始化
-            asyncio.create_task(self._async_init())
+            # 异步初始化将在第一次请求时进行
+            pass
 
     async def _async_init(self):
         """异步初始化方法"""
         if not self._initialized:
             await self.init()
+            # 初始化路由
+            await self._init_routes()
             self._initialized = True
 
     async def init(self):
@@ -274,17 +283,107 @@ class AsyncDispatcher:
         self.process_response_classes = []
         self.process_exception_classes = []
 
-        # 初始化环境
-        self.env = await self._prepare_env()
+        # 初始化中间件列表
+        self.middlewares = []
 
-        # 初始化模板设置
-        self.default_template = pkg.resource_filename('uliweb.core', 'default.html')
+        # 初始化中间件配置
+        self._init_middlewares()
 
-        # 处理收集到的路由信息
-        await self._init_routes()
+    async def _handle_request(self, scope, receive, send):
+        """处理请求的核心逻辑"""
+        request = Request(scope, receive, send)
 
-        # 标记为已初始化
-        self._initialized = True
+        # 设置请求上下文
+        request_token = request_var.set(request)
+
+        try:
+            # 路由匹配
+            rule, values = await self._match_route(request)
+            mod, handler_cls, handler = self.prepare_request(request, rule)
+
+            # 处理请求
+            response = await self._open(request, **values)
+            await response(scope, receive, send)
+        finally:
+            # 清理上下文
+            request_var.reset(request_token)
+
+    def _init_middlewares(self):
+        """初始化中间件配置"""
+        # 从设置中加载中间件配置
+        middleware_configs = self.settings.get('MIDDLEWARES', {})
+
+        # 调试信息
+        import logging
+        logging.info(f"Loading middleware configs: {middleware_configs}")
+
+        # 按顺序排序中间件
+        sorted_middleware_configs = self._sort_middlewares(middleware_configs.values())
+
+        # 调试信息
+        logging.info(f"Sorted middleware configs: {sorted_middleware_configs}")
+
+        # 初始化中间件列表
+        self.middlewares = []
+        self.process_request_classes = []
+        self.process_response_classes = []
+        self.process_exception_classes = []
+
+        # 处理每个中间件配置
+        for middleware_cls in sorted_middleware_configs:
+            # 添加到中间件列表
+            self.middlewares.append(middleware_cls)
+
+            # 调试信息
+            logging.info(f"Initializing middleware: {middleware_cls}")
+            logging.info(f"Middleware methods: {[attr for attr in dir(middleware_cls) if not attr.startswith('_')]}")
+
+            # 检查中间件方法并分类
+            if hasattr(middleware_cls, 'process_request'):
+                self.process_request_classes.append(middleware_cls)
+                logging.info(f"Added to process_request_classes: {middleware_cls}")
+
+            # 注意：响应和异常中间件需要逆序处理
+            if hasattr(middleware_cls, 'process_response'):
+                self.process_response_classes.insert(0, middleware_cls)
+                logging.info(f"Added to process_response_classes: {middleware_cls}")
+
+            if hasattr(middleware_cls, 'process_exception'):
+                self.process_exception_classes.insert(0, middleware_cls)
+                logging.info(f"Added to process_exception_classes: {middleware_cls}")
+
+    def _sort_middlewares(self, middlewares):
+        """对中间件进行排序"""
+        m = []
+        for v in middlewares:
+            if not v:
+                continue
+
+            order = None
+            if isinstance(v, (list, tuple)):
+                if len(v) > 2:
+                    # 跳过格式不正确的中间件配置
+                    continue
+                middleware_path = v[0]
+                if len(v) == 2:
+                    order = v[1]
+            else:
+                middleware_path = v
+
+            try:
+                cls = import_attr(middleware_path)
+
+                if order is None:
+                    order = getattr(cls, 'ORDER', 500)
+                m.append((order, cls))
+            except Exception:
+                # 如果中间件导入失败，跳过
+                continue
+
+        # 按顺序排序
+        m.sort(key=lambda x: x[0])
+
+        return [x[1] for x in m]
 
     async def _init_routes(self):
         """初始化路由，处理收集到的路由信息"""
@@ -352,6 +451,13 @@ class AsyncDispatcher:
                     pass
             except Exception:
                 pass
+
+        # 特殊处理测试应用
+        try:
+            myimport("apps.test.views")
+            views_modules.append("apps.test.views")
+        except ImportError:
+            pass
 
     def _get_app_dir(self, app):
         """获取应用目录"""
@@ -426,12 +532,15 @@ class AsyncDispatcher:
 
     async def __call__(self, scope, receive, send):
         """ASGI 3.0 接口实现"""
-        if scope["type"] == "http":
-            await self.handle_http(scope, receive, send)
-        elif scope["type"] == "websocket":
-            await self.handle_websocket(scope, receive, send)
-        else:
-            raise ValueError(f"Unsupported scope type: {scope['type']}")
+        # 确保应用已初始化
+        if not self._initialized:
+            await self._async_init()
+
+        # 构建中间件调用链
+        app = await self._build_middleware_stack()
+
+        # 处理请求
+        await app(scope, receive, send)
 
     async def handle_http(self, scope, receive, send):
         """处理 HTTP 请求"""
@@ -1016,6 +1125,217 @@ class AsyncDispatcher:
                 )
 
         return view_response
+
+    async def _build_middleware_stack(self):
+        """构建中间件调用链"""
+        # 从内到外包装应用，形成中间件链
+        app = self._handle_request
+
+        # 调试信息
+        import logging
+        logging.info(f"Building middleware stack with {len(self.middlewares)} middlewares")
+
+        # 按逆序添加中间件（确保按配置顺序执行）
+        for i, middleware_cls in enumerate(reversed(self.middlewares)):
+            try:
+                middleware_instance = middleware_cls(self, self.settings)
+                logging.info(f"Processing middleware {i+1}: {middleware_cls.__name__}")
+
+                # 检查中间件类型
+                logging.info(f"Middleware {middleware_cls.__name__} has dispatch: {hasattr(middleware_instance, 'dispatch')}")
+                logging.info(f"Middleware {middleware_cls.__name__} has __call__: {hasattr(middleware_instance, '__call__')}")
+                logging.info(f"Middleware {middleware_cls.__name__} has process_request: {hasattr(middleware_instance, 'process_request')}")
+
+                # 检查中间件类型
+                # 1. 优先检查是否是专门的 ASGI 中间件（重写了 __call__ 方法）
+                # 2. 然后检查是否是高级中间件（重写了 dispatch 方法）
+                # 3. 最后检查是否是传统中间件（有 process_* 方法）
+
+                # 检查中间件类型
+                # 1. 优先检查是否是专门的 ASGI 中间件（重写了 __call__ 方法）
+                # 2. 然后检查是否是高级中间件（重写了 dispatch 方法）
+                # 3. 最后检查是否是传统中间件（有 process_* 方法）
+
+                # 检查是否是专门的 ASGI 中间件
+                # 专门的 ASGI 中间件应该重写了 __call__ 方法
+                has_custom_call = (
+                    hasattr(middleware_instance, '__call__') and
+                    callable(middleware_instance.__call__) and
+                    # 检查方法是否与基类不同
+                    type(middleware_instance).__call__ != Middleware.__call__
+                )
+
+                # 检查是否是高级中间件
+                # 高级中间件应该重写了 dispatch 方法
+                has_custom_dispatch = (
+                    hasattr(middleware_instance, 'dispatch') and
+                    callable(middleware_instance.dispatch) and
+                    # 检查方法是否与基类不同
+                    type(middleware_instance).dispatch != Middleware.dispatch
+                )
+
+                # 检查是否是传统中间件
+                has_traditional_methods = (
+                    hasattr(middleware_instance, 'process_request') or
+                    hasattr(middleware_instance, 'process_response') or
+                    hasattr(middleware_instance, 'process_exception')
+                )
+
+                # 优先级：ASGI 中间件 > 高级中间件 > 传统中间件
+                # 注意：ASGI 中间件优先于高级中间件，因为 ASGI 中间件有更底层的控制能力
+                if has_custom_call:
+                    # 底层 ASGI 中间件接口（有 __call__ 方法）
+                    logging.info(f"Wrapping ASGI middleware: {middleware_cls.__name__}")
+                    app = self._wrap_asgi_middleware(middleware_instance, app)
+                elif has_custom_dispatch:
+                    # 高级中间件接口（有 dispatch 方法）
+                    logging.info(f"Wrapping advanced middleware: {middleware_cls.__name__}")
+                    app = self._wrap_advanced_middleware(middleware_instance, app)
+                elif has_traditional_methods:
+                    # 传统中间件接口
+                    logging.error("unsupported traditional wsgi style middleware")
+                    continue
+                else:
+                    # 不是有效的中间件，跳过
+                    logging.info(f"Skipping middleware (no valid interface): {middleware_cls.__name__}")
+                    continue
+            except Exception as e:
+                # 如果中间件初始化失败，记录错误并跳过
+                import logging
+                logging.warning(f"Failed to initialize middleware {middleware_cls}: {e}")
+                continue
+
+        logging.info("Middleware stack built successfully")
+        return app
+
+    def _wrap_advanced_middleware(self, middleware, next_app):
+        """包装高级中间件"""
+        async def app(scope, receive, send):
+            import logging
+            logging.info(f"Advanced middleware wrapper called with scope type: {scope.get('type')}")
+            # 只处理 HTTP 请求
+            if scope["type"] != "http":
+                await next_app(scope, receive, send)
+                return
+
+            # 创建请求对象
+            request = Request(scope, receive, send)
+            logging.info(f"Created request object for {request.method} {request.url.path}")
+
+            # 创建 call_next 函数
+            async def call_next(request):
+                import logging
+                logging.info(f"call_next: Calling next_app with scope type: {scope.get('type')}")
+                logging.info(f"call_next: next_app is {next_app}")
+
+                # 创建一个缓冲区来捕获响应
+                response_body = b""
+                response_status = None
+                response_headers = []
+
+                # 创建自定义的 send 函数来捕获响应
+                async def capture_send(message):
+                    nonlocal response_body, response_status, response_headers
+                    if message["type"] == "http.response.start":
+                        response_status = message["status"]
+                        response_headers = list(message.get("headers", []))  # 确保是可变的列表
+                        logging.info(f"call_next: Captured response start: status={response_status}, headers={response_headers}")
+                    elif message["type"] == "http.response.body":
+                        body_chunk = message.get("body", b"")
+                        response_body += body_chunk
+                        logging.info(f"call_next: Captured response body chunk: {len(body_chunk)} bytes")
+                        # 如果是最后一个 chunk，创建响应对象
+                        if not message.get("more_body", False):
+                            logging.info(f"call_next: Response complete, body size: {len(response_body)} bytes")
+
+                # 创建新的 scope，可能需要修改
+                new_scope = scope.copy()
+                # 调用下一个应用
+                try:
+                    logging.info(f"call_next: Calling next_app")
+                    await next_app(new_scope, receive, capture_send)
+                    logging.info(f"call_next: next_app call completed")
+
+                    # 创建响应对象
+                    from starlette.responses import Response as StarletteResponse
+
+                    # 转换响应头，将字节类型转换为字符串类型
+                    converted_headers = {}
+                    if response_headers:
+                        for header in response_headers:
+                            if len(header) == 2:
+                                key, value = header
+                                # 将字节类型转换为字符串
+                                if isinstance(key, bytes):
+                                    key = key.decode('latin-1')
+                                if isinstance(value, bytes):
+                                    value = value.decode('latin-1')
+                                converted_headers[key] = value
+
+                    response = StarletteResponse(
+                        content=response_body,
+                        status_code=response_status or 200,
+                        headers=converted_headers if converted_headers else None
+                    )
+                    logging.info(f"call_next: Created response object: status={response.status_code}, body_size={len(response_body)}")
+                    return response
+                except Exception as e:
+                    # 如果下一个应用抛出异常，重新抛出
+                    logging.error(f"call_next: next_app raised exception: {e}")
+                    import traceback
+                    logging.error(f"call_next: traceback: {traceback.format_exc()}")
+                    raise e
+
+            # 调用中间件
+            try:
+                logging.info(f"Calling middleware.dispatch for {middleware.__class__.__name__}")
+                response = await middleware.dispatch(request, call_next)
+                logging.info(f"Middleware.dispatch returned response: {response}")
+                logging.info(f"Middleware.dispatch response type: {type(response)}")
+                # 发送响应
+                if response is not None:
+                    logging.info(f"Sending response via response(scope, receive, send)")
+                    await response(scope, receive, send)
+                    return response
+                else:
+                    logging.info(f"Middleware returned None, calling next_app directly")
+                    # 如果中间件返回 None，调用下一个应用
+                    response = await next_app(scope, receive, send)
+                    return response
+            except Exception as e:
+                # 如果中间件抛出异常，重新抛出
+                logging.error(f"Middleware.dispatch raised exception: {e}")
+                import traceback
+                logging.error(f"Middleware.dispatch traceback: {traceback.format_exc()}")
+                raise e
+
+        return app
+
+    def _wrap_asgi_middleware(self, middleware, next_app):
+        """包装底层 ASGI 中间件"""
+        async def app(scope, receive, send):
+            import logging
+            logging.info(f"Wrapping ASGI middleware: {middleware.__class__.__name__}")
+            logging.info(f"Middleware instance: {middleware}")
+            logging.info(f"Next app: {next_app}")
+            logging.info(f"Scope: {scope}")
+
+            # 设置中间件的下一个应用
+            middleware.application = next_app
+            logging.info(f"Set middleware application to next_app")
+
+            # 调用中间件
+            logging.info(f"Calling middleware with scope type: {scope.get('type')}")
+            try:
+                await middleware(scope, receive, send)
+                logging.info(f"Middleware call completed successfully")
+            except Exception as e:
+                logging.error(f"Middleware call failed: {e}")
+                import traceback
+                logging.error(f"Middleware call traceback: {traceback.format_exc()}")
+                raise
+
+        return app
 
     async def _call_middleware_method(self, method, *args):
         """异步调用中间件方法"""

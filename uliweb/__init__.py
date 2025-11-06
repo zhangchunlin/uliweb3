@@ -29,7 +29,7 @@ class RedirectException(Exception):
 
 
 class Middleware(object):
-    """Uliweb 中间件基类 - 遵循 ASGI 3.0 规范"""
+    """Uliweb 中间件基类 - 支持 ASGI 两种接口"""
     ORDER = 500  # 默认优先级
 
     def __init__(self, application, settings):
@@ -38,11 +38,22 @@ class Middleware(object):
 
     async def __call__(self, scope, receive, send):
         """
-        核心 ASGI 接口。
+        底层 ASGI 中间件接口。
         所有中间件逻辑（修改 scope/包装 receive/包装 send/异常处理）
         都应该在这个方法内实现。
         """
         await self.application(scope, receive, send)
+
+    async def dispatch(self, request, call_next):
+        """
+        高级中间件接口 - 仿照 Starlette 的 BaseHTTPMiddleware。
+        :param request: 请求对象
+        :param call_next: 调用下一个中间件或视图函数的异步函数
+        :return: 响应对象
+        """
+        # 调用下一个中间件或视图函数
+        response = await call_next(request)
+        return response
 
 
 # 标记 ASGI 可用性
