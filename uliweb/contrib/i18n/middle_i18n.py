@@ -56,7 +56,7 @@ def get_language_from_request(request, settings):
         normalized = format_locale(accept_lang)
         if not normalized:
             continue
-        
+
         if normalized in languages:
             if debug:
                 log.info('Detect from HTTP Header=%s, lang=%s' %
@@ -90,7 +90,14 @@ def parse_accept_lang_header(lang_string):
     return result
 
 class I18nMiddle(Middleware):
-    def process_request(self, request):
+    async def dispatch(self, request, call_next):
+        # 请求预处理
         lang = get_language_from_request(request, self.settings)
         if lang:
             set_language(lang)
+
+        # 调用下一个中间件或视图函数
+        response = await call_next(request)
+
+        # I18n中间件没有响应后处理逻辑
+        return response

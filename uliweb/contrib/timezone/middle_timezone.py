@@ -14,7 +14,8 @@ class TimezoneMiddleware(Middleware):
             self._local_time_zone = self._time_zone
         self._cookie_key = settings.TIMEZONE.cookie_key
 
-    def process_request(self, request):
+    async def dispatch(self, request, call_next):
+        # 请求预处理
         if self._time_zone:
             tz = None
             tzinfo = None
@@ -29,8 +30,14 @@ class TimezoneMiddleware(Middleware):
             if tz:
                 try:
                     tzinfo = timezone(tz)
-                except InvalidTimezone as e:
+                except InvalidTimezone:
                     tz = settings.GLOBAL.LOCAL_TIME_ZONE
                     tzinfo = timezone(tz)
             request.tz = tz
             request.tzinfo = tzinfo
+
+        # 调用下一个中间件或视图函数
+        response = await call_next(request)
+
+        # Timezone中间件没有响应后处理逻辑
+        return response

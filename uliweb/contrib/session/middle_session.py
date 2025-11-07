@@ -32,7 +32,8 @@ class SessionMiddle(Middleware):
             timeout = settings.SESSION_COOKIE.timeout
         SessionCookie.default_expiry_time = timeout
 
-    def process_request(self, request):
+    async def dispatch(self, request, call_next):
+        # 请求预处理
         key = request.cookies.get(SessionCookie.default_cookie_id)
         if not key:
             key = request.GET.get(SessionCookie.default_cookie_id)
@@ -45,7 +46,19 @@ class SessionMiddle(Middleware):
             options=self.options, expiry_time=self.timeout, serial_cls=serial_cls)
         request.session = session
 
-    def process_response(self, request, response):
+        # 调用下一个中间件或视图函数
+        try:
+            response = await call_next(request)
+        except Exception as e:
+            """
+            Still process session data when specially Exception
+            """
+            if isinstance(e, RedirectException):
+                response = e.get_response()
+            else:
+                raise
+
+        # 响应后处理
         session = request.session
         if session.deleted:
             response.delete_cookie(session.cookie.cookie_id)
@@ -74,11 +87,3 @@ class SessionMiddle(Middleware):
                             expires=None, domain=c.domain,
                             path=c.path, secure=c.secure)
         return response
-
-    def process_exception(self, request, e):
-        """
-        Still process session data when specially Exception
-        """
-        if isinstance(e, RedirectException):
-            response = e.get_response()
-            self.process_response(request, response)

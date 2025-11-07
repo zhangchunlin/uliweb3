@@ -5,20 +5,26 @@ from logging import getLogger
 log = getLogger(__name__.rsplit('.')[0])
 class RecorderrMiddle(Middleware):
     ORDER = 600
-    
-    def process_response(self, request, response):
+
+    async def dispatch(self, request, call_next):
+        # Recorder中间件主要在响应后处理，请求预处理为空
+
+        # 调用下一个中间件或视图函数
+        response = await call_next(request)
+
+        # 响应后处理
         from uliweb import settings, functions, json_dumps
         import base64
-        
+
         #if not debug status it'll quit
         if not settings.get_var('GLOBAL/DEBUG'):
             return response
-        
+
         S = functions.get_model('uliwebrecorderstatus')
         s = S.all().one()
         if not s or s.status == 'E':
             return response
-        
+
         if settings.get_var('ULIWEBRECORDER/response_text'):
             try:
                 text = response.data
@@ -26,7 +32,7 @@ class RecorderrMiddle(Middleware):
                 text = str(e)
         else:
             text = ''
-        
+
         #test if post_data need to convert base64
         if not request.content_type:
             post_data_is_text = True
@@ -65,11 +71,11 @@ class RecorderrMiddle(Middleware):
             )
         recorder.save()
         return response
-            
+
     def test_text(self, content_type):
         from uliweb.utils.common import match
         from uliweb import settings
-        
+
         m = content_type.split(';', 1)[0]
         r = match(m, settings.get_var('ULIWEBRECORDER/text_content_types'))
         return r
