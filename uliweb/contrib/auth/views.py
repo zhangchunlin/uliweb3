@@ -1,4 +1,4 @@
-from uliweb.core.SimpleFrame import functions
+from uliweb.core.SimpleFrame import functions, request, redirect
 from uliweb.i18n import ugettext_lazy as _
 from ...utils._compat import import_
 
@@ -32,7 +32,8 @@ def login():
             if f:
                 request.session.remember = form.rememberme.data
                 login(form.username.data)
-                next = unquote(request.POST.get('next', add_prefix('/')))
+                _post = await request.get_POST()
+                next = unquote(_post.get('next', add_prefix('/')))
                 return redirect(next)
             else:
                 form.errors.update(d)
@@ -58,7 +59,8 @@ def register():
             if f:
                 # add auto login support 2012/03/23
                 login(d)
-                next = unquote(request.POST.get('next', add_prefix('/')))
+                _post = await request.get_POST()
+                next = unquote(_post.get('next', add_prefix('/')))
                 return redirect(next)
             else:
                 form.errors.update(d)
@@ -67,10 +69,11 @@ def register():
         return {'form': form, 'msg': str(msg)}
 
 
-def logout():
+async def logout():
     from uliweb.contrib.auth import logout as out
     from uliweb import settings
 
     out()
-    next = unquote(request.values.get('next', add_prefix('/')))
+    _post = await request.get_POST()
+    next = unquote(_post.get('next', add_prefix('/')))
     return redirect(next)
