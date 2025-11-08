@@ -41,7 +41,8 @@ class RecorderrMiddle(Middleware):
         if not post_data_is_text:
             post_data = base64.encodestring(request.data)
         else:
-            post_data = json_dumps(request.POST.to_dict())
+            _post = await request.get_POST()
+            post_data = json_dumps(_post.to_dict())
 
         #test if response.data need to convert base64
         response_data_is_text = self.test_text(response.content_type)
