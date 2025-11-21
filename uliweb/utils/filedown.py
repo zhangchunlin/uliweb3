@@ -1,14 +1,13 @@
-#coding=utf8
+# coding=utf8
 
 import os
 from time import time, mktime
 from datetime import datetime
 from zlib import adler32
 import mimetypes
-from werkzeug.http import http_date, is_resource_modified
-from werkzeug import Response
-from werkzeug.wsgi import wrap_file
-from werkzeug.exceptions import NotFound
+from email.utils import formatdate
+from starlette.responses import Response, FileResponse
+from starlette.exceptions import HTTPException
 from ._compat import import_, b
 
 quote = import_('urllib.parse', ['quote'])
@@ -16,7 +15,7 @@ quote = import_('urllib.parse', ['quote'])
 
 def _opener(filename):
     if not os.path.exists(filename):
-        raise NotFound
+        raise HTTPException(status_code=404, detail="File not found")
     return (
         open(filename, 'rb'),
         datetime.utcfromtimestamp(os.path.getmtime(filename)),
@@ -48,19 +47,23 @@ def _get_download_filename(env, filename):
         result = "filename*=UTF-8''" + quote(fname)
     return result
 
-#copy from http://docs.webob.org/en/latest/file-example.html
+# copy from http://docs.webob.org/en/latest/file-example.html
 class FileIterable(object):
     def __init__(self, filename, start=None, stop=None):
         self.filename = filename
         self.start = start
         self.stop = stop
+
     def __iter__(self):
         return FileIterator(self.filename, self.start, self.stop)
+
     def app_iter_range(self, start, stop):
         return self.__class__(self.filename, start, stop)
 
+
 class FileIterator(object):
     chunk_size = 4096
+
     def __init__(self, filename, start, stop):
         self.filename = filename
         self.fileobj = open(self.filename, 'rb')
@@ -70,8 +73,10 @@ class FileIterator(object):
             self.length = stop - start
         else:
             self.length = None
+
     def __iter__(self):
         return self
+
     def next(self):
         if self.length is not None and self.length <= 0:
             raise StopIteration
@@ -84,12 +89,13 @@ class FileIterator(object):
                 # Chop off the extra:
                 chunk = chunk[:self.length]
         return chunk
-    __next__ = next # py3 compat
 
-def filedown(environ, filename, cache=True, cache_timeout=None,
-    action=None, real_filename=None, x_sendfile=False,
-    x_header_name=None, x_filename=None, fileobj=None,
-    default_mimetype='application/octet-stream'):
+    __next__ = next  # py3 compat
+
+async def filedown(environ, filename, cache=True, cache_timeout=None,
+                   action=None, real_filename=None, x_sendfile=False,
+                   x_header_name=None, x_filename=None, fileobj=None,
+                   default_mimetype='application/octet-stream'):
     """
     @param filename: is used for display in download
     @param real_filename: if used for the real file location
@@ -106,104 +112,101 @@ def filedown(environ, filename, cache=True, cache_timeout=None,
         ('X-Sendfile', '/path/to/local_url')
     """
     from .common import safe_str
-    from werkzeug.http import parse_range_header
 
-    guessed_type = mimetypes.guess_type(filename)
-    mime_type = guessed_type[0] or default_mimetype
-    real_filename = real_filename or filename
+    # 如果提供了 fileobj，使用自定义实现
+    if fileobj:
+        # 处理自定义文件对象
+        f, mtime, file_size = fileobj
+        headers = []
 
-    #make common headers
-    headers = []
-    headers.append(('Content-Type', mime_type))
-    d_filename = _get_download_filename(environ, os.path.basename(filename))
-    if action == 'download':
-        headers.append(('Content-Disposition', 'attachment; %s' % d_filename))
-        headers.append(('Access-Control-Expose-Headers', 'Content-Disposition'))
-    elif action == 'inline':
-        headers.append(('Content-Disposition', 'inline; %s' % d_filename))
-        headers.append(('Access-Control-Expose-Headers', 'Content-Disposition'))
+        # 获取 MIME 类型
+        guessed_type = mimetypes.guess_type(filename)
+        mime_type = guessed_type[0] or default_mimetype
+        headers.append(('Content-Type', mime_type))
+
+        # 处理文件名
+        d_filename = _get_download_filename(environ, os.path.basename(filename))
+        if action == 'download':
+            headers.append(('Content-Disposition', 'attachment; %s' % d_filename))
+            headers.append(('Access-Control-Expose-Headers', 'Content-Disposition'))
+        elif action == 'inline':
+            headers.append(('Content-Disposition', 'inline; %s' % d_filename))
+            headers.append(('Access-Control-Expose-Headers', 'Content-Disposition'))
+
+        # 处理缓存
+        if cache:
+            etag = _generate_etag(mtime, file_size, real_filename or filename)
+            headers.append(('ETag', '"%s"' % etag))
+            headers.append(('Last-Modified', formatdate(mktime(mtime.timetuple()), usegmt=True)))
+            if cache_timeout:
+                headers.append(('Cache-Control', 'max-age=%d, public' % cache_timeout))
+                headers.append(('Expires', formatdate(time() + cache_timeout, usegmt=True)))
+        else:
+            headers.append(('Cache-Control', 'public'))
+            headers.append(('Last-Modified', formatdate(mktime(mtime.timetuple()), usegmt=True)))
+
+        # 添加文件大小
+        headers.append(('Content-Length', str(file_size)))
+
+        # 返回响应
+        return Response(f.read(), status_code=200, headers=dict(headers))
+
+    # 如果启用了 x-sendfile，使用自定义实现
     if x_sendfile:
         if not x_header_name or not x_filename:
             raise Exception("x_header_name or x_filename can't be empty")
+
+        # 获取 MIME 类型
+        guessed_type = mimetypes.guess_type(filename)
+        mime_type = guessed_type[0] or default_mimetype
+
+        # 构建响应头
+        headers = []
+        headers.append(('Content-Type', mime_type))
+
+        # 处理文件名
+        d_filename = _get_download_filename(environ, os.path.basename(filename))
+        if action == 'download':
+            headers.append(('Content-Disposition', 'attachment; %s' % d_filename))
+            headers.append(('Access-Control-Expose-Headers', 'Content-Disposition'))
+        elif action == 'inline':
+            headers.append(('Content-Disposition', 'inline; %s' % d_filename))
+            headers.append(('Access-Control-Expose-Headers', 'Content-Disposition'))
+
+        # 添加 x-sendfile 头
         headers.append((x_header_name, safe_str(x_filename)))
-        return Response('', status=200, headers=headers,
-            direct_passthrough=True)
-    else:
-        request = environ.get('werkzeug.request')
-        # if request:
-        #     range = request.range
-        # else:
-        #     range = parse_range_header(environ.get('HTTP_RANGE'))
-        # 2021.1.24 request 在新的werkzeug 的版本没有 range 属性，在 Request 上才有
-        range = parse_range_header(environ.get('HTTP_RANGE'))
-        #when request range,only recognize "bytes" as range units
-        if range and range.units=="bytes":
-            try:
-                fsize = os.path.getsize(real_filename)
-            except OSError as e:
-                return Response("Not found",status=404)
-            mtime = datetime.utcfromtimestamp(os.path.getmtime(real_filename))
-            mtime_str = http_date(mtime)
-            if cache:
-                etag = _generate_etag(mtime, fsize, real_filename)
-            else:
-                etag = mtime_str
 
-            if_range = environ.get('HTTP_IF_RANGE')
-            if if_range:
-                check_if_range_ok = (if_range.strip('"')==etag)
-                #print "check_if_range_ok (%s) = (%s ==%s)"%(check_if_range_ok,if_range.strip('"'),etag)
-            else:
-                check_if_range_ok = True
+        # 返回响应
+        return Response('', status_code=200, headers=dict(headers))
 
-            rbegin,rend = range.ranges[0]
-            if check_if_range_ok and (rbegin+1)<fsize:
-                if rend == None:
-                    rend = fsize
+    # 否则使用 Starlette 的 FileResponse
+    real_filename = real_filename or filename
 
-                headers.append(('Content-Length',str(rend-rbegin)))
-                #werkzeug do not count rend with the same way of rfc7233,so -1
-                headers.append(('Content-Range','%s %d-%d/%d' %(range.units,rbegin, rend-1, fsize)))
-                headers.append(('Last-Modified', mtime_str))
-                if cache:
-                    headers.append(('ETag', '"%s"' % etag))
-                #for small file, read it to memory and return directly
-                #and this can avoid some issue with google chrome
-                if (rend-rbegin) < FileIterator.chunk_size:
-                    s = b"".join([chunk for chunk in FileIterator(real_filename,rbegin,rend)])
-                    return Response(s,status=206, headers=headers, direct_passthrough=True)
-                else:
-                    return Response(FileIterator(real_filename,rbegin,rend),
-                        status=206, headers=headers, direct_passthrough=True)
+    # 确定内容处置类型
+    content_disposition_type = 'attachment' if action == 'download' else 'inline'
+    if action is None:
+        content_disposition_type = 'attachment'  # 默认为下载
 
-        #process fileobj
-        if fileobj:
-            f, mtime, file_size = fileobj
-        else:
-            f, mtime, file_size = _opener(real_filename)
-        headers.append(('Date', http_date()))
+    # 处理文件名
+    basename = os.path.basename(filename)
 
-        if cache:
-            etag = _generate_etag(mtime, file_size, real_filename)
-            headers += [
-                ('ETag', '"%s"' % etag),
-            ]
-            if cache_timeout:
-                headers += [
-                    ('Cache-Control', 'max-age=%d, public' % cache_timeout),
-                    ('Expires', http_date(time() + cache_timeout))
-                ]
-            if not is_resource_modified(environ, etag, last_modified=mtime):
-                f.close()
-                return Response(status=304, headers=headers)
-        else:
-            headers.append(('Cache-Control', 'public'))
+    # 创建 FileResponse
+    response = FileResponse(
+        path=real_filename,
+        filename=basename,
+        content_disposition_type=content_disposition_type
+    )
 
+    # 处理缓存设置
+    if cache and cache_timeout:
+        # FileResponse 会自动处理 ETag 和 Last-Modified
+        response.headers['Cache-Control'] = f'max-age={cache_timeout}, public'
+        response.headers['Expires'] = formatdate(time() + cache_timeout, usegmt=True)
+    elif not cache:
+        response.headers['Cache-Control'] = 'public'
 
-        headers.extend((
-            ('Content-Length', str(file_size)),
-            ('Last-Modified', http_date(mtime))
-        ))
+    # 添加 Access-Control-Expose-Headers
+    if action in ('download', 'inline'):
+        response.headers['Access-Control-Expose-Headers'] = 'Content-Disposition'
 
-        return Response(wrap_file(environ, f), status=200, headers=headers,
-            direct_passthrough=True)
+    return response

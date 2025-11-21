@@ -87,7 +87,12 @@ def test_url(self, url, data=None, method='get', ok_test=(200, 304, 302), log=Tr
     if data is None:
         data = {}
     func = getattr(self, method.lower())
-    r = func(url, data=data)
+
+    # 根据 HTTP 方法不同，使用不同的参数传递方式
+    if method.lower() == 'get':
+        r = func(url, params=data)
+    else:
+        r = func(url, data=data)
 
     result = False
     if isinstance(ok_test, (list, tuple)):
