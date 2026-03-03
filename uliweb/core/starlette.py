@@ -45,6 +45,18 @@ pyini.set_env({
     'convertors':i18n_ini_convertor,
 })
 
+
+def _convert_route_param(rule):
+    """正确转换路由参数，处理 <type:name> 格式"""
+    def replacer(m):
+        param = m.group(1)
+        if ':' in param:
+            return '{' + param.split(':')[1] + '}'
+        else:
+            return '{' + param + '}'
+    return re.sub(r'<([^>]+)>', replacer, rule)
+
+
 class Request(StarletteRequest):
     """基于 Starlette 的 Request 类，保持与现有 Uliweb 的兼容性"""
 
@@ -322,7 +334,7 @@ class AsyncDispatcher:
             mod, handler_cls, handler = self.prepare_request(request, rule)
 
             # 处理请求
-            response = await self._open(request, **values)
+            response = await self._open(request)
             await response(scope, receive, send)
         except HTTPException as exc:
             # 处理 HTTP 异常（如 404）
@@ -457,7 +469,7 @@ class AsyncDispatcher:
         for rule_info in merged_rules:
             appname, endpoint, url, kw = rule_info
             # 转换 Werkzeug 风格路由到 Starlette 风格
-            starlette_rule = re.sub(r'<([^:>]+)(?::[^>]+)?>', r'{\1}', url)
+            starlette_rule = _convert_route_param(url)
 
             # 处理静态视图
             static = kw.pop('static', None)
@@ -475,13 +487,13 @@ class AsyncDispatcher:
                     if isinstance(route_info, (list, tuple)) and len(route_info) >= 2:
                         url, endpoint = route_info[:2]
                         # 转换 Werkzeug 风格路由到 Starlette 风格
-                        starlette_rule = re.sub(r'<([^:>]+)(?::[^>]+)?>', r'{\1}', url)
+                        starlette_rule = _convert_route_param(url)
                         # 注册路由
                         self.router.add_route(starlette_rule, endpoint, name=name)
                     elif isinstance(route_info, str):
                         # 如果只有 URL，使用 name 作为 endpoint
                         url = route_info
-                        starlette_rule = re.sub(r'<([^:>]+)(?::[^>]+)?>', r'{\1}', url)
+                        starlette_rule = _convert_route_param(url)
                         # 注册路由
                         self.router.add_route(starlette_rule, name, name=name)
 
@@ -491,13 +503,13 @@ class AsyncDispatcher:
                 if isinstance(route_info, (list, tuple)) and len(route_info) >= 2:
                     url, endpoint = route_info[:2]
                     # 转换 Werkzeug 风格路由到 Starlette 风格
-                    starlette_rule = re.sub(r'<([^:>]+)(?::[^>]+)?>', r'{\1}', url)
+                    starlette_rule = _convert_route_param(url)
                     # 注册路由
                     self.router.add_route(starlette_rule, endpoint, name=name)
                 elif isinstance(route_info, str):
                     # 如果只有 URL，使用 name 作为 endpoint
                     url = route_info
-                    starlette_rule = re.sub(r'<([^:>]+)(?::[^>]+)?>', r'{\1}', url)
+                    starlette_rule = _convert_route_param(url)
                     # 注册路由
                     self.router.add_route(starlette_rule, name, name=name)
 
@@ -797,6 +809,10 @@ class AsyncDispatcher:
 
         # 遍历所有路由进行匹配
         for route in self.router.routes:
+            # 只处理 Route 对象，跳过 Mount 对象
+            # Route 有 'methods' 属性，Mount 没有
+            if not hasattr(route, 'methods') or not isinstance(route, Route):
+                continue
             if hasattr(route, 'path'):
                 # 对于 Starlette Route 对象，使用更直接的方法
                 try:
@@ -869,12 +885,14 @@ class AsyncDispatcher:
         if route_path == request_path:
             return {}
 
-        # 提取路径参数
+        # 提取路径参数 - 支持 Starlette 的两种格式：
+        # {param} - 普通路径参数
+        # {path:filename} - 捕获剩余路径部分
         import re
-        # 获取参数名
-        param_names = re.findall(r'\{([^}]+)\}', route_path)
+        # 获取参数名 - 包括 {param} 和 {path:filename} 格式
+        param_names = re.findall(r'\{(?:[^:}]+:)?([^}]+)\}', route_path)
         # 构建匹配模式
-        pattern = re.sub(r'\{([^}]+)\}', r'([^/]+)', route_path)
+        pattern = re.sub(r'\{(?:[^:}]+:)?([^}]+)\}', r'([^/]+)', route_path)
         pattern = '^' + pattern + '$'
 
         match = re.match(pattern, request_path)
@@ -1084,8 +1102,15 @@ class AsyncDispatcher:
             result = await handler(*call_args, **call_kwargs)
         else:
             # 同步函数需要在协程池中执行
+            # run_in_executor 只接受位置参数，使用 functools.partial 绑定参数
+            import functools
             loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(None, handler, *call_args, **call_kwargs)
+            if call_kwargs:
+                # 使用 partial 绑定关键字参数，不再额外传递位置参数
+                partial_handler = functools.partial(handler, **call_kwargs)
+                result = await loop.run_in_executor(None, partial_handler)
+            else:
+                result = await loop.run_in_executor(None, handler, *call_args)
 
         # 处理 LocalProxy 响应
         if isinstance(result, LocalProxy) and result._obj_name == 'response':
