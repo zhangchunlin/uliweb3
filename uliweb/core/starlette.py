@@ -397,6 +397,22 @@ class AsyncDispatcher:
             # 注册路由
             self.router.add_route(starlette_rule, endpoint, **kw)
 
+        # 处理 EXPOSES 路由（来自 settings.ini 的路由定义）
+        if hasattr(self.settings, 'EXPOSES') and self.settings.EXPOSES:
+            for name, route_info in self.settings.EXPOSES.items():
+                if isinstance(route_info, (list, tuple)) and len(route_info) >= 2:
+                    url, endpoint = route_info[:2]
+                    # 转换 Werkzeug 风格路由到 Starlette 风格
+                    starlette_rule = re.sub(r'<([^:>]+)(?::[^>]+)?>', r'{\1}', url)
+                    # 注册路由
+                    self.router.add_route(starlette_rule, endpoint, name=name)
+                elif isinstance(route_info, str):
+                    # 如果只有 URL，使用 name 作为 endpoint
+                    url = route_info
+                    starlette_rule = re.sub(r'<([^:>]+)(?::[^>]+)?>', r'{\1}', url)
+                    # 注册路由
+                    self.router.add_route(starlette_rule, name, name=name)
+
     async def _import_views(self):
         """导入视图模块，触发 expose 装饰器的执行"""
         from uliweb.utils.common import myimport
@@ -404,16 +420,22 @@ class AsyncDispatcher:
         import sys
 
         # 添加项目目录到 Python 路径
-        if self.project_dir not in sys.path:
+        if self.project_dir and self.project_dir not in sys.path:
             sys.path.insert(0, self.project_dir)
 
         # 收集所有应用的视图模块
         views_modules = []
         for app in self.apps:
+            # 检查是否有 apps 目录
+            has_apps_dir = self.project_dir and os.path.exists(os.path.join(self.project_dir, 'apps'))
+
             # 尝试导入 views.py
             try:
-                # 应用模块路径应该是相对于项目目录的
-                views_module = f"apps.{app}.views"
+                # 根据是否有 apps 目录来确定模块路径
+                if has_apps_dir and not app.startswith('uliweb.contrib.'):
+                    views_module = f"apps.{app}.views"
+                else:
+                    views_module = f"{app}.views"
                 myimport(views_module)
                 views_modules.append(views_module)
             except ImportError:
@@ -427,23 +449,29 @@ class AsyncDispatcher:
                         for filename in os.listdir(views_dir):
                             if filename.endswith('.py') and not filename.startswith('_'):
                                 module_name = filename[:-3]  # 去掉 .py 后缀
-                                full_module = f"apps.{app}.views.{module_name}"
+                                # 根据是否有 apps 目录来确定模块路径
+                                if has_apps_dir and not app.startswith('uliweb.contrib.'):
+                                    full_module = f"apps.{app}.views.{module_name}"
+                                else:
+                                    full_module = f"{app}.views.{module_name}"
                                 try:
                                     myimport(full_module)
                                     views_modules.append(full_module)
                                 except ImportError:
                                     pass
-                except Exception:
+                except Exception as e:
                     pass
-            except Exception:
+            except Exception as e:
                 pass
 
-        # 特殊处理测试应用
-        try:
-            myimport("apps.test.views")
-            views_modules.append("apps.test.views")
-        except ImportError:
-            pass
+        # 导入 contrib 应用的模块
+        for app in self.apps:
+            if app.startswith('uliweb.contrib.'):
+                try:
+                    # 导入 contrib 应用的 __init__.py 文件，这会触发路由注册
+                    myimport(app)
+                except ImportError as e:
+                    pass
 
     def _get_app_dir(self, app):
         """获取应用目录"""
@@ -1421,6 +1449,16 @@ def json(data, **kwargs):
     return JSONResponse(data, **kwargs)
 
 
+def url_for(endpoint, **values):
+    """URL 生成函数"""
+    from uliweb import application
+    if hasattr(application, '_url_for'):
+        return application._url_for(endpoint, **values)
+    else:
+        # 简单实现
+        return f"/{endpoint}"
+
+
 # 导出主要类和方法
 __all__ = [
     'Request',
@@ -1433,5 +1471,6 @@ __all__ = [
     'GET',
     'context_middleware',
     'redirect',
-    'json'
+    'json',
+    'url_for'
 ]

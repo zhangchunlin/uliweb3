@@ -9,8 +9,10 @@ from uliweb.utils._compat import import_, string_types
 
 unquote = import_('urllib.parse', 'unquote')
 
+# 直接支持 ASGI 环境
 
-__all__ = ['save_file', 'get_filename', 'get_url', 'save_file_field', 'save_image_field', 
+
+__all__ = ['save_file', 'get_filename', 'get_url', 'save_file_field', 'save_image_field',
     'delete_filename', 'norm_filename']
 
 default_fileserving = None
@@ -22,14 +24,14 @@ class FilenameConverter(object):
     @staticmethod
     def convert(filename):
         return filename
-    
+
 class UUIDFilenameConverter(object):
     @staticmethod
     def convert(filename):
         import uuid
         _f, ext = os.path.splitext(filename)
         return uuid.uuid1().hex + ext
-    
+
 class MD5FilenameConverter(object):
     @staticmethod
     def convert(filename):
@@ -41,11 +43,11 @@ class MD5FilenameConverter(object):
         _f, ext = os.path.splitext(filename)
         f = md5(
                     md5("%f%s%f%s" % (time.time(), id({}), random.random(),
-                                      os.getpid())).hexdigest(), 
+                                      os.getpid())).hexdigest(),
                 ).hexdigest()
-        
+
         return f + ext
-    
+
 class FileServing(object):
     default_config = 'UPLOAD'
     options = {
@@ -56,7 +58,7 @@ class FileServing(object):
         'buffer_size': ('BUFFER_SIZE', 4096),
         '_filename_converter': ('FILENAME_CONVERTER', None),
     }
-    
+
     def __init__(self, default_filename_converter_cls=UUIDFilenameConverter, config=None):
         self.config = config or self.default_config
         for k, v in self.options.items():
@@ -67,7 +69,7 @@ class FileServing(object):
                 item = self.config + '/' + item
             value = settings.get_var(item, default)
             setattr(self, k, value)
-            
+
         if self.x_sendfile and not self.x_header_name:
             if self.x_sendfile == 'nginx':
                 self.x_header_name = 'X-Accel-Redirect'
@@ -79,16 +81,16 @@ class FileServing(object):
             self._filename_converter_cls = import_attr(self._filename_converter)
         else:
             self._filename_converter_cls = self._filename_converter or default_filename_converter_cls
-        
+
     def filename_convert(self, filename, convert_cls=None):
         convert_cls = convert_cls or self._filename_converter_cls
         return convert_cls.convert(filename)
-        
+
     def get_filename(self, filename, filesystem=False, convert=False, subpath=''):
         """
         Get the filename according to self.to_path, and if filesystem is False
         then return unicode filename, otherwise return filesystem encoded filename
-    
+
         @param filename: relative filename, it'll be combine with self.to_path
         @param filesystem: if True, then encoding the filename to filesystem
         @param convert: if True, then convert filename with FilenameConverter class
@@ -96,7 +98,7 @@ class FileServing(object):
         """
         from uliweb.utils.common import safe_unicode
         from werkzeug.exceptions import Forbidden
-        
+
         #make sure the filename is unicode
         s = settings.GLOBAL
         if convert:
@@ -116,7 +118,7 @@ class FileServing(object):
         if not f.startswith(os.path.normpath(application_to_path)):
             log.exception(f"File path: {f} is not under {self.to_path}.")
             raise Forbidden("Not allow filename")
-    
+
         if filesystem:
             return files.encode_filename(f, to_encoding=s.FILESYSTEM_ENCODING)
         return f
@@ -130,7 +132,7 @@ class FileServing(object):
         from uliweb.utils.common import safe_str
         from uliweb.utils.filedown import filedown
         from werkzeug.exceptions import Forbidden
-        
+
         s = settings.GLOBAL
 
         action = request.GET.get('action', action)
@@ -158,32 +160,32 @@ class FileServing(object):
             x_filename = safe_str(filename, s.FILESYSTEM_ENCODING)
         if self.x_file_prefix:
             x_filename = os.path.normpath(os.path.join(self.x_file_prefix, x_filename)).replace('\\', '/')
-        
+
         xsend_flag = bool(self.x_sendfile) if x_sendfile is None else x_sendfile
-        return filedown(request.environ, filename, action=action, 
-            x_sendfile=xsend_flag, x_header_name=self.x_header_name, 
+        return filedown(request.environ, filename, action=action,
+            x_sendfile=xsend_flag, x_header_name=self.x_header_name,
             x_filename=x_filename, real_filename=real_filename)
-     
+
     def save_file(self, filename, fobj, replace=False, convert=True, subpath=''):
         from uliweb.utils import files
-        
+
         #get full path and converted filename
         fname = self.get_filename(filename, True, convert=convert, subpath=subpath)
         #save file and get the changed filename, because the filename maybe change when
         #there is duplicate filename, if replace=True, then the filename
         #will not changed
         fname2 = files.save_file(fname, fobj, replace, self.buffer_size)
-        
+
         s = settings.GLOBAL
         #create new filename according fname2 and filename, the result should be unicode
         return norm_filename(os.path.join(subpath, os.path.dirname(filename), files.unicode_filename(fname2, s.FILESYSTEM_ENCODING)))
-    
+
     def save_file_field(self, field, replace=False, filename=None, convert=True, subpath=''):
         filename = filename or field.data.filename
         fname = self.save_file(filename, field.data.file, replace, convert, subpath=subpath)
         field.data.filename = fname
         return fname
-            
+
     def save_image_field(self, field, resize_to=None, replace=False, filename=None,
                          convert=True, subpath=''):
         from uliweb.utils.image import resize_image
@@ -193,7 +195,7 @@ class FileServing(object):
         fname = self.save_file(filename, field.data.file, replace, convert, subpath=subpath)
         field.data.filename = fname
         return fname
-            
+
     def delete_filename(self, filename, subpath=''):
         f = self.get_filename(filename, filesystem=True, convert=False, subpath=subpath)
         if os.path.exists(f):
@@ -201,7 +203,7 @@ class FileServing(object):
                 os.unlink(f)
             except Exception as e:
                 log.exception(e)
-    
+
     def get_href(self, filename, **kwargs):
         if not filename:
             return ''
@@ -210,14 +212,14 @@ class FileServing(object):
         fname = norm_filename(files.unicode_filename(filename, s.FILESYSTEM_ENCODING))
         f = url_for('file_serving', filename=fname, **kwargs)
         return f
-        
+
     def get_url(self, filename, query_para=None, **url_args):
         """
         Return <a href="filename" title="filename"> tag
         You should pass title and text to url_args, if not pass, then using filename
         """
         from uliweb.core.html import Tag
-        
+
         title = url_args.pop('title', filename)
         text = url_args.pop('text', title)
         query_para = query_para or {}
@@ -225,7 +227,7 @@ class FileServing(object):
 
 def get_backend(config=None):
     global default_fileserving
-    
+
     if default_fileserving and not config:
         return default_fileserving
     else:
@@ -244,7 +246,7 @@ get_fileserving = get_backend
 def file_serving(filename, action='download', real_filename=None, x_sendfile=None, x_filename=None):
     from uliweb import request
 
-    
+
     alt_filename = request.GET.get('alt')
     if not alt_filename:
         alt_filename = filename
@@ -266,13 +268,13 @@ def get_filename(filename, filesystem=False, convert=False, subpath=''):
 
 def save_file(filename, fobj, replace=False, convert=True, subpath=''):
     return get_backend().save_file(filename, fobj, replace, convert, subpath=subpath)
-    
+
 def save_file_field(field, replace=False, filename=None, convert=True, subpath=''):
     return get_backend().save_file_field(field, replace, filename, convert, subpath=subpath)
-        
+
 def save_image_field(field, resize_to=None, replace=False, filename=None, convert=True, subpath=''):
     return get_backend().save_image_field(field, resize_to, replace, filename, convert, subpath=subpath)
-        
+
 def delete_filename(filename):
     return get_backend().delete_filename(filename)
 
@@ -288,7 +290,7 @@ def download(filename, *args, **kwargs):
 def after_init_apps(sender):
     import mimetypes
     from uliweb import settings
-    
+
     for k, v in settings.get('MIME_TYPES').items():
         if not k.startswith('.'):
             k = '.' + k

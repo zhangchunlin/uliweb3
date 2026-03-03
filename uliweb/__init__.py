@@ -70,6 +70,7 @@ try:
         GET as asgi_GET,
         redirect as asgi_redirect,
         json as asgi_json,
+        url_for as asgi_url_for,
         request as asgi_request,
         response as asgi_response,
         settings as asgi_settings,
@@ -87,6 +88,7 @@ try:
     GET = asgi_GET
     redirect = asgi_redirect
     json = asgi_json
+    url_for = asgi_url_for
     request = asgi_request
     response = asgi_response
     settings = asgi_settings
@@ -103,6 +105,7 @@ except ImportError:
         GET as wsgi_GET,
         redirect as wsgi_redirect,
         json as wsgi_json,
+        url_for as wsgi_url_for,
         request as wsgi_request,
         response as wsgi_response,
         settings as wsgi_settings,
@@ -117,6 +120,7 @@ except ImportError:
     GET = wsgi_GET
     redirect = wsgi_redirect
     json = wsgi_json
+    url_for = wsgi_url_for
     request = wsgi_request
     response = wsgi_response
     settings = wsgi_settings
@@ -131,5 +135,5 @@ __all__ = [
     'SimpleFrame', 'dispatch', 'template', 'html', 'js', 'uaml',
     'common', 'date', 'files', 'storage', 'sorteddict',
     'form', 'orm', 'i18n', 'mail', 'ASGI_AVAILABLE',
-    'get_apps', 'get_app_dir', 'functions'  # 添加缺失的函数
+    'get_apps', 'get_app_dir', 'functions', 'url_for'  # 添加缺失的函数
 ]
