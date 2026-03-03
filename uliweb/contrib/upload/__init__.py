@@ -97,7 +97,7 @@ class FileServing(object):
         @param subpath: sub folder in to_path
         """
         from uliweb.utils.common import safe_unicode
-        from werkzeug.exceptions import Forbidden
+        from starlette.exceptions import HTTPException
 
         #make sure the filename is unicode
         s = settings.GLOBAL
@@ -117,7 +117,7 @@ class FileServing(object):
         # not allow file path outside of the application to_path
         if not f.startswith(os.path.normpath(application_to_path)):
             log.exception(f"File path: {f} is not under {self.to_path}.")
-            raise Forbidden("Not allow filename")
+            raise HTTPException(status_code=403)
 
         if filesystem:
             return files.encode_filename(f, to_encoding=s.FILESYSTEM_ENCODING)
@@ -131,7 +131,7 @@ class FileServing(object):
         from uliweb import request, settings
         from uliweb.utils.common import safe_str
         from uliweb.utils.filedown import filedown
-        from werkzeug.exceptions import Forbidden
+        from starlette.exceptions import HTTPException
 
         s = settings.GLOBAL
 
@@ -154,7 +154,7 @@ class FileServing(object):
                 break
         if not allowed:
             log.exception(f"Cannot download file from {real_filepath}, only allow to download files under {allow_download_paths}")
-            raise Forbidden("Not allow download")
+            raise HTTPException(status_code=403)
 
         if not x_filename:
             x_filename = safe_str(filename, s.FILESYSTEM_ENCODING)

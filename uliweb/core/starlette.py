@@ -336,7 +336,7 @@ class AsyncDispatcher:
             # 处理请求
             response = await self._open(request)
             await response(scope, receive, send)
-        except HTTPException as exc:
+        except (HTTPException, RuntimeError) as exc:
             # 处理 HTTP 异常（如 404）
             response = await self._handle_exception(request, exc)
             await response(scope, receive, send)
@@ -1513,6 +1513,9 @@ class AsyncDispatcher:
                     {'error': str(exception)},
                     status_code=exception.status_code
                 )
+        # 处理文件不存在等 RuntimeError
+        elif isinstance(exception, RuntimeError) and "File at path" in str(exception):
+            return JSONResponse({"error": str(exception)}, status_code=404)
         else:
             if not self.settings.get_var('GLOBAL/DEBUG'):
                 return await self._internal_error(exception)
