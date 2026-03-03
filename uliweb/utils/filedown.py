@@ -29,13 +29,28 @@ def _generate_etag(mtime, file_size, real_filename):
         adler32(b(real_filename)) & 0xffffffff
     )
 
-def _get_download_filename(env, filename):
+def _get_download_filename(request_or_env, filename):
+    """获取下载文件名
+
+    Args:
+        request_or_env: request 对象或 environ 字典（兼容旧代码）
+        filename: 文件名
+    """
     from uliweb.utils.common import safe_str
     from ua_parser import user_agent_parser
 
     # werkzeug.useragents was remove from werkzeug 2.1 using ua-parser replace it.
     # link https://github.com/pallets/werkzeug/issues/2078
-    http_user_agent = user_agent_parser.Parse(env.get("HTTP_USER_AGENT", {}))
+
+    # 支持 request 对象或 environ 字典
+    if hasattr(request_or_env, 'headers'):
+        # request 对象（ASGI）
+        http_user_agent = request_or_env.headers.get('user-agent', '')
+    else:
+        # environ 字典（WSGI 兼容）
+        http_user_agent = request_or_env.get('HTTP_USER_AGENT', '')
+
+    http_user_agent = user_agent_parser.Parse(http_user_agent)
     ua_browser = http_user_agent.get("user_agent", {}).get("family","").lower()
 
     fname = safe_str(filename, 'utf8')
