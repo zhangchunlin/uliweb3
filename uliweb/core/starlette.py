@@ -1104,13 +1104,20 @@ class AsyncDispatcher:
             # 同步函数需要在协程池中执行
             # run_in_executor 只接受位置参数，使用 functools.partial 绑定参数
             import functools
+            from contextvars import copy_context
             loop = asyncio.get_event_loop()
+
+            # 获取当前 contextvars 上下文
+            ctx = copy_context()
+
             if call_kwargs:
                 # 使用 partial 绑定关键字参数，不再额外传递位置参数
                 partial_handler = functools.partial(handler, **call_kwargs)
-                result = await loop.run_in_executor(None, partial_handler)
+                # 使用 copy_context 确保 contextvars 在线程中正确传播
+                result = await loop.run_in_executor(None, ctx.run, partial_handler)
             else:
-                result = await loop.run_in_executor(None, handler, *call_args)
+                # 使用 copy_context 确保 contextvars 在线程中正确传播
+                result = await loop.run_in_executor(None, ctx.run, handler, *call_args)
 
         # 处理 LocalProxy 响应
         if isinstance(result, LocalProxy) and result._obj_name == 'response':
