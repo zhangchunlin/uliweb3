@@ -219,11 +219,21 @@ class Request(StarletteRequest):
 
     @property
     def params(self):
-        """已弃用：同步访问合并参数会抛出异常"""
-        raise RuntimeError(
-            "params 属性已弃用，请使用 await request.get_params() 方法。"
-            "由于 POST 数据需要异步读取，params 无法同步实现。"
-        )
+        """兼容 params 属性，返回 GET 参数
+
+        注意：由于 POST 数据需要异步读取，此属性仅返回 GET (query) 参数。
+        如需合并 GET 和 POST 参数，请在异步视图函数中：
+
+        ```python
+        @expose('/api/data')
+        async def async_view():
+            get_params = dict(request.query_params)
+            post_params = dict(await request.get_POST())
+            all_params = {**get_params, **post_params}
+            return all_params
+        ```
+        """
+        return self.query_params
 
 class Response(StarletteResponse):
     """基于 Starlette 的 Response 类，保持与现有 Uliweb 的兼容性"""
@@ -300,7 +310,11 @@ class AsyncDispatcher:
         self._initialized = False
 
         if start:
-            # 异步初始化
+            # 注意：使用 asyncio.create_task 可能导致竞态条件
+            # 第一个请求可能在初始化完成前到达
+            # handle_http 中有等待初始化完成的逻辑，这是正确的处理方式
+            # 但在构造函数中创建任务可能导致初始化任务被取消
+            # 建议：在应用启动时显式调用 init() 或使用事件等待
             asyncio.create_task(self._async_init())
 
     async def _async_init(self):
@@ -387,6 +401,8 @@ class UliwebRouter:
     def add_route(self, rule, endpoint, **kwargs):
         """转换 Werkzeug 风格路由到 Starlette 风格"""
         # 转换参数格式: <name> -> {name}
+        # 注意：Werkzeug 的类型提示如 <int:id> 会被转换为 {id}，类型信息会丢失
+        # 开发者需要在视图函数中进行类型转换
         starlette_rule = re.sub(r'<([^:>]+)(?::[^>]+)?>', r'{\1}', rule)
 
         methods = kwargs.get('methods', ['GET'])
@@ -2014,7 +2030,7 @@ def create_application():
 **实际实现与规划的主要差异：**
 
 1. **配置系统保持同步**：实际实现中配置加载仍然使用同步方式，通过协程池处理
-2. **模板渲染保持同步**：模板系统继续使用 Uliweb 的同步模板，通过协程池异步化
+2. **模板渲染使用协程池**：模板系统继续使用 Uliweb 的同步模板，通过 `run_in_executor` 在协程池中异步执行，而非真正的异步 I/O
 3. **中间件系统简化**：实际实现采用更直接的中间件处理方式
 4. **路由匹配优化**：实现了更精确的路由匹配算法，支持参数提取
 5. **错误处理增强**：提供了更完善的异常处理和调试信息
