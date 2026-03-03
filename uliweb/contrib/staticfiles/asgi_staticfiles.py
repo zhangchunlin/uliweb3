@@ -73,6 +73,23 @@ class ASGIStaticFilesMiddleware:
             # 提取文件名
             filename = path[len(self.url_suffix.strip('/')):].strip('/')
 
+            # 首先检查是否包含路径遍历攻击（..）
+            # 包括 URL 编码的反斜杠和普通 ..
+            import urllib.parse
+            decoded_filename = urllib.parse.unquote(filename)
+
+            # 检测目录遍历攻击
+            # 1. 包含 ..
+            # 2. 解码后包含 ..
+            # 3. 解码后包含反斜杠（可能与 .. 结合形成目录遍历）
+            # 4. 只包含 . 也需要检查（可能是隐藏文件，但组合起来可能是攻击）
+            if ('..' in filename or '..' in decoded_filename or
+                '\\' in decoded_filename or decoded_filename.startswith('.')):
+                # 返回 403 Forbidden，表示检测到非法路径
+                response = Response("You can not visit the file %s." % filename, status_code=403)
+                await response(scope, receive, send)
+                return
+
             # 清理路径，防止目录遍历攻击
             cleaned_filename = '/'.join([x for x in filename.split('/') if x and x != '..'])
 
@@ -110,3 +127,4 @@ class ASGIStaticFilesMiddleware:
                 return
 
         # 不是静态文件请求，传递给下一个应用
+        await self.app(scope, receive, send)

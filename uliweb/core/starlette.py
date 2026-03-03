@@ -265,6 +265,7 @@ class AsyncDispatcher:
         self.local_settings_file = local_settings_file
         self.router = UliwebRouter()
         self._initialized = False
+        self._middleware_stack = None
 
         # 无论 start 是 True 还是 False，都需要加载 settings
         # 这样在命令行环境中（如测试）也可以使用 functions 等
@@ -382,25 +383,30 @@ class AsyncDispatcher:
                 try:
                     middleware_cls = import_attr(middleware_path)
                     # 创建中间件实例
+                    # ASGI 中间件通常只需要一个 app 参数，配置通过关键字参数传递
                     if isinstance(options, dict):
-                        middleware_instance = middleware_cls(self, self, **options)
+                        middleware_instance = middleware_cls(self, **options)
                     else:
-                        middleware_instance = middleware_cls(self, self)
+                        middleware_instance = middleware_cls(self)
                     # 将 ASGI 中间件添加到中间件链中
                     self.middlewares.append(middleware_instance)
                 except Exception as e:
                     # 如果中间件初始化失败，跳过
+                    import logging
+                    logging.getLogger('uliweb').warning(f"Failed to initialize ASGI middleware {name}: {e}")
                     pass
             elif isinstance(middleware_config, str):
                 # 处理简单的中间件路径配置
                 try:
                     middleware_cls = import_attr(middleware_config)
-                    # 创建中间件实例，传递应用实例和设置
-                    middleware_instance = middleware_cls(self, self)
+                    # 创建中间件实例，传递应用实例
+                    middleware_instance = middleware_cls(self)
                     # 将 ASGI 中间件添加到中间件链中
                     self.middlewares.append(middleware_instance)
                 except Exception as e:
                     # 如果中间件初始化失败，跳过
+                    import logging
+                    logging.getLogger('uliweb').warning(f"Failed to initialize ASGI middleware {name}: {e}")
                     pass
             elif isinstance(middleware_config, dict):
                 # 处理字典格式的中间件配置
@@ -411,13 +417,15 @@ class AsyncDispatcher:
                         middleware_cls = import_attr(middleware_path)
                         # 创建中间件实例
                         if isinstance(options, dict):
-                            middleware_instance = middleware_cls(self, self, **options)
+                            middleware_instance = middleware_cls(self, **options)
                         else:
-                            middleware_instance = middleware_cls(self, self)
+                            middleware_instance = middleware_cls(self)
                         # 将 ASGI 中间件添加到中间件链中
                         self.middlewares.append(middleware_instance)
                 except Exception as e:
-                    #间如果中间件初始化失败，跳过，跳过
+                    # 如果中间件初始化失败，跳过
+                    import logging
+                    logging.getLogger('uliweb').warning(f"Failed to initialize ASGI middleware {name}: {e}")
                     pass
 
     def _sort_middlewares(self, middlewares):
@@ -1314,62 +1322,96 @@ class AsyncDispatcher:
 
     async def _build_middleware_stack(self):
         """构建中间件调用链"""
+        # 如果已经构建过中间件栈，直接返回缓存的版本
+        if self._middleware_stack is not None:
+            return self._middleware_stack
+
         # 从内到外包装应用，形成中间件链
-        app = self._handle_request
+        # 确保 _handle_request 是 async function
+        if asyncio.iscoroutinefunction(self._handle_request):
+            app = self._handle_request
+        else:
+            # 如果 _handle_request 是 bound method，转换为 async function
+            async def async_handle_request(scope, receive, send):
+                return await self._handle_request(scope, receive, send)
+            app = async_handle_request
 
         # 按逆序添加中间件（确保按配置顺序执行）
-        for middleware_cls in reversed(self.middlewares):
+        for middleware in reversed(self.middlewares):
             try:
-                middleware_instance = middleware_cls(self, self.settings)
+                # 检查中间件类型并分别处理
+                # middleware 可能是类（未实例化）或实例
 
-                # 检查中间件类型
-                # 1. 优先检查是否是专门的 ASGI 中间件（重写了 __call__ 方法）
-                # 2. 然后检查是否是高级中间件（重写了 dispatch 方法）
-                # 3. 最后检查是否是传统中间件（有 process_* 方法）
+                # 获取中间件类
+                if isinstance(middleware, type):
+                    middleware_cls = middleware
+                else:
+                    middleware_cls = type(middleware)
 
-                # 检查是否是专门的 ASGI 中间件
-                # 专门的 ASGI 中间件应该重写了 __call__ 方法
-                has_custom_call = (
-                    hasattr(middleware_instance, '__call__') and
-                    callable(middleware_instance.__call__) and
-                    # 检查方法是否与基类不同
-                    type(middleware_instance).__call__ != Middleware.__call__
+                # 1. ASGI 中间件（有自定义的 __call__ 方法）
+                # ASGI 中间件应该有 async def __call__(self, scope, receive, send)
+                # 检查实例的 __call__ 方法是否为协程函数
+                if not isinstance(middleware, type):
+                    has_asgi_call = (
+                        hasattr(middleware, '__call__') and
+                        iscoroutinefunction(middleware.__call__)
+                    )
+                else:
+                    # 对于类，检查类的 __call__ 是否为协程函数
+                    has_asgi_call = (
+                        hasattr(middleware_cls, '__call__') and
+                        iscoroutinefunction(middleware_cls.__call__)
+                    )
+
+                # 2. 高级中间件（有 dispatch 方法）
+                has_dispatch = (
+                    hasattr(middleware_cls, 'dispatch') and
+                    callable(getattr(middleware_cls, 'dispatch', None))
                 )
 
-                # 检查是否是高级中间件
-                # 高级中间件应该重写了 dispatch 方法
-                has_custom_dispatch = (
-                    hasattr(middleware_instance, 'dispatch') and
-                    callable(middleware_instance.dispatch) and
-                    # 检查方法是否与基类不同
-                    type(middleware_instance).dispatch != Middleware.dispatch
+                # 3. 传统中间件（有 process_* 方法）
+                has_traditional = (
+                    hasattr(middleware_cls, 'process_request') or
+                    hasattr(middleware_cls, 'process_response') or
+                    hasattr(middleware_cls, 'process_exception')
                 )
 
-                # 检查是否是传统中间件
-                has_traditional_methods = (
-                    hasattr(middleware_instance, 'process_request') or
-                    hasattr(middleware_instance, 'process_response') or
-                    hasattr(middleware_instance, 'process_exception')
-                )
-
-                # 优先级：ASGI 中间件 > 高级中间件 > 传统中间件
-                # 注意：ASGI 中间件优先于高级中间件，因为 ASGI 中间件有更底层的控制能力
-                if has_custom_call:
-                    # 底层 ASGI 中间件接口（有 __call__ 方法）
+                if has_asgi_call:
+                    # ASGI 中间件：直接包装
+                    # 需要传递 self 作为 app 参数，因为 ASGI 中间件通常只需要一个 app 参数
+                    if isinstance(middleware, type):
+                        middleware_instance = middleware(self)
+                    else:
+                        middleware_instance = middleware
                     app = self._wrap_asgi_middleware(middleware_instance, app)
-                elif has_custom_dispatch:
-                    # 高级中间件接口（有 dispatch 方法）
+                elif has_dispatch:
+                    # 高级中间件
+                    if isinstance(middleware, type):
+                        middleware_instance = middleware(self, self.settings)
+                    else:
+                        middleware_instance = middleware
                     app = self._wrap_advanced_middleware(middleware_instance, app)
-                elif has_traditional_methods:
-                    # 传统中间件接口
+                elif has_traditional:
+                    # 传统中间件，在 _process_middleware 中处理
                     continue
                 else:
-                    # 不是有效的中间件，跳过
-                    continue
-            except Exception:
+                    # 不是有效的中间件，尝试创建实例
+                    try:
+                        if isinstance(middleware, type):
+                            middleware_instance = middleware(self, self.settings)
+                        else:
+                            middleware_instance = middleware
+                        app = self._wrap_asgi_middleware(middleware_instance, app)
+                    except Exception:
+                        continue
+            except Exception as e:
                 # 如果中间件初始化失败，跳过
+                import logging
+                logging.getLogger('uliweb').warning(f"Failed to process middleware {middleware}: {e}")
                 continue
 
+        # 缓存构建好的中间件栈
+        self._middleware_stack = app
         return app
 
     def _wrap_advanced_middleware(self, middleware, next_app):
@@ -1454,10 +1496,10 @@ class AsyncDispatcher:
 
     def _wrap_asgi_middleware(self, middleware, next_app):
         """包装底层 ASGI 中间件"""
-        async def app(scope, receive, send):
-            # 设置中间件的下一个应用
-            middleware.application = next_app
+        # 设置中间件的 app 属性指向下一个应用
+        middleware.app = next_app
 
+        async def app(scope, receive, send):
             # 调用中间件
             try:
                 await middleware(scope, receive, send)
