@@ -9,7 +9,7 @@ __url__ = 'https://github.com/limodou/uliweb3'
 __license__ = 'BSD'
 
 # 导入管理命令需要的函数（避免循环导入）
-from .core.SimpleFrame import get_apps, get_app_dir, functions
+from .core.SimpleFrame import get_apps, get_app_dir, functions, is_in_web
 from .core.js import json_dumps
 
 
@@ -136,5 +136,5 @@ __all__ = [
     'SimpleFrame', 'dispatch', 'template', 'html', 'js', 'uaml',
     'common', 'date', 'files', 'storage', 'sorteddict',
     'form', 'orm', 'i18n', 'mail', 'ASGI_AVAILABLE',
-    'get_apps', 'get_app_dir', 'functions', 'url_for', 'json_dumps'  # 添加缺失的函数
+    'get_apps', 'get_app_dir', 'functions', 'url_for', 'json_dumps', 'is_in_web'
 ]
