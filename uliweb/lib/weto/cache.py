@@ -1,7 +1,7 @@
 #########################################################################
 # cache module written by limodou(limodou@gmail.com) at 2009/11/03
 #
-# storage class will ensure the sync when load and save a session from 
+# storage class will ensure the sync when load and save a session from
 # and to the storage.
 #########################################################################
 from .backends.base import KeyError
@@ -21,25 +21,25 @@ def wrap_func(des, src):
 class NoSerial(object):
     def load(self, s):
         return s
-    
+
     def dump(self, v):
         return v
-    
+
 class Serial(NoSerial):
     protocal_level = pickle.HIGHEST_PROTOCOL
     def load(self, s):
         return pickle.loads(s)
-    
+
     def dump(self, v):
         return pickle.dumps(v, self.protocal_level)
 
 class JsonSerial(Serial):
     def load(self, s):
         return json.loads(s)
-    
+
     def dump(self, v):
         return json.dumps(v)
-    
+
 class Empty(object):
     pass
 
@@ -53,9 +53,9 @@ class Cache(object):
         self._serial_cls = serial_cls or Serial
         self.serial_obj = self._serial_cls()
         self.expiry_time = expiry_time
-     
+
     def __get_storage(self):
-        modname = 'weto.backends.%s_storage' % self._storage_type
+        modname = 'uliweb.lib.weto.backends.%s_storage' % self._storage_type
         if modname in __modules__:
             return __modules__[modname]
         else:
@@ -63,7 +63,7 @@ class Cache(object):
             _class = getattr(mod, 'Storage', None)
             __modules__[modname] = _class
         return _class
-    
+
     @property
     def storage(self):
         if not self._storage:
@@ -72,7 +72,7 @@ class Cache(object):
                 d = {'file_dir_name':'cache_files', 'lock_dir_name':'cache_files_lock'}
             self._storage = self._storage_cls(self, self._options, **d)
         return self._storage
-    
+
     def get(self, key, default=Empty, creator=Empty, expire=None):
         """
         :para default: if default is callable then invoke it, save it and return it
@@ -95,36 +95,36 @@ class Cache(object):
                     return default
                 else:
                     raise
-            
+
     def set(self, key, value=None, expire=None):
         if callable(value):
             value = value()
         return self.storage.set(key, value, expire or self.expiry_time)
-        
+
     def delete(self, key):
         return self.storage.delete(key)
-             
+
     def __getitem__(self, key):
         return self.get(key)
-    
+
     def __setitem__(self, key, value):
         if callable(value):
             value = value()
         return self.set(key, value)
-    
+
     def __delitem__(self, key):
         self.delete(key)
-        
+
     def setdefault(self, key, defaultvalue, expire=None):
         v = self.get(key, creator=defaultvalue, expire=expire)
         return v
-        
+
     def inc(self, key, step=1, expire=None):
         return self.storage.inc(key, step, expire or self.expiry_time)
-        
+
     def dec(self, key, step=1, expire=None):
         return self.storage.dec(key, step, expire or self.expiry_time)
-        
+
     def cache(self, k=None, expire=None):
         def _f(func):
             def f(*args, **kwargs):
@@ -140,9 +140,9 @@ class Cache(object):
                     ret = func(*args, **kwargs)
                     self.set(key, ret, expire=expire)
                     return ret
-            
+
             wrap_func(f, func)
             return f
         return _f
-    
-    
+
+
