@@ -537,60 +537,160 @@ local = Local()
 local.request = None
 local.response = None
 local_manager = LocalManager([local])
+
+# 全局对象存储
+__global__ = Global()
+__global__.settings = pyini.Ini(lazy=True)
+__global__.application = None
 ```
 
 
-**实际实现（与规划一致但更完整）：**
+**实际实现（使用 contextvars）：**
+
+Uliweb3 使用 Python 的 `contextvars` 模块来实现全局状态管理，它比线程局部存储更适合异步环境。所有的全局状态都存储在 `uliweb/core/context.py` 模块中，提供统一的访问接口。
+
 ```python
+# uliweb/core/context.py
 import contextvars
 
-# 使用 contextvars 替代 threading.local
+# 请求上下文变量
 request_var = contextvars.ContextVar('request')
 response_var = contextvars.ContextVar('response')
 settings_var = contextvars.ContextVar('settings')
 application_var = contextvars.ContextVar('application')
 
-# 全局代理对象，保持与现有代码的兼容性
+# 获取当前值的辅助函数
 def get_request():
-    """获取当前请求对象"""
     return request_var.get(None)
 
 def get_response():
-    """获取当前响应对象"""
     return response_var.get(None)
 
 def get_settings():
-    """获取当前设置对象"""
     return settings_var.get(None)
 
 def get_application():
-    """获取当前应用对象"""
     return application_var.get(None)
 
-# 创建全局代理对象
-# 使用与 SimpleFrame.py 相同的 LocalProxy 格式
-from uliweb.utils.localproxy import LocalProxy
-request = LocalProxy(get_request, 'request', Request)
-response = LocalProxy(get_response, 'response', Response)
-settings = LocalProxy(get_settings, 'settings', pyini.Ini)
-application = LocalProxy(get_application, 'application', ASGIApplication)
+# 代理类：从 contextvars 获取值
+class GlobalSettingsProxy:
+    """全局 settings 代理类，只从 contextvars 获取 settings"""
 
-# 上下文管理中间件
-async def context_middleware(app):
-    """管理请求上下文的中间件"""
-    async def middleware(scope, receive, send):
-        if scope["type"] == "http":
-            request = Request(scope, receive, send)
-            token = request_var.set(request)
-            try:
-                response = await app(scope, receive, send)
-                return response
-            finally:
-                request_var.reset(token)
-        else:
-            return await app(scope, receive, send)
-    return middleware
+    def __init__(self):
+        self._var = settings_var
+
+    def _get_instance(self):
+        result = self._var.get(None)
+        if result is None:
+            raise RuntimeError("settings not initialized. Please ensure AsyncDispatcher or Dispatcher has been created.")
+        return result
+
+    def __getattr__(self, name):
+        return getattr(self._get_instance(), name)
+
+    # ... 其他代理方法
+
+class ContextProxy:
+    """通用代理类，用于 request/response/application"""
+
+    def __init__(self, var, default=None):
+        self._var = var
+        self._default = default
+
+    def _get_instance(self):
+        return self._var.get(self._default)
+
+    def __getattr__(self, name):
+        return getattr(self._get_instance(), name)
+
+    # ... 其他代理方法
+
+# 创建全局代理对象
+settings_proxy = GlobalSettingsProxy()
+request_proxy = ContextProxy(request_var, None)
+response_proxy = ContextProxy(response_var, None)
+application_proxy = ContextProxy(application_var, None)
 ```
+
+**在 AsyncDispatcher 中设置上下文：**
+
+```python
+class AsyncDispatcher:
+    def __init__(self, apps_dir='apps', project_dir=None, include_apps=None,
+                 start=True, default_settings=None, settings_file='settings.ini',
+                 local_settings_file='local_settings.ini', **kwargs):
+
+        # ... 其他初始化代码
+
+        # 加载 settings 并设置到 contextvars
+        try:
+            import asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            self.settings = loop.run_until_complete(self._load_settings())
+
+            # 关键：设置到 contextvars
+            settings_var.set(self.settings)
+            application_var.set(self)  # 设置当前应用实例
+            loop.close()
+        except Exception as e:
+            # 错误处理
+            pass
+```
+
+**在请求处理中更新上下文：**
+
+```python
+async def _open(self, request):
+    """处理请求的核心方法"""
+    # 设置请求上下文
+    response = Response()
+    response_token = response_var.set(response)
+    settings_token = settings_var.set(self.settings)
+    application_token = application_var.set(self)
+
+    try:
+        # 处理请求...
+        response = await self._process_request(request)
+        return response
+    finally:
+        # 清理上下文
+        response_var.reset(response_token)
+        settings_var.reset(settings_token)
+        application_var.reset(application_token)
+```
+
+**导出供外部使用的接口：**
+
+```python
+# uliweb/__init__.py 和 uliweb/core/starlette.py
+from .context import (
+    settings_proxy,
+    request_proxy,
+    response_proxy,
+    application_proxy
+)
+
+# 直接导出代理对象
+settings = settings_proxy
+request = request_proxy
+response = response_proxy
+application = application_proxy
+```
+
+**关键特性：**
+
+1. **只使用 contextvars**：不再使用 `__global__` 回退机制，更简洁清晰
+2. **统一的上下文管理**：所有模块使用相同的 contextvars 来源
+3. **请求级别的隔离**：每个请求有独立的上下文，不会相互干扰
+4. **异步友好**：`contextvars` 是 Python 3.7+ 引入的标准库，专门为异步场景设计
+5. **向后兼容**：通过代理类保持与现有代码的兼容性
+
+**注意事项：**
+
+- 在使用任何全局对象（settings、request、response、application）之前，必须确保已经创建了 Dispatcher 并初始化了 contextvars
+- 如果在未初始化的情况下访问 settings，会抛出 `RuntimeError` 提示用户初始化应用
+- 在测试环境中，需要手动调用 `make_simple_application` 来初始化上下文
 
 ### 4.5 中间件系统适配
 

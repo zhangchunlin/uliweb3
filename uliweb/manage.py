@@ -118,6 +118,7 @@ def make_application(debug=None, apps_dir='apps', project_dir=None,
 
     # Create ASGI application
     application = app = dispatcher_cls(apps_dir=apps_dir,
+        project_dir=project_dir,
         include_apps=include_apps,
         settings_file=settings_file,
         local_settings_file=local_settings_file,

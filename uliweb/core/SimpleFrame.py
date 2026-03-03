@@ -57,6 +57,9 @@ __app_dirs__ = {}
 __app_alias__ = {}
 _xhr_redirect_json = True
 
+# 使用共享的 contextvars
+from .context import settings_var, application_var
+
 r_callback = re.compile(r'^[\w_]+$')
 # Initialize pyini env
 pyini.set_env({
@@ -64,6 +67,8 @@ pyini.set_env({
     'convertors':i18n_ini_convertor,
 })
 __global__.settings = pyini.Ini(lazy=True)
+# 同步设置到 contextvars
+settings_var.set(__global__.settings)
 
 #User can defined decorator functions in settings DECORATORS
 #and user can user @decorators.function_name in views
@@ -536,7 +541,7 @@ def collect_settings(project_dir, include_apps=None, settings_file='settings.ini
     local_settings_file='local_settings.ini'):
 
     apps_dir = os.path.join(project_dir, 'apps')
-    apps = get_apps(apps_dir, None, settings_file=settings_file, local_settings_file=local_settings_file)
+    apps = get_apps(apps_dir, include_apps=include_apps, settings_file=settings_file, local_settings_file=local_settings_file)
     settings_file = os.path.join(apps_dir, settings_file)
     local_settings_file = os.path.join(apps_dir, local_settings_file)
     settings = []
@@ -669,6 +674,7 @@ class ContextStorage(object):
 
     def __repr__(self):
         return '<ContextStorage ' + repr(self.__variables__) + ' ' + repr(self._vars) + ' >'
+
 
 class Dispatcher(object):
     installed = False
@@ -1611,7 +1617,11 @@ class Dispatcher(object):
         response = self._open(environ)
         return response(environ, start_response)
 
-response = LocalProxy(local, 'response', Response)
-request = LocalProxy(local, 'request', Request)
-settings = LocalProxy(__global__, 'settings', pyini.Ini)
-application = LocalProxy(__global__, 'application', Dispatcher)
+# 使用统一的 contextvars 代理
+from .context import settings_proxy, request_proxy, response_proxy, application_proxy
+
+# 为了保持兼容性，提供别名
+settings = settings_proxy
+request = request_proxy
+response = response_proxy
+application = application_proxy

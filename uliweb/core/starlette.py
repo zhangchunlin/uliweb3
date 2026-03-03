@@ -31,11 +31,8 @@ from uliweb.utils.localproxy import LocalProxy, Global
 from uliweb import UliwebError, Middleware
 from uliweb.utils._compat import html_escape, isresponse
 
-# 使用 contextvars 替代 threading.local
-request_var = contextvars.ContextVar('request')
-response_var = contextvars.ContextVar('response')
-settings_var = contextvars.ContextVar('settings')
-application_var = contextvars.ContextVar('application')
+# 使用共享的 contextvars
+from .context import request_var, response_var, settings_var, application_var
 
 # 路由收集机制，类似 SimpleFrame.py 中的 __exposes__
 __exposes__ = {}
@@ -256,6 +253,27 @@ class AsyncDispatcher:
         self.local_settings_file = local_settings_file
         self.router = UliwebRouter()
         self._initialized = False
+
+        # 无论 start 是 True 还是 False，都需要加载 settings
+        # 这样在命令行环境中（如测试）也可以使用 functions 等
+        try:
+            import asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            # 同步加载 settings
+            self.settings = loop.run_until_complete(self._load_settings())
+            # 设置到 contextvars 中，以便全局访问
+            settings_token = settings_var.set(self.settings)
+            # 同时设置 application 到 contextvars
+            application_token = application_var.set(self)
+            loop.close()
+        except Exception as e:
+            # 如果加载失败，记录错误
+            import logging
+            logging.getLogger('uliweb').warning(f"Failed to load settings during init: {e}")
+            # 创建一个空的 settings 对象以避免后续错误
+            from uliweb.utils.pyini import Ini
+            self.settings = Ini()
 
         if start:
             # 异步初始化将在第一次请求时进行
@@ -1553,10 +1571,19 @@ def get_application():
 
 # 创建全局代理对象
 # 使用与 SimpleFrame.py 相同的 LocalProxy 格式
-request = LocalProxy(get_request, 'request', Request)
-response = LocalProxy(get_response, 'response', Response)
-settings = LocalProxy(get_settings, 'settings', pyini.Ini)
-application = LocalProxy(get_application, 'application', ASGIApplication)
+# 直接使用 context.py 中的代理，避免额外的 LocalProxy 层
+from .context import settings_proxy, request_proxy, response_proxy, application_proxy
+
+request = request_proxy
+response = response_proxy
+settings = settings_proxy
+application = application_proxy
+
+# 为了兼容性，保留 get_request 等函数（可选）
+_get_request = get_request
+_get_response = get_response
+_get_settings = get_settings
+_get_application = get_application
 
 
 # 兼容性函数
