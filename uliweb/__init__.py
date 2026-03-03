@@ -10,6 +10,7 @@ __license__ = 'BSD'
 
 # 导入管理命令需要的函数（避免循环导入）
 from .core.SimpleFrame import get_apps, get_app_dir, functions
+from .core.js import json_dumps
 
 
 # 首先定义错误类，避免循环导入
@@ -135,5 +136,5 @@ __all__ = [
     'SimpleFrame', 'dispatch', 'template', 'html', 'js', 'uaml',
     'common', 'date', 'files', 'storage', 'sorteddict',
     'form', 'orm', 'i18n', 'mail', 'ASGI_AVAILABLE',
-    'get_apps', 'get_app_dir', 'functions', 'url_for'  # 添加缺失的函数
+    'get_apps', 'get_app_dir', 'functions', 'url_for', 'json_dumps'  # 添加缺失的函数
 ]

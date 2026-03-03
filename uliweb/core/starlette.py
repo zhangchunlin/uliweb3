@@ -291,6 +291,8 @@ class AsyncDispatcher:
 
     async def _handle_request(self, scope, receive, send):
         """处理请求的核心逻辑"""
+        from starlette.exceptions import HTTPException
+
         request = Request(scope, receive, send)
 
         # 设置请求上下文
@@ -303,6 +305,10 @@ class AsyncDispatcher:
 
             # 处理请求
             response = await self._open(request, **values)
+            await response(scope, receive, send)
+        except HTTPException as exc:
+            # 处理 HTTP 异常（如 404）
+            response = await self._handle_exception(request, exc)
             await response(scope, receive, send)
         finally:
             # 清理上下文
@@ -337,6 +343,52 @@ class AsyncDispatcher:
 
             if hasattr(middleware_cls, 'process_exception'):
                 self.process_exception_classes.insert(0, middleware_cls)
+
+        # 处理 ASGI 中间件
+        asgi_middlewares = self.settings.get('ASGI_MIDDLEWARES', {})
+        for name, middleware_config in asgi_middlewares.items():
+            if isinstance(middleware_config, (list, tuple)) and len(middleware_config) >= 2:
+                middleware_path, options = middleware_config[:2]
+                try:
+                    middleware_cls = import_attr(middleware_path)
+                    # 创建中间件实例
+                    if isinstance(options, dict):
+                        middleware_instance = middleware_cls(self, self, **options)
+                    else:
+                        middleware_instance = middleware_cls(self, self)
+                    # 将 ASGI 中间件添加到中间件链中
+                    self.middlewares.append(middleware_instance)
+                except Exception as e:
+                    # 如果中间件初始化失败，跳过
+                    pass
+            elif isinstance(middleware_config, str):
+                # 处理简单的中间件路径配置
+                try:
+                    middleware_cls = import_attr(middleware_config)
+                    # 创建中间件实例，传递应用实例和设置
+                    middleware_instance = middleware_cls(self, self)
+                    # 将 ASGI 中间件添加到中间件链中
+                    self.middlewares.append(middleware_instance)
+                except Exception as e:
+                    # 如果中间件初始化失败，跳过
+                    pass
+            elif isinstance(middleware_config, dict):
+                # 处理字典格式的中间件配置
+                try:
+                    middleware_path = middleware_config.get('middleware') or middleware_config.get('class')
+                    options = middleware_config.get('options', {})
+                    if middleware_path:
+                        middleware_cls = import_attr(middleware_path)
+                        # 创建中间件实例
+                        if isinstance(options, dict):
+                            middleware_instance = middleware_cls(self, self, **options)
+                        else:
+                            middleware_instance = middleware_cls(self, self)
+                        # 将 ASGI 中间件添加到中间件链中
+                        self.middlewares.append(middleware_instance)
+                except Exception as e:
+                    #间如果中间件初始化失败，跳过，跳过
+                    pass
 
     def _sort_middlewares(self, middlewares):
         """对中间件进行排序"""
@@ -397,7 +449,25 @@ class AsyncDispatcher:
             # 注册路由
             self.router.add_route(starlette_rule, endpoint, **kw)
 
-        # 处理 EXPOSES 路由（来自 settings.ini 的路由定义）
+        # 处理每个应用的 EXPOSES 路由（来自 settings.ini 的路由定义）
+        for app_name in self.apps:
+            app_settings = self.settings.get(app_name.upper(), {})
+            if hasattr(app_settings, 'EXPOSES') and app_settings.EXPOSES:
+                for name, route_info in app_settings.EXPOSES.items():
+                    if isinstance(route_info, (list, tuple)) and len(route_info) >= 2:
+                        url, endpoint = route_info[:2]
+                        # 转换 Werkzeug 风格路由到 Starlette 风格
+                        starlette_rule = re.sub(r'<([^:>]+)(?::[^>]+)?>', r'{\1}', url)
+                        # 注册路由
+                        self.router.add_route(starlette_rule, endpoint, name=name)
+                    elif isinstance(route_info, str):
+                        # 如果只有 URL，使用 name 作为 endpoint
+                        url = route_info
+                        starlette_rule = re.sub(r'<([^:>]+)(?::[^>]+)?>', r'{\1}', url)
+                        # 注册路由
+                        self.router.add_route(starlette_rule, name, name=name)
+
+        # 处理全局 EXPOSES 路由（来自 settings.ini 的路由定义）
         if hasattr(self.settings, 'EXPOSES') and self.settings.EXPOSES:
             for name, route_info in self.settings.EXPOSES.items():
                 if isinstance(route_info, (list, tuple)) and len(route_info) >= 2:
@@ -470,8 +540,61 @@ class AsyncDispatcher:
                 try:
                     # 导入 contrib 应用的 __init__.py 文件，这会触发路由注册
                     myimport(app)
+                    # 触发 BINDS 机制
+                    await self._trigger_binds(app)
                 except ImportError as e:
                     pass
+
+    async def _trigger_binds(self, app_name):
+        """触发 BINDS 机制"""
+        # 获取应用设置
+        app_settings = self.settings.get(app_name.upper(), {})
+        binds = app_settings.get('BINDS', {})
+
+        # 触发 startup_installed 和 prepare_default_env 等绑定函数
+        for bind_name, bind_info in binds.items():
+            if isinstance(bind_info, (list, tuple)) and len(bind_info) >= 2:
+                func_name, module_path = bind_info[:2]
+                try:
+                    # 导入并调用绑定函数
+                    func = import_attr(module_path)
+                    if func:
+                        # 创建一个模拟的 sender 对象
+                        class MockSender:
+                            def __init__(self, settings):
+                                self.settings = settings
+
+                        sender = MockSender(self.settings)
+
+                        # 调用函数
+                        if asyncio.iscoroutinefunction(func):
+                            await func(sender)
+                        else:
+                            func(sender)
+                except Exception as e:
+                    # 忽略绑定函数执行中的错误
+                    pass
+
+        # 特殊处理静态文件和上传模块的路由注册
+        if app_name == 'uliweb.contrib.staticfiles':
+            # 注册静态文件路由
+            from uliweb.core.SimpleFrame import expose
+            static_url = self.settings.GLOBAL.get('STATIC_URL', '/static')
+            if static_url:
+                url = static_url.rstrip('/')
+                # 直接注册静态文件路由
+                def static_handler(filename):
+                    pass
+                expose('%s/<path:filename>' % url, static=True)(static_handler)
+
+        elif app_name == 'uliweb.contrib.upload':
+            # 注册上传文件路由
+            from uliweb.core.SimpleFrame import expose
+            # 直接注册上传文件路由
+            def file_serving(filename):
+                from uliweb.contrib.upload import file_serving as upload_file_serving
+                return upload_file_serving(filename)
+            expose('/uploads/<path:filename>', name='uliweb.contrib.upload.file_serving')(file_serving)
 
     def _get_app_dir(self, app):
         """获取应用目录"""
