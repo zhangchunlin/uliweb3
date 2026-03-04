@@ -34,16 +34,25 @@ from uliweb.utils._compat import html_escape, isresponse
 # 使用共享的 contextvars
 from .context import request_var, response_var, settings_var, application_var
 
-# 路由收集机制，类似 SimpleFrame.py 中的 __exposes__
-__exposes__ = {}
-__no_need_exposed__ = []
-__url_names__ = {}
-
 # 初始化 pyini 环境
 pyini.set_env({
     'env':{'_':gettext_lazy, 'gettext_lazy':gettext_lazy},
     'convertors':i18n_ini_convertor,
 })
+
+# 导入 rules 模块，使用统一的路由收集机制
+from . import rules
+from uliweb.utils.sorteddict import SortedDict
+
+# 将 rules 模块的接口导出到当前模块
+__exposes__ = rules.__exposes__
+__no_need_exposed__ = rules.__no_need_exposed__
+__url_names__ = rules.__url_names__
+
+# 兼容其他模块直接访问 merge_rules 的需求
+def merge_rules():
+    """合并路由规则"""
+    return rules.merge_rules()
 
 
 def _convert_route_param(rule):
@@ -162,53 +171,41 @@ class UliwebRouter:
 
 
 def expose(rule=None, **kwargs):
-    """适配现有的 expose 装饰器"""
+    """适配现有的 expose 装饰器
+
+    使用 rules 模块的 Expose 类来处理 URL 规则
+    """
+    # 使用 rules 模块的 Expose 类来处理规则
+    # 这会调用 parse 方法，将路由信息添加到 __no_need_exposed__
+    e = rules.Expose(rule, **kwargs)
+
+    # Expose 类会返回：
+    # - 如果 parse_level==1 (直接装饰函数)，返回原始函数
+    # - 如果 parse_level==2 (有 rule)，返回装饰后的函数
+
     def decorator(func):
-        # 收集路由信息，而不是直接注册
-        from uliweb.utils.date import now
-        from uliweb.utils._compat import ismethod, get_class
-
-        # 获取应用名称
-        def _get_appname(module_name):
-            parts = module_name.split('.')
-            # 找到第一个不是 'views' 的部分作为应用名
-            for part in parts:
-                if part != 'views' and not part.startswith('_'):
-                    return part
-            return parts[0] if parts else 'unknown'
-
-        # 获取端点名称
-        def _get_endpoint(func):
-            if ismethod(func):
-                _class = get_class(func)
-                return '.'.join([_class.__module__, _class.__name__, func.__name__])
-            elif callable(func):
-                # 直接返回函数对象，而不是字符串端点名
-                # 这样在路由匹配时可以直接调用函数
-                return func
-            else:
-                return str(func)
-
-        # 获取应用名和端点
-        appname = _get_appname(func.__module__)
-        endpoint = _get_endpoint(func)
-
-        # 收集路由信息
-        route_info = (appname, endpoint, rule, kwargs, now())
-        __no_need_exposed__.append(route_info)
+        # 调用 Expose 的 parse 方法来处理函数
+        e.parse(func)
 
         # 设置函数属性，保持与 SimpleFrame.py 的兼容性
         setattr(func, '__exposed__', True)
-        setattr(func, '__no_rule__', rule is None)
+        setattr(func, '__no_rule__', e.parse_level == 1 or (e.parse_level == 2 and (rule is None)))
         if not hasattr(func, '__old_rule__'):
             setattr(func, '__old_rule__', {})
         getattr(func, '__old_rule__')[rule] = rule
-        setattr(func, '__template__', kwargs.get('template'))
-        setattr(func, '__layout__', kwargs.get('layout'))
-        setattr(func, '__fixed_url__', rule and rule.startswith('!'))
+        setattr(func, '__template__', e.template)
+        setattr(func, '__layout__', e.layout)
+        setattr(func, '__fixed_url__', rule and rule.startswith('!') if rule else False)
 
         return func
-    return decorator
+
+    # 根据 parse_level 返回不同的结果
+    if e.parse_level == 1:
+        # 没有 rule，直接返回函数
+        return lambda f: e.parse(f) or f
+    else:
+        # 有 rule，返回装饰器
+        return decorator
 
 
 def POST(rule, **kw):
