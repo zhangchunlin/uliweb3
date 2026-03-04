@@ -5,6 +5,8 @@
 # and to the storage.
 #########################################################################
 from .backends.base import KeyError
+import asyncio
+from functools import wraps
 import json
 from uliweb.utils._compat import pickle, callable
 
@@ -146,3 +148,116 @@ class Cache(object):
         return _f
 
 
+
+    # ============= Async Methods for ASGI Support =============
+
+    async def aget(self, key, default=Empty, creator=Empty, expire=None):
+        """
+        Asynchronous version of get method.
+        
+        :param key: cache key
+        :param default: default value if key not found
+        :param creator: callable to create value if key not found
+        :param expire: expiration time in seconds
+        :return: cached value
+        """
+        loop = asyncio.get_event_loop()
+        try:
+            return await loop.run_in_executor(None, self.get, key, default, creator, expire)
+        except KeyError:
+            if creator is not Empty:
+                if callable(creator):
+                    v = creator()
+                else:
+                    v = creator
+                await loop.run_in_executor(None, self.set, key, v, expire)
+                return v
+            else:
+                if default is not Empty:
+                    if callable(default):
+                        v = default()
+                        return v
+                    return default
+                else:
+                    raise
+
+    async def aset(self, key, value=None, expire=None):
+        """
+        Asynchronous version of set method.
+        
+        :param key: cache key
+        :param value: value to cache
+        :param expire: expiration time in seconds
+        :return: result from storage
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self.set, key, value, expire)
+
+    async def adelete(self, key):
+        """
+        Asynchronous version of delete method.
+        
+        :param key: cache key
+        :return: result from storage
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self.delete, key)
+
+    async def ainc(self, key, step=1, expire=None):
+        """
+        Asynchronous version of inc method.
+        
+        :param key: cache key
+        :param step: increment step
+        :param expire: expiration time in seconds
+        :return: incremented value
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self.inc, key, step, expire)
+
+    async def adec(self, key, step=1, expire=None):
+        """
+        Asynchronous version of dec method.
+        
+        :param key: cache key
+        :param step: decrement step
+        :param expire: expiration time in seconds
+        :return: decremented value
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self.dec, key, step, expire)
+
+    def acache(self, k=None, expire=None):
+        """
+        Asynchronous version of cache decorator.
+        
+        Usage:
+            @cache.acache('my_key')
+            async def my_func():
+                return expensive_computation()
+        
+        :param k: custom cache key
+        :param expire: expiration time in seconds
+        :return: async decorator function
+        """
+        def decorator(func):
+            @wraps(func)
+            async def wrapper(*args, **kwargs):
+                if not k:
+                    r = repr(args) + repr(sorted(kwargs.items()))
+                    key = func.__module__ + '.' + func.__name__ + r
+                else:
+                    key = k
+                try:
+                    ret = await self.aget(key)
+                    return ret
+                except KeyError:
+                    if asyncio.iscoroutinefunction(func):
+                        ret = await func(*args, **kwargs)
+                    else:
+                        loop = asyncio.get_event_loop()
+                        ret = await loop.run_in_executor(None, func, *args, **kwargs)
+                    await self.aset(key, ret, expire=expire)
+                    return ret
+            return wrapper
+        return decorator
