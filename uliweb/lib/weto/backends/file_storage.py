@@ -125,7 +125,7 @@ class Storage(BaseStorage):
                         pass
                     else:
                         value = 0
-            v = min(0, value - step)
+            v = max(0, value - step)
             self.save(key, now, expire, v)
             return v
         finally:
