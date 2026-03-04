@@ -43,7 +43,8 @@ def get_language_from_request(request, settings):
         return lang
 
     #check browser HTTP_ACCEPT_LANGUAGE head
-    accept = request.environ.get('HTTP_ACCEPT_LANGUAGE', None)
+    # For ASGI compatibility, use request.headers instead of request.environ
+    accept = request.headers.get('accept-language', None)
     if not accept:
         if debug:
             log.info('Detect from settings of LANGUAGE_CODE=%s' % lang)
@@ -60,7 +61,7 @@ def get_language_from_request(request, settings):
         if normalized in languages:
             if debug:
                 log.info('Detect from HTTP Header=%s, lang=%s' %
-                         ('HTTP_ACCEPT_LANGUAGE', normalized))
+                         ('accept-language', normalized))
             return normalized
 
     #return default lanaguage
