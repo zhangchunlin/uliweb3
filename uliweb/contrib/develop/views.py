@@ -10,6 +10,7 @@ def develop_index():
 
 @expose('/develop/appsinfo')
 def develop_appsinfo():
+    from uliweb import application
     return {'apps':application.apps}
 
 @expose('/develop/urls')
@@ -29,13 +30,19 @@ def develop_urls():
 
 @expose("/develop/global")
 def develop_globals():
-#    glob = globals()
-#    glo = [ (key,glob[key]) for key in glob.keys() if callable(glob[key]) ]
-#    un = [(key, str(glob[key]) or "none") for key in glob.keys() if not callable(glob[key]) ]
-#    glo.extend(un)
-#    glob = sorted(glob)
+    """
+    返回当前应用的全局环境变量。
+    在 ASGI 环境中，这些值通过 uliweb 模块获取。
+    """
+    from uliweb import settings, application, functions
 
-    return {"glo":env}
+    # 构建类似原来 env 的字典
+    glo = {
+        'settings': settings,
+        'application': application,
+        'functions': functions,
+    }
+    return {"glo": glo}
 
 from uliweb.utils.pyini import Ini
 import os
