@@ -6,7 +6,7 @@ __all__ = ['set_default_language', 'set_language', 'get_language', 'install',
 import gettext as gettext_module
 import os.path
 import copy
-import threading
+import contextvars
 import locale
 from uliweb.utils.common import safe_unicode
 
@@ -20,7 +20,9 @@ def lazystr_convertor(v):
 
 i18n_ini_convertor = {LazyString:lazystr_convertor}
 
-_active_locale = threading.local()
+# 使用 contextvars 替代 threading.local，以支持 ASGI 异步环境
+# contextvars 可以在异步协程之间正确隔离状态
+_active_locale = contextvars.ContextVar('locale', default=None)
 
 _translations = {}
 _translation_objs = {}
@@ -31,12 +33,13 @@ _default_lang = 'en'
 def set_default_language(lang):
     global _default_lang
     _default_lang = lang
-    
+
 def set_language(lang):
-    _active_locale.locale = lang
-    
+    _active_locale.set(lang)
+
+
 def get_language():
-    lang = getattr(_active_locale, 'locale', _default_lang)
+    lang = _active_locale.get(_default_lang)
     return format_locale(lang)
 
 def format_locale(lang):
@@ -76,23 +79,23 @@ def find(domain, localedir, languages, all=0):
 def translation(domain, localedir=None, languages=None,
                 class_=None, fallback=False, codeset=None):
     global _translation_objs
-    
+
     localedir = localedir or _localedir
-    languages = languages or getattr(_active_locale, 'locale', None) or _default_lang
-    
+    languages = languages or _active_locale.get(_default_lang)
+
     r = _translation_objs.get(languages)
     if r:
         return r
-    
+
     mofiles = find(domain, localedir, languages, all=1)
     if not mofiles:
         r = gettext_module.NullTranslations()
         _translation_objs[languages] = r
         return r
-    
+
     if class_ is None:
         class_ = gettext_module.GNUTranslations
-        
+
     # TBD: do we need to worry about the file pointer getting collected?
     # Avoid opening, reading, and parsing the .mo file after it's been done
     # once.
@@ -113,16 +116,16 @@ def translation(domain, localedir=None, languages=None,
         else:
             result.add_fallback(t)
     _translation_objs[languages] = result
-    
+
     return result
 
 def install(domain, localedir=None, use_unicode=True, codeset='utf-8', names=None):
     global _domain, _localedir
     _domain = domain
     _localedir = localedir
-    
+
     builtins.__dict__['_'] = use_unicode and ugettext_lazy or gettext_lazy
-    
+
 def dgettext(domain, message):
     try:
         t = translation(domain)
