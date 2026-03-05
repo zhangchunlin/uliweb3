@@ -10,7 +10,7 @@ def add_prefix(url):
     return settings.DOMAINS.static.get('url_prefix', '') + url
 
 
-def login():
+async def login():
     from uliweb.contrib.auth import login
 
     form = functions.get_form('auth.LoginForm')()
@@ -41,8 +41,9 @@ def login():
         return {'form': form, 'msg': str(msg)}
 
 
-def register():
+async def register():
     from uliweb.contrib.auth import create_user, login
+    from uliweb import settings
 
     form = functions.get_form('auth.RegisterForm')()
 
@@ -52,7 +53,6 @@ def register():
     if request.method == 'POST':
         flag = form.validate(request.params)
         if flag:
-            from uliweb import settings
             f, d = create_user(username=form.username.data,
                                password=form.password.data,
                                auth_type=settings.AUTH.AUTH_TYPE_DEFAULT)
@@ -71,7 +71,6 @@ def register():
 
 async def logout():
     from uliweb.contrib.auth import logout as out
-    from uliweb import settings
 
     out()
     _post = await request.get_POST()
