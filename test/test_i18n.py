@@ -17,6 +17,10 @@ def setup():
 
 def teardown():
     import shutil
+    from uliweb.i18n import set_default_language, set_language
+    # Restore default language after tests that modify it
+    set_default_language('en')
+    set_language('en')
     if cdir:
         os.chdir(cdir)
     if os.path.exists('TestProject'):
