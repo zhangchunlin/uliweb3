@@ -154,88 +154,118 @@ class Cache(object):
     async def aget(self, key, default=Empty, creator=Empty, expire=None):
         """
         Asynchronous version of get method.
-        
+
         :param key: cache key
         :param default: default value if key not found
         :param creator: callable to create value if key not found
         :param expire: expiration time in seconds
         :return: cached value
         """
-        loop = asyncio.get_event_loop()
-        try:
+        # Call async storage method if available
+        if hasattr(self.storage, 'aget'):
+            try:
+                return await self.storage.aget(key)
+            except KeyError:
+                pass
+        else:
+            # Fallback to sync method in executor
+            loop = asyncio.get_event_loop()
             return await loop.run_in_executor(None, self.get, key, default, creator, expire)
-        except KeyError:
-            if creator is not Empty:
-                if callable(creator):
-                    v = creator()
-                else:
-                    v = creator
-                await loop.run_in_executor(None, self.set, key, v, expire)
-                return v
+
+        # Handle creator/default for async storage
+        if creator is not Empty:
+            if callable(creator):
+                v = creator()
             else:
-                if default is not Empty:
-                    if callable(default):
-                        v = default()
-                        return v
-                    return default
-                else:
-                    raise
+                v = creator
+            await self.storage.aset(key, v, expire or self.expiry_time)
+            return v
+        else:
+            if default is not Empty:
+                if callable(default):
+                    v = default()
+                    return v
+                return default
+            else:
+                raise KeyError("Cache key [%s] not found" % key)
 
     async def aset(self, key, value=None, expire=None):
         """
         Asynchronous version of set method.
-        
+
         :param key: cache key
         :param value: value to cache
         :param expire: expiration time in seconds
         :return: result from storage
         """
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self.set, key, value, expire)
+        # Call async storage method if available
+        if hasattr(self.storage, 'aset'):
+            if callable(value):
+                value = value()
+            return await self.storage.aset(key, value, expire or self.expiry_time)
+        else:
+            # Fallback to sync method in executor
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(None, self.set, key, value, expire)
 
     async def adelete(self, key):
         """
         Asynchronous version of delete method.
-        
+
         :param key: cache key
         :return: result from storage
         """
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self.delete, key)
+        # Call async storage method if available
+        if hasattr(self.storage, 'adelete'):
+            return await self.storage.adelete(key)
+        else:
+            # Fallback to sync method in executor
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(None, self.delete, key)
 
     async def ainc(self, key, step=1, expire=None):
         """
         Asynchronous version of inc method.
-        
+
         :param key: cache key
         :param step: increment step
         :param expire: expiration time in seconds
         :return: incremented value
         """
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self.inc, key, step, expire)
+        # Call async storage method if available
+        if hasattr(self.storage, 'ainc'):
+            return await self.storage.ainc(key, step, expire or self.expiry_time)
+        else:
+            # Fallback to sync method in executor
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(None, self.inc, key, step, expire)
 
     async def adec(self, key, step=1, expire=None):
         """
         Asynchronous version of dec method.
-        
+
         :param key: cache key
         :param step: decrement step
         :param expire: expiration time in seconds
         :return: decremented value
         """
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self.dec, key, step, expire)
+        # Call async storage method if available
+        if hasattr(self.storage, 'adec'):
+            return await self.storage.adec(key, step, expire or self.expiry_time)
+        else:
+            # Fallback to sync method in executor
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(None, self.dec, key, step, expire)
 
     def acache(self, k=None, expire=None):
         """
         Asynchronous version of cache decorator.
-        
+
         Usage:
             @cache.acache('my_key')
             async def my_func():
                 return expensive_computation()
-        
+
         :param k: custom cache key
         :param expire: expiration time in seconds
         :return: async decorator function
