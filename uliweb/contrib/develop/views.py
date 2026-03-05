@@ -5,16 +5,16 @@ from uliweb.utils.common import log
 from uliweb.utils.common import pkg, is_pyfile_exist
 
 @expose('/develop')
-def develop_index():
+async def develop_index():
     return {}
 
 @expose('/develop/appsinfo')
-def develop_appsinfo():
+async def develop_appsinfo():
     from uliweb import application
     return {'apps':application.apps}
 
 @expose('/develop/urls')
-def develop_urls():
+async def develop_urls():
     from uliweb.core.SimpleFrame import url_map
 
     u = []
@@ -29,7 +29,7 @@ def develop_urls():
     return {'urls':u}
 
 @expose("/develop/global")
-def develop_globals():
+async def develop_globals():
     """
     返回当前应用的全局环境变量。
     在 ASGI 环境中，这些值通过 uliweb 模块获取。
