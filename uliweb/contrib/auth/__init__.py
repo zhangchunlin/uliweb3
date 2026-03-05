@@ -197,7 +197,11 @@ def authenticate(username, password, auth_type=None):
     if not isinstance(auth_type, (list, tuple)):
         auth_type = [auth_type]
 
-    ip = request.environ['REMOTE_ADDR']
+    # ASGI 环境使用 request.client.host，兼容 WSGI 环境使用 request.environ
+    if hasattr(request, 'client') and request.client:
+        ip = request.client.host
+    else:
+        ip = request.environ.get('REMOTE_ADDR', '')
 
     for t in auth_type:
         if t in settings.AUTH_CONFIG:
