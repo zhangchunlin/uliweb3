@@ -2,9 +2,11 @@ import time
 import uuid
 from werkzeug.exceptions import Forbidden
 
-def csrf_token():
+async def csrf_token():
     """
     Get csrf token or create new one
+
+    异步版本，避免在异步环境中使用同步函数导致的潜在问题。
     """
     from uliweb import request, settings
     from uliweb.utils.common import safe_str
@@ -41,5 +43,5 @@ async def check_csrf_token():
 
     if not token:
         raise Forbidden("CSRF token missing.")
-    if csrf_token() != token:
+    if await csrf_token() != token:
         raise Forbidden("CSRF token dismatched.")

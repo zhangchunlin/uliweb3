@@ -19,7 +19,7 @@ class CSRFMiddleware(Middleware):
         # 请求预处理
         if self.settings.get_var('CSRF/enable', False):
             if request.method in ('POST', 'DELETE', 'PUT', 'PATCH') or (request.method == 'GET' and request.GET.get(self.settings.CSRF.form_token_name)):
-                functions.check_csrf_token()
+                await functions.check_csrf_token()
 
         # 调用下一个中间件或视图函数
         response = await call_next(request)
@@ -28,7 +28,7 @@ class CSRFMiddleware(Middleware):
         if not self.settings.get_var('CSRF/enable', False):
             return response
 
-        token = functions.csrf_token()
+        token = await functions.csrf_token()
 
         response.set_cookie(self.settings.CSRF.cookie_token_name, token, max_age=self.settings.CSRF.timeout)
 
@@ -36,12 +36,14 @@ class CSRFMiddleware(Middleware):
             return response
 
         if response.headers['Content-Type'].split(';')[0] in _HTML_TYPES:
+            # 预先生成 token，避免在 re.sub 回调中使用异步函数
+            form_token = await functions.csrf_token()
 
             def add_csrf_field(match):
                 """Returns the matched <form> tag plus the added <input> element"""
 
                 return (match.group() +
-                    '\n<input type="hidden" name="%s" value="%s">' % (self.settings.CSRF.form_token_name, functions.csrf_token()))
+                    '\n<input type="hidden" name="%s" value="%s">' % (self.settings.CSRF.form_token_name, form_token))
 
             # Modify any POST forms
             response.data = _POST_FORM_RE.sub(add_csrf_field, response.data)
