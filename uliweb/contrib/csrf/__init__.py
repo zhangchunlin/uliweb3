@@ -1,6 +1,16 @@
 import time
 import uuid
-from werkzeug.exceptions import Forbidden
+
+# ASGI 兼容：使用 Starlette 的 HTTPException 替代 werkzeug.exceptions.Forbidden
+from starlette.exceptions import HTTPException
+
+
+class CSRFException(HTTPException):
+    """CSRF 验证异常"""
+
+    def __init__(self, detail="CSRF verification failed"):
+        super().__init__(status_code=403, detail=detail)
+
 
 async def csrf_token():
     """
@@ -22,13 +32,14 @@ async def csrf_token():
     if not v:
         token = request.cookies.get(token_name)
         if not token:
-            token = uuid.uuid4().get_hex()
+            token = uuid.uuid4().hex
 
         v = {'token':token, 'expiry_time':settings.CSRF.timeout, 'created_time':time.time()}
 
     if not request.session.deleted:
         request.session[token_name] = v
     return safe_str(v['token'])
+
 
 async def check_csrf_token():
     """
@@ -42,6 +53,6 @@ async def check_csrf_token():
              request.headers.get("X-Csrftoken"))
 
     if not token:
-        raise Forbidden("CSRF token missing.")
+        raise CSRFException("CSRF token missing.")
     if await csrf_token() != token:
-        raise Forbidden("CSRF token dismatched.")
+        raise CSRFException("CSRF token dismatched.")
