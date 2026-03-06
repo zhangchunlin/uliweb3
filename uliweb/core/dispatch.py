@@ -1,9 +1,10 @@
 import logging
 import inspect
+import asyncio
 from uliweb.utils.common import import_attr
 from ..utils._compat import callable
 
-__all__ = ['HIGH', 'MIDDLE', 'LOW', 'bind', 'call', 'get', 'unbind', 'call_once', 'get_once']
+__all__ = ['HIGH', 'MIDDLE', 'LOW', 'bind', 'call', 'get', 'unbind', 'call_once', 'get_once', 'acall', 'aget']
 
 HIGH = 1    #plugin high
 MIDDLE = 2
@@ -21,7 +22,7 @@ def reset():
 def bind(topic, signal=None, kind=MIDDLE, nice=-1):
     """
     This is a decorator function, so you should use it as:
-        
+
         @bind('init')
         def process_init(a, b):
             ...
@@ -31,7 +32,7 @@ def bind(topic, signal=None, kind=MIDDLE, nice=-1):
             receivers = _receivers[topic] = []
         else:
             receivers = _receivers[topic]
-        
+
         if nice == -1:
             if kind == MIDDLE:
                 n = 500
@@ -79,7 +80,7 @@ def _test(kwargs, receiver):
         elif _signal!=signal:
             flag = False
     return flag
-        
+
 def call(sender, topic, *args, **kwargs):
     """
     Invoke receiver functions according topic, it'll invoke receiver functions one by one,
@@ -114,7 +115,7 @@ def call(sender, topic, *args, **kwargs):
                 raise
         else:
             raise Exception("Dispatch point [%s] %r can't been invoked" % (topic, _f))
-        
+
 def call_once(sender, topic, *args, **kwargs):
     signal = kwargs.get('signal')
     if (topic, signal) in _called:
@@ -122,7 +123,7 @@ def call_once(sender, topic, *args, **kwargs):
     else:
         call(sender, topic, *args, **kwargs)
         _called[(topic, signal)] = True
-        
+
 def get(sender, topic, *args, **kwargs):
     """
     Invoke receiver functions according topic, it'll invoke receiver functions one by one,
@@ -134,7 +135,7 @@ def get(sender, topic, *args, **kwargs):
     items = _receivers[topic]
     def _cmp(x, y):
         return cmp(x[0], y[0])
-    
+
     items.sort(_cmp)
     for i in range(len(items)):
         nice, f = items[i]
@@ -169,7 +170,91 @@ def get_once(sender, topic, *args, **kwargs):
         _called[(topic, signal)] = r
         return r
 
+
+async def acall(sender, topic, *args, **kwargs):
+    """
+    Async version of call - invoke receiver functions according topic asynchronously.
+    It'll invoke receiver functions one by one, and it'll not return anything,
+    so if you want to return a value, you should use aget function.
+    """
+    if topic not in _receivers:
+        return
+
+    items = _receivers[topic]
+    items.sort(key=lambda x: x[0])
+
+    for nice, f in items:
+        _f = f['func']
+        if not _f:
+            try:
+                _f = import_attr(f['func_name'])
+            except (ImportError, AttributeError) as e:
+                logging.error("Can't import function %s" % f['func_name'])
+                raise
+            f['func'] = _f
+
+        if callable(_f):
+            kw = kwargs.copy()
+            if not _test(kw, f):
+                continue
+            try:
+                if asyncio.iscoroutinefunction(_f):
+                    await _f(sender, *args, **kw)
+                else:
+                    # Run sync function in thread pool
+                    import anyio
+                    await anyio.to_thread.run_sync(_f, sender, *args, **kw)
+            except:
+                func = _f.__module__ + '.' + _f.__name__
+                logging.exception('Calling dispatch point [%s] %s(%r, %r) error!' % (topic, func, args, kw))
+                raise
+        else:
+            raise Exception("Dispatch point [%s] %r can't been invoked" % (topic, _f))
+
+
+async def aget(sender, topic, *args, **kwargs):
+    """
+    Async version of get - invoke receiver functions according topic asynchronously.
+    It'll invoke receiver functions one by one, and if one receiver function returns
+    non-None value, it'll return it and break the loop.
+    """
+    if topic not in _receivers:
+        return
+
+    items = _receivers[topic]
+    items.sort(key=lambda x: x[0])
+
+    for nice, f in items:
+        _f = f['func']
+        if not _f:
+            try:
+                _f = import_attr(f['func_name'])
+            except ImportError:
+                logging.error("Can't import function %s" % f['func_name'])
+                raise
+            f['func'] = _f
+
+        if callable(_f):
+            if not _test(kwargs, f):
+                continue
+            try:
+                if asyncio.iscoroutinefunction(_f):
+                    v = await _f(sender, *args, **kwargs)
+                else:
+                    # Run sync function in thread pool
+                    import anyio
+                    v = await anyio.to_thread.run_sync(_f, sender, *args, **kwargs)
+            except:
+                func = _f.__module__ + '.' + _f.__name__
+                logging.exception('Calling dispatch point [%s] %s(%r,%r) error!' % (topic, func, args, kwargs))
+                raise
+            if v is not None:
+                return v
+        else:
+            raise "Dispatch point [%s] %r can't been invoked" % (topic, _f)
+
+
 def print_topics():
     import pprint
-    
+
     pprint.pprint(_receivers)
