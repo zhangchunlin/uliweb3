@@ -9,7 +9,7 @@ __all__ = ['add_role_func', 'register_role_method',
 
 def call_func(func, kwargs):
     import inspect
-    
+
     args = {}
     for x in inspect.signature(func).parameters:
         try:
@@ -37,9 +37,9 @@ def add_role_func(name, func):
     Role_func should have 'user' parameter
     """
     global __role_funcs__
-    
+
     __role_funcs__[name] = func
-    
+
 def has_role(user, *roles, **kwargs):
     """
     Judge is the user belongs to the role, and if does, then return the role object
@@ -49,21 +49,21 @@ def has_role(user, *roles, **kwargs):
     if isinstance(user, six.text_type):
         User = get_model('user')
         user = User.get(User.c.username==user)
-        
+
     for role in roles:
         if isinstance(role, six.string_types):
             role = Role.get(Role.c.name==role)
             if not role:
                 return False
         name = role.name
-        
+
         func = __role_funcs__.get(name, None)
         if func:
             if isinstance(func, six.text_type):
                 func = import_attr(func)
-                
+
             assert six.callable(func)
-            
+
             para = kwargs.copy()
             para['user'] = user
             flag = call_func(func, para)
@@ -72,7 +72,7 @@ def has_role(user, *roles, **kwargs):
         flag = role.users.has(user)
         if flag:
             return role
-        
+
         flag = role.usergroups_has_user(user)
         if flag:
             return role
@@ -89,27 +89,48 @@ def has_permission(user, *permissions, **role_kwargs):
     if isinstance(user, six.text_type):
         User = get_model('user')
         user = User.get(User.c.username==user)
-        
+
     for name in permissions:
         perm = Perm.get(Perm.c.name==name)
         if not perm:
             continue
-        
+
         flag = has_role(user, *list(perm.perm_roles.with_relation().all()), **role_kwargs)
         if flag:
             return flag
-        
+
     return False
 
 def check_role(*roles, **args_map):
     """
     It's just like has_role, but it's a decorator. And it'll check request.user
+
+    支持同步和异步函数。
+    对于异步函数，使用异步方式处理错误。
+    对于同步函数，通过同步适配器机制运行。
     """
+    import asyncio
+
     def f1(func, roles=roles):
+        # 检测是否为异步函数
+        is_async = asyncio.iscoroutinefunction(func)
+
         @wraps(func)
-        def f2(*args, **kwargs):
+        async def async_wrapper(*args, **kwargs):
             from uliweb import request, error
-            
+
+            arguments = {}
+            for k, v in args_map.items():
+                if v in kwargs:
+                    arguments[k] = kwargs[v]
+            if not has_role(request.user, *roles, **arguments):
+                error(_("You have no roles to visit this page."))
+            return await func(*args, **kwargs)
+
+        @wraps(func)
+        def sync_wrapper(*args, **kwargs):
+            from uliweb import request, error
+
             arguments = {}
             for k, v in args_map.items():
                 if v in kwargs:
@@ -117,16 +138,38 @@ def check_role(*roles, **args_map):
             if not has_role(request.user, *roles, **arguments):
                 error(_("You have no roles to visit this page."))
             return func(*args, **kwargs)
-        return f2
+
+        return async_wrapper if is_async else sync_wrapper
     return f1
 
 def check_permission(*permissions, **args_map):
     """
-    It's just like has_role, but it's a decorator. And it'll check request.user
+    It's just like has_permission, but it's a decorator. And it'll check request.user
+
+    支持同步和异步函数。
+    对于异步函数，使用异步方式处理错误。
+    对于同步函数，通过同步适配器机制运行。
     """
+    import asyncio
+
     def f1(func, permissions=permissions):
+        # 检测是否为异步函数
+        is_async = asyncio.iscoroutinefunction(func)
+
         @wraps(func)
-        def f2(*args, **kwargs):
+        async def async_wrapper(*args, **kwargs):
+            from uliweb import request, error
+
+            arguments = {}
+            for k, v in args_map.items():
+                if v in kwargs:
+                    arguments[k] = kwargs[v]
+            if not has_permission(request.user, *permissions, **arguments):
+                error(_("You have no permissions to visit this page."))
+            return await func(*args, **kwargs)
+
+        @wraps(func)
+        def sync_wrapper(*args, **kwargs):
             from uliweb import request, error
 
             arguments = {}
@@ -136,5 +179,6 @@ def check_permission(*permissions, **args_map):
             if not has_permission(request.user, *permissions, **arguments):
                 error(_("You have no permissions to visit this page."))
             return func(*args, **kwargs)
-        return f2
+
+        return async_wrapper if is_async else sync_wrapper
     return f1
