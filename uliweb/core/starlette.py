@@ -92,6 +92,18 @@ class Request(StarletteRequest):
         """异步获取 JSON 数据"""
         return await super().json()
 
+    async def get_params(self):
+        """异步获取合并参数（强制异步方法，避免阻塞）"""
+        # 由于 POST 数据需要异步读取，params 必须也是异步方法
+        get_params = self.query_params
+        post_params = await self.get_POST()
+
+        # 合并 GET 和 POST 参数
+        merged_params = {}
+        merged_params.update(get_params)
+        merged_params.update(post_params)
+        return merged_params
+
     @property
     def is_xhr(self):
         """检查是否为 AJAX 请求"""
@@ -107,10 +119,47 @@ class Request(StarletteRequest):
         """获取请求方法"""
         return self.scope.get("method", "")
 
+    # 向后兼容的同步属性（标记为已弃用）
+    @property
+    def POST(self):
+        """已弃用：同步访问 POST 数据会抛出异常"""
+        raise RuntimeError(
+            "POST 属性已弃用，请使用 await request.get_POST() 方法。"
+            "同步代码可以使用同步适配器机制。"
+        )
+
+    @property
+    def FILES(self):
+        """已弃用：同步访问 FILES 数据会抛出异常"""
+        raise RuntimeError(
+            "FILES 属性已弃用，请使用 await request.get_FILES() 方法。"
+            "同步代码可以使用同步适配器机制。"
+        )
+
+    @property
+    def json(self):
+        """已弃用：同步访问 JSON 数据会抛出异常"""
+        raise RuntimeError(
+            "json 属性已弃用，请使用 await request.get_json() 方法。"
+            "同步代码可以使用同步适配器机制。"
+        )
+
     @property
     def params(self):
-        """兼容 params 属性，合并 GET 和 POST 参数"""
-        # 注意：在异步环境中需要特殊处理
+        """兼容 params 属性，返回 GET 参数
+
+        注意：由于 POST 数据需要异步读取，此属性仅返回 GET (query) 参数。
+        如需合并 GET 和 POST 参数，请在异步视图函数中：
+
+        ```python
+        @expose('/api/data')
+        async def async_view():
+            get_params = dict(request.query_params)
+            post_params = dict(await request.get_POST())
+            all_params = {**get_params, **post_params}
+            return all_params
+        ```
+        """
         return self.query_params
 
 

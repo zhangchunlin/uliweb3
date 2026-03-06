@@ -91,3 +91,122 @@ def test_params_property():
 
     # Verify that the property exists
     assert hasattr(req, 'params')
+
+
+def test_deprecated_post_property():
+    """
+    Test that accessing POST property raises RuntimeError (deprecated)
+    """
+    from uliweb.core.starlette import Request
+
+    # Create a minimal ASGI scope for testing
+    scope = {
+        'type': 'http',
+        'method': 'GET',
+        'path': '/test',
+        'query_string': b'',
+    }
+
+    async def receive():
+        return {'type': 'http.request', 'body': b'', 'more_body': False}
+
+    async def send(message):
+        pass
+
+    req = Request(scope, receive, send)
+
+    # Verify that accessing POST raises RuntimeError
+    try:
+        _ = req.POST
+        assert False, "Expected RuntimeError to be raised"
+    except RuntimeError as e:
+        assert "POST 属性已弃用" in str(e)
+        assert "get_POST" in str(e)
+
+
+def test_deprecated_files_property():
+    """
+    Test that accessing FILES property raises RuntimeError (deprecated)
+    """
+    from uliweb.core.starlette import Request
+
+    scope = {
+        'type': 'http',
+        'method': 'GET',
+        'path': '/test',
+        'query_string': b'',
+    }
+
+    async def receive():
+        return {'type': 'http.request', 'body': b'', 'more_body': False}
+
+    async def send(message):
+        pass
+
+    req = Request(scope, receive, send)
+
+    # Verify that accessing FILES raises RuntimeError
+    try:
+        _ = req.FILES
+        assert False, "Expected RuntimeError to be raised"
+    except RuntimeError as e:
+        assert "FILES 属性已弃用" in str(e)
+        assert "get_FILES" in str(e)
+
+
+def test_deprecated_json_property():
+    """
+    Test that accessing json property raises RuntimeError (deprecated)
+    """
+    from uliweb.core.starlette import Request
+
+    scope = {
+        'type': 'http',
+        'method': 'GET',
+        'path': '/test',
+        'query_string': b'',
+    }
+
+    async def receive():
+        return {'type': 'http.request', 'body': b'', 'more_body': False}
+
+    async def send(message):
+        pass
+
+    req = Request(scope, receive, send)
+
+    # Verify that accessing json raises RuntimeError
+    try:
+        _ = req.json
+        assert False, "Expected RuntimeError to be raised"
+    except RuntimeError as e:
+        assert "json 属性已弃用" in str(e)
+        assert "get_json" in str(e)
+
+
+def test_get_params_method():
+    """
+    Test the new async get_params method exists
+    """
+    from uliweb.core.starlette import Request
+
+    scope = {
+        'type': 'http',
+        'method': 'GET',
+        'path': '/test',
+        'query_string': b'',
+    }
+
+    async def receive():
+        return {'type': 'http.request', 'body': b'', 'more_body': False}
+
+    async def send(message):
+        pass
+
+    req = Request(scope, receive, send)
+
+    # Verify that the method exists and is callable
+    assert hasattr(req, 'get_params')
+    assert callable(req.get_params)
+    assert hasattr(req, 'get_POST')  # get_params depends on get_POST
+    assert callable(req.get_POST)
