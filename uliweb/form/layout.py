@@ -149,6 +149,7 @@ class TableLayout(Layout):
         return tr
 
     def single_line(self, element):
+        tr = Tag('tr', newline=True)
         with tr:
             with tr.td(colspan=3):
                 tr << element
