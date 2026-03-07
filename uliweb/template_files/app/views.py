@@ -2,5 +2,5 @@
 from uliweb import expose, functions
 
 @expose('/')
-def index():
+async def index():
     return '<h1>Hello, Uliweb</h1>'
