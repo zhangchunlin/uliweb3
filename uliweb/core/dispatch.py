@@ -133,10 +133,7 @@ def get(sender, topic, *args, **kwargs):
     if not topic in _receivers:
         return
     items = _receivers[topic]
-    def _cmp(x, y):
-        return cmp(x[0], y[0])
-
-    items.sort(_cmp)
+    items.sort(key=lambda x: x[0])
     for i in range(len(items)):
         nice, f = items[i]
         _f = f['func']
