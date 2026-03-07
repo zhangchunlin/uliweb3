@@ -99,25 +99,31 @@ class Mail(object):
         cls = import_attr(self.backend + '.MailConnection')
         self.con = cls(self)
 
-    def send_mail(self, from_, to_, subject, message, cc_=None, html=False, attachments=None):
-        #process to_
-        if isinstance(to_, string_types):
-            send_to = to_.split(',')
-        elif isinstance(to_, (tuple, list)):
-            send_to = to_
-            to_ = ','.join(send_to)
+    async def send_mail(self, from_, to_, subject, message, cc_=None, html=False, attachments=None):
+        """异步发送邮件 - 使用协程池执行同步操作"""
+        import anyio
 
-        if isinstance(cc_, string_types):
-            cc_list = cc_.split(',')
-        elif isinstance(cc_, (tuple, list)):
-            cc_list = cc_
-            cc_ = ','.join(cc_) #should be changed to string
-        else:
-            cc_list = None
-        if cc_list:
-            send_to += cc_list
+        def _send_mail():
+            #process to_
+            if isinstance(to_, string_types):
+                send_to = to_.split(',')
+            elif isinstance(to_, (tuple, list)):
+                send_to = list(to_)
+                to_ = ','.join(send_to)
 
-        email = EmailMessage(from_, to_, subject, message, cc_=cc_, html=html, attachments=attachments)
-        self.con.get_connection()
-        self.con.send_mail(from_, send_to, email)
-        self.con.close()
+            if isinstance(cc_, string_types):
+                cc_list = cc_.split(',')
+            elif isinstance(cc_, (tuple, list)):
+                cc_list = list(cc_)
+                cc_ = ','.join(cc_list) #should be changed to string
+            else:
+                cc_list = None
+            if cc_list:
+                send_to += cc_list
+
+            email = EmailMessage(from_, to_, subject, message, cc_=cc_, html=html, attachments=attachments)
+            self.con.get_connection()
+            self.con.send_mail(from_, send_to, email)
+            self.con.close()
+
+        return await anyio.to_thread.run_sync(_send_mail)
