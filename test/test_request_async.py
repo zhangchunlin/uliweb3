@@ -210,3 +210,78 @@ def test_get_params_method():
     assert callable(req.get_params)
     assert hasattr(req, 'get_POST')  # get_params depends on get_POST
     assert callable(req.get_POST)
+
+
+def test_state_property():
+    """
+    Test the state property for request state management
+
+    The state property provides access to scope['state'], which is a core
+    ASGI feature that allows middleware and applications to store and share
+    state data during request processing.
+    """
+    from uliweb.core.starlette import Request
+
+    # Test 1: state property exists and returns a dict
+    scope = {
+        'type': 'http',
+        'method': 'GET',
+        'path': '/test',
+        'query_string': b'',
+    }
+
+    async def receive():
+        return {'type': 'http.request', 'body': b'', 'more_body': False}
+
+    async def send(message):
+        pass
+
+    req = Request(scope, receive, send)
+
+    # Verify that the state property exists
+    assert hasattr(req, 'state')
+
+    # Verify that state returns a dict
+    state = req.state
+    assert isinstance(state, dict)
+
+    # Test 2: state can be used to store and retrieve data
+    state['user'] = 'test_user'
+    state['user_id'] = 123
+
+    assert req.state['user'] == 'test_user'
+    assert req.state['user_id'] == 123
+
+    # Test 3: state is initialized automatically if not present in scope
+    scope_without_state = {
+        'type': 'http',
+        'method': 'GET',
+        'path': '/test',
+        'query_string': b'',
+    }
+
+    req2 = Request(scope_without_state, receive, send)
+
+    # Access state should initialize it in scope
+    _ = req2.state
+    assert 'state' in scope_without_state
+    assert isinstance(scope_without_state['state'], dict)
+
+    # Test 4: existing state in scope is preserved
+    scope_with_state = {
+        'type': 'http',
+        'method': 'GET',
+        'path': '/test',
+        'query_string': b'',
+        'state': {'existing_key': 'existing_value'}
+    }
+
+    req3 = Request(scope_with_state, receive, send)
+
+    # Verify existing state is preserved
+    assert req3.state['existing_key'] == 'existing_value'
+
+    # Can add new values
+    req3.state['new_key'] = 'new_value'
+    assert req3.state['new_key'] == 'new_value'
+    assert req3.state['existing_key'] == 'existing_value'

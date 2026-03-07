@@ -74,6 +74,30 @@ class Request(StarletteRequest):
         """兼容 GET 参数访问"""
         return self.query_params
 
+    @property
+    def state(self):
+        """获取请求状态容器
+
+        支持 scope['state'] 状态管理，这是 ASGI 架构的核心特性。
+        允许中间件和应用程序在请求处理过程中存储和共享状态数据。
+
+        使用示例：
+
+        ```python
+        # 在中间件中设置状态
+        request.state.user = current_user
+
+        # 在后续处理中获取状态
+        current_user = request.state.user
+        ```
+
+        :return: 请求状态字典
+        """
+        # 初始化 state 容器（如果不存在）
+        if 'state' not in self.scope:
+            self.scope['state'] = {}
+        return self.scope['state']
+
     async def get_POST(self):
         """异步获取 POST 表单数据"""
         if self.method == "POST":
