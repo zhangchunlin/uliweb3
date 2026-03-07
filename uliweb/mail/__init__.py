@@ -63,22 +63,21 @@ class EmailMessage(object):
         if contentType is None or encoding is not None:
             contentType = 'application/octet-stream'
         mainType, subType = contentType.split('/', 1)
-        file = open(attachmentFilePath, 'rb')
-        if mainType == 'text':
-            attachment = MIMEText(file.read())
-#        elif mainType == 'html':
-#            attachment = MIMEText(file.read(), 'html')
-        elif mainType == 'message':
-            attachment = email.message_from_file(file)
-        elif mainType == 'image':
-            attachment = MIMEImage(file.read(),_subType=subType)
-        elif mainType == 'audio':
-            attachment = MIMEAudio(file.read(),_subType=subType)
-        else:
-            attachment = MIMEBase(mainType, subType)
-            attachment.set_payload(file.read())
-            encode_base64(attachment)
-        file.close()
+        with open(attachmentFilePath, 'rb') as f:
+            if mainType == 'text':
+                attachment = MIMEText(f.read())
+    #        elif mainType == 'html':
+    #            attachment = MIMEText(f.read(), 'html')
+            elif mainType == 'message':
+                attachment = email.message_from_file(f)
+            elif mainType == 'image':
+                attachment = MIMEImage(f.read(),_subType=subType)
+            elif mainType == 'audio':
+                attachment = MIMEAudio(f.read(),_subType=subType)
+            else:
+                attachment = MIMEBase(mainType, subType)
+                attachment.set_payload(f.read())
+                encode_base64(attachment)
         attachment.add_header('Content-Disposition', 'attachment',   filename=os.path.basename(attachmentFilePath))
         return attachment
 
