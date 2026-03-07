@@ -17,21 +17,21 @@ from ..utils._compat import string_types
 
 class BaseMailConnection(object):
     def __init__(self, mail_obj):
-        self.mail_obj = self.mail_obj
-        
-    def get_connection(self, mail_obj):
+        self.mail_obj = mail_obj
+
+    def get_connection(self):
         raise NotImplementedError("This function is not implemented yet")
 
     def send_mail(self, from_, to_, message):
         raise NotImplementedError("This function is not implemented yet")
-    
+
     def close(self):
         pass
-   
+
 class EmailMessage(object):
     def __init__(self, from_, to_, subject, message, cc_=None,html=False, encoding='utf-8', attachments=None):
         from uliweb.utils.common import simple_value
-        
+
         self.from_ = from_
         self.to_ = to_
         self.encoding = encoding
@@ -39,7 +39,7 @@ class EmailMessage(object):
         self.message = simple_value(message, encoding)
         self.attachments = attachments or []
         self.html = html
-        
+
         self.msg = msg = MIMEMultipart()
         msg['From'] = from_
         msg['To'] = to_
@@ -51,13 +51,13 @@ class EmailMessage(object):
         else:
             content_type = 'plain'
         msg.attach(MIMEText(self.message, content_type, self.encoding))
-        
+
         for f in self.attachments:
             msg.attach(self.getAttachment(f))
-            
+
     def attach(self, filename):
         self.msg.attach(self.getAttachment(filename))
-        
+
     def getAttachment(self, attachmentFilePath):
         contentType, encoding = mimetypes.guess_type(attachmentFilePath)
         if contentType is None or encoding is not None:
@@ -81,15 +81,15 @@ class EmailMessage(object):
         file.close()
         attachment.add_header('Content-Disposition', 'attachment',   filename=os.path.basename(attachmentFilePath))
         return attachment
-    
+
     def __str__(self):
         return self.msg.as_string()
-        
+
 class Mail(object):
     def __init__(self, host=None, port=None, user=None, password=None, backend=None, sendmail_location=None):
         from uliweb import settings
         from uliweb.utils.common import import_attr
-        
+
         self.host = host or settings.get_var('MAIL/HOST')
         self.port = port or settings.get_var('MAIL/PORT', 25)
         self.user = user or settings.get_var('MAIL/USER')
@@ -98,7 +98,7 @@ class Mail(object):
         self.sendmail_location = sendmail_location or settings.get_var('MAIL/SENDMAIL_LOCATION', '/usr/sbin/sendmail')
         cls = import_attr(self.backend + '.MailConnection')
         self.con = cls(self)
-        
+
     def send_mail(self, from_, to_, subject, message, cc_=None, html=False, attachments=None):
         #process to_
         if isinstance(to_, string_types):
@@ -106,7 +106,7 @@ class Mail(object):
         elif isinstance(to_, (tuple, list)):
             send_to = to_
             to_ = ','.join(send_to)
-        
+
         if isinstance(cc_, string_types):
             cc_list = cc_.split(',')
         elif isinstance(cc_, (tuple, list)):
@@ -116,7 +116,7 @@ class Mail(object):
             cc_list = None
         if cc_list:
             send_to += cc_list
-        
+
         email = EmailMessage(from_, to_, subject, message, cc_=cc_, html=html, attachments=attachments)
         self.con.get_connection()
         self.con.send_mail(from_, send_to, email)
