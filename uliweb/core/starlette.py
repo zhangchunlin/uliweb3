@@ -889,31 +889,29 @@ class AsyncDispatcher:
         for route in self.router.routes:
             # 只处理 Route 对象，跳过 Mount 对象
             # Route 有 'methods' 属性，Mount 没有
-            if not hasattr(route, 'methods') or not isinstance(route, Route):
+            if not isinstance(route, Route):
                 continue
-            if hasattr(route, 'path'):
-                # 对于 Starlette Route 对象，使用更直接的方法
-                try:
-                    route_path = route.path
+            try:
+                route_path = route.path
 
-                    # 检查路径是否匹配
-                    path_matches = self._path_matches(route_path, path)
+                # 检查路径是否匹配
+                path_matches = self._path_matches(route_path, path)
 
-                    if path_matches:
-                        # 检查方法是否匹配
-                        if hasattr(route, 'methods'):
-                            if method in route.methods:
-                                # 提取路径参数
-                                path_params = self._extract_path_params(route_path, path)
-                                matched_routes.append((route, path_params))
-                        else:
-                            # 如果没有指定方法，默认匹配 GET
-                            if method == 'GET':
-                                path_params = self._extract_path_params(route_path, path)
-                                matched_routes.append((route, path_params))
-                except Exception:
-                    # 如果匹配出错，继续尝试下一个路由
-                    continue
+                if path_matches:
+                    # 检查方法是否匹配
+                    if hasattr(route, 'methods'):
+                        if method in route.methods:
+                            # 提取路径参数
+                            path_params = self._extract_path_params(route_path, path)
+                            matched_routes.append((route, path_params))
+                    else:
+                        # 如果没有指定方法，默认匹配 GET
+                        if method == 'GET':
+                            path_params = self._extract_path_params(route_path, path)
+                            matched_routes.append((route, path_params))
+            except Exception:
+                # 如果匹配出错，继续尝试下一个路由
+                continue
 
         # 如果有多个匹配的路由，选择最具体的那个
         if matched_routes:
