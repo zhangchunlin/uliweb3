@@ -65,7 +65,7 @@ class EmailMessage(object):
         mainType, subType = contentType.split('/', 1)
         with open(attachmentFilePath, 'rb') as f:
             if mainType == 'text':
-                attachment = MIMEText(f.read())
+                attachment = MIMEText(f.read().decode('utf-8'), _subtype=subType, _charset='utf-8')
     #        elif mainType == 'html':
     #            attachment = MIMEText(f.read(), 'html')
             elif mainType == 'message':
