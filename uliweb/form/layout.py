@@ -1,8 +1,9 @@
 from __future__ import print_function, absolute_import, unicode_literals
+from functools import reduce
 from uliweb.i18n import gettext_lazy as _
 from uliweb.utils._compat import string_types
 
-__all__ = ['Layout', 'TableLayout', 'CSSLayout', 
+__all__ = ['Layout', 'TableLayout', 'CSSLayout',
     'BootstrapLayout', 'BootstrapTableLayout']
 
 from uliweb.core.html import Buf, Tag, Div
@@ -22,7 +23,7 @@ def min_times(num):
 
 class Layout(object):
     form_class = ''
-    
+
     def __init__(self, form, layout=None, **kwargs):
         self.form = form
         self.layout = layout
@@ -34,21 +35,21 @@ class Layout(object):
 
     def html(self):
         return '\n'.join([x for x in [self.begin(), self.hiddens(), self.body(), self.buttons_line(), self.end()] if x])
-    
+
     def __str__(self):
         return self.html()
-    
+
     def get_widget_name(self, f):
         return f.build.__name__
 
     def is_hidden(self, f):
         return f.type_name == 'hidden' or f.hidden
-    
+
     def begin(self):
         if not self.form.html_attrs['class'] and self.form_class:
             self.form.html_attrs['class'] = self.form_class
         return self.form.form_begin
-    
+
     def hiddens(self):
         s = []
         for name, obj in self.form.fields_list:
@@ -56,22 +57,22 @@ class Layout(object):
             if self.is_hidden(obj):
                 s.append(str(f))
         return ''.join(s)
-    
+
     def body(self):
         return ''
-    
+
     def end(self):
         return self.form.form_end
-    
+
     def _buttons_line(self, buttons):
         return ' '.join([str(x) for x in buttons])
-    
+
     def buttons_line(self):
         return str(self._buttons_line(self.form.get_buttons()))
-    
+
     def buttons(self):
         return ' '.join([str(x) for x in self.form.get_buttons()])
-    
+
 class TableLayout(Layout):
     field_classes = {
         ('Text', 'Password', 'TextArea'):'type-text',
@@ -81,7 +82,7 @@ class TableLayout(Layout):
         }
     form_class = 'tform'
     buttons_line_class = 'type-button'
-    
+
     def __init__(self, form, layout=None, label_fix=False, table_class='table table-layout width100'):
         self.form = form
         self.layout = layout
@@ -119,16 +120,16 @@ class TableLayout(Layout):
 
                 f = getattr(self.form, name)
                 obj = self.form.fields[name]
-                
+
                 #process hidden field
                 if self.is_hidden(obj):
                     #tr << f
                     continue
-                
+
                 _class = self.get_class(obj)
                 if f.error:
                     _class = _class + ' error'
-                
+
                 with tr.td(colspan=_span, width='%d%%' % (100*_span/n,), valign='top'):
                     with tr.Div(_class=_class, id='div_'+obj.id):
                         if f.error:
@@ -144,7 +145,7 @@ class TableLayout(Layout):
                                 tr << f.label
                             tr << f
                             tr << f.help_string or '&nbsp;'
-                
+
         return tr
 
     def single_line(self, element):
@@ -158,7 +159,7 @@ class TableLayout(Layout):
         with div:
             div << buttons
         return div
-        
+
     def body(self):
         if self.layout:
             m = []
@@ -179,7 +180,7 @@ class TableLayout(Layout):
         else:
             self.layout = [name for name, obj in self.form.fields_list]
             n = 1
-            
+
         buf = Buf()
         table = None
         fieldset = None
@@ -197,7 +198,7 @@ class TableLayout(Layout):
                     if title:
                         fieldset = True
                         buf << '<fieldset><legend>%s</legend>' % title
-                    
+
                     buf << '<table class="%s"><tbody>' % cls
                     table = True
                     first = False
@@ -209,15 +210,15 @@ class TableLayout(Layout):
                 buf << '<table class="%s"><tbody>' % cls
                 table = True
             buf << self.line(fields, n)
-            
+
         #close the tags
         if table:
             buf << '</tbody></table>'
         if fieldset:
             buf << '</fieldset>'
-        
+
         return str(buf)
-        
+
 class CSSLayout(Layout):
     def line(self, obj, label, input, help_string='', error=None):
         div = Div()
@@ -237,14 +238,14 @@ class CSSLayout(Layout):
 
     def body(self):
         buf = Buf()
-        
+
         if self.form.fieldset:
             form = buf << Tag('fieldset')
             if self.form.form_title:
                 form << Tag('legend', self.form.form_title)
         else:
             form = buf
-    
+
         for name, obj in self.form.fields_list:
             f = getattr(self.form, name)
             if self.is_hidden(obj):
@@ -252,17 +253,17 @@ class CSSLayout(Layout):
                 pass
             else:
                 form << self.line(obj, f.label, f, f.help_string, f.error)
-        
+
         return str(buf)
 
 class QueryLayout(Layout):
     form_class = 'form'
-    
+
     def line(self, obj, label, input, help_string='', error=None):
         buf = Buf()
         with buf.td:
             buf << label
-        
+
         if error:
             with buf.td(_class='error'):
                 buf << input
@@ -276,7 +277,7 @@ class QueryLayout(Layout):
         buf = Buf()
         self.process_layout(buf)
         return str(buf)
-    
+
     def buttons_line(self):
         return ''
 
@@ -302,7 +303,7 @@ class QueryLayout(Layout):
                                 buf << self.form.get_buttons()
                                 if more:
                                     buf << self.get_more_button()
-                            
+
             else:
                 f = getattr(self.form, line)
                 obj = self.form.fields.get(line)
@@ -322,7 +323,7 @@ class QueryLayout(Layout):
                                     buf << self.form.get_buttons()
                                     if more:
                                         buf << self.get_more_button()
-                                    
+
         if not self.layout:
             self.layout = [[name for name, obj in self.form.fields_list]]
         if self.layout:
@@ -336,10 +337,10 @@ class QueryLayout(Layout):
                     for line in layout:
                         output(buf, line)
                 buf << self.post_layout()
-                
+
     def get_more_button(self):
         return '<a href="#" id="more_query">%s</a>' % _('more')
-    
+
     def post_layout(self):
         return ''
 
@@ -351,32 +352,32 @@ class BootstrapLayout(Layout):
         ('Select', 'RadioSelect'):'',
         ('Radio',):'radio',
         }
-    
+
     def line(self, obj, label, input, help_string='', error=None):
-        
+
         _class = "control-group"
         if error:
             _class = _class + ' error'
-        
+
         div_group = Div(_class=_class, id='div_'+obj.id, newline=True)
-        with div_group: 
+        with div_group:
             div_group << input.get_label(_class='control-label')
             div = Div(_class='controls', newline=True)
             with div:
-                div << input                    
+                div << input
                 div << Tag('p', _class="help help-block", _value=help_string)
                 if error:
                     div << Div(_class="message help-block", _value=error, newline=True)
-                    
+
             div_group << str(div)
         return str(div_group)
-    
+
     def _buttons_line(self, buttons):
         div = Div(_class="form-actions")
         with div:
             div << buttons
         return div
-    
+
     def body(self):
         buf = Buf()
         if not self.layout:
@@ -416,10 +417,10 @@ class BootstrapTableLayout(TableLayout):
         ('Select', 'RadioSelect'):'',
         ('Radio',):'radio',
         }
-    
+
     form_class = 'form-horizontal'
     buttons_line_class = 'form-actions'
-    
+
     def line(self, fields, n):
         _x = 0
         for _f in fields:
@@ -429,7 +430,7 @@ class BootstrapTableLayout(TableLayout):
                 _x += _f.get('colspan', 1)
             else:
                 raise Exception('Colume definition is not right, only support string or dict')
-            
+
         tr = Tag('tr', newline=True)
         with tr:
             for x in fields:
@@ -442,16 +443,16 @@ class BootstrapTableLayout(TableLayout):
 
                 f = getattr(self.form, name)
                 obj = self.form.fields[name]
-                
+
                 #process hidden field
                 if self.is_hidden(obj):
                     #tr << f
                     continue
-                
+
                 _class = "control-group"
                 if f.error:
                     _class = _class + ' error'
-                
+
                 with tr.td(colspan=_span, width='%d%%' % (100*_span/n,), valign='top'):
                     with tr.Div(_class=_class, id='div_'+obj.id):
                         if self.get_widget_name(obj) == 'Checkbox':
@@ -460,18 +461,18 @@ class BootstrapTableLayout(TableLayout):
                             if self.label_fix:
                                 tr << f.field.get_label(_class='label_fix')
                             else:
-                                tr << f.get_label(_class='control-label')                            
-                            
+                                tr << f.get_label(_class='control-label')
+
                         div = Div(_class='controls')
                         with div:
                             if self.get_widget_name(obj) == 'Checkbox':
                                 div << f
                                 div << f.label
                             else:
-                                div << f                    
+                                div << f
                             div << Div(_class="help help-block", _value= f.help_string or '')
                             if f.error:
                                 div << Div(_class="message help-block", _value=f.error)
                         tr << str(div)
         return tr
-    
+
