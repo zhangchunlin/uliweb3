@@ -40,20 +40,20 @@ class Buf(object):
         self._encoding = encoding
         self._builder = self
         self._newline = newline
-        
+
     def bind(self, builder):
         self._builder = builder
-        
+
     def __getattr__(self, name):
         tag = __tags__.get(name, Tag)
         t = tag(name)
         t.bind(self._builder)
         return t
     __getitem__ = __getattr__
-    
+
     def __str__(self):
         return safe_str(self._document.getvalue(), self._encoding)
-    
+
     def _write(self, line):
         line = safe_str(line, self._encoding)
         if self._newline:
@@ -61,7 +61,7 @@ class Buf(object):
         else:
             n = ''
         self._document.write('%s%s%s' % (self._indentation * self._indent, line, n))
-        
+
     def __lshift__(self, obj):
         if isinstance(obj, (tuple, list)):
             for x in obj:
@@ -79,16 +79,16 @@ class Tag(Buf):
 #            self._builder._write('<%s%s />' % (self.name, to_attrs(self.attributes)))
 #        elif _value != DefaultValue:
 #            self._builder._write('<%s%s>%s</%s>' % (self.name, to_attrs(self.attributes), u_str(_value), self.name))
-    
+
     def __enter__(self):
         self._builder._write('<%s%s>' % (self.name, to_attrs(self.attributes)))
         self._builder._indentation += 1
         return self
-    
+
     def __exit__(self, type, value, tb):
         self._builder._indentation -= 1
         self._builder._write('</%s>' % self.name)
-        
+
     def __call__(self, _value=DefaultValue, attrs=None, **kwargs):
         attrs = attrs or {}
         self.attributes.update(attrs)
@@ -102,7 +102,7 @@ class Tag(Buf):
                 self._builder._write('<%s%s>%s</%s>' % (self.name, to_attrs(self.attributes), safe_str(_value, self._encoding), self.name))
             return
         return self
-    
+
 class Div(Tag):
     def __init__(self, _value=DefaultValue, newline=True, **kwargs):
         Tag.__init__(self, tag_name='div', _value=_value, newline=newline, **kwargs)
@@ -114,24 +114,24 @@ __tags__['Div'] = Div
 class Builder(object):
     """
     Builder can be used to create multiple parts of code, such as
-    
+
     b = Builder('begin', 'body', 'end')
-    
+
     Then you can put something to each part:
-        
+
     b.begin << '<table>'
     b.body << '<tbody></tbody>'
     b.end << '</table>'
-    
+
     Then you can output the result:
-        
+
     print(b.text)
     print(b.body)
     """
     def __init__(self, *parts):
         self.parts = parts or ['body']
         self.data = {}
-    
+
     def __getattr__(self, key):
         if not key in self.parts:
             raise KeyError("Can't find the key %s" % key)
@@ -144,16 +144,25 @@ class Builder(object):
             v = self.data.get(x, '')
             txt.append(str(v))
         return ''.join(txt)
-    
+
     def __str__(self):
         return safe_unicode(self.text)
-        
+
 
 def begin_tag(tag, **kwargs):
     return '<%s%s>' % (tag, to_attrs(kwargs))
 
 def end_tag(tag):
     return '</%s>' % tag
+
+
+def u_str(value):
+    """
+    Convert value to unicode string for HTML output.
+    """
+    if value is None:
+        return ''
+    return safe_str(value)
 
 def Table(data, head=None, **kwargs):
     header = head or []

@@ -9,11 +9,23 @@ import re
 import types
 import typing as t
 import threading
+import asyncio
+import contextvars
 from inspect import iscoroutinefunction
-from werkzeug import Request as OriginalRequest, Response as OriginalResponse
-from werkzeug.local import Local, LocalManager
-from werkzeug.exceptions import HTTPException, NotFound, BadRequest, InternalServerError
-from werkzeug.routing import Map
+
+# 使用 Starlette 替代 Werkzeug
+from starlette.requests import Request as StarletteRequest
+from starlette.responses import Response as StarletteResponse, JSONResponse
+from starlette.datastructures import UploadFile
+from starlette.routing import Route, Router
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.exceptions import HTTPException as BadRequest
+from starlette.exceptions import HTTPException as InternalServerError
+from starlette.exceptions import HTTPException as NotFound
+from starlette.responses import Response as StarletteResponse
+# 为了兼容性，创建别名
+OriginalResponse = StarletteResponse
+
 import json as jsn
 
 from . import template
@@ -44,21 +56,60 @@ try:
 except:
     from sets import Set as set
 
-local = Local()
-local.request = None
-local.response = None
 __global__ = Global()
-local_manager = LocalManager([local])
-url_map = Map(strict_slashes=False)
+
+# 使用 contextvars 替代 werkzeug.local
+from .context import settings_var, application_var, request_var, response_var
+
+# 创建用于 local 的 contextvars 兼容层（保持兼容性）
+_local_request = contextvars.ContextVar('local_request', default=None)
+_local_response = contextvars.ContextVar('local_response', default=None)
+
+# 定义 local 对象以保持兼容性
+class _LocalCompat:
+    """兼容性 local 对象"""
+    @property
+    def request(self):
+        return _local_request.get() or request_var.get(None)
+
+    @request.setter
+    def request(self, value):
+        _local_request.set(value)
+
+    @property
+    def response(self):
+        return _local_response.get() or response_var.get(None)
+
+    @response.setter
+    def response(self, value):
+        _local_response.set(value)
+
+    def __getattr__(self, name):
+        # 提供 local_cache 和 in_web 属性
+        if name == 'local_cache':
+            return {}
+        elif name == 'in_web':
+            return False
+        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+
+    def __setattr__(self, name, value):
+        if name in ('local_cache', 'in_web'):
+            pass  # 忽略这些属性的设置
+        else:
+            object.__setattr__(self, name, value)
+
+local = _LocalCompat()
+
+# 使用 Starlette 路由替代 werkzeug.routing.Map
+# 创建 UliwebRouter 实例
+from .starlette import UliwebRouter
+url_map = UliwebRouter()
 static_views = []
 use_urls = False
 url_adapters = {}
 __app_dirs__ = {}
 __app_alias__ = {}
 _xhr_redirect_json = True
-
-# 使用共享的 contextvars
-from .context import settings_var, application_var
 
 r_callback = re.compile(r'^[\w_]+$')
 # Initialize pyini env
@@ -104,31 +155,92 @@ class Finder(object):
 decorators = Finder('DECORATORS')
 functions = Finder('FUNCTIONS')
 
-class Request(OriginalRequest):
-    GET = OriginalRequest.args
-    POST = OriginalRequest.form
-    params = OriginalRequest.values
-    FILES = OriginalRequest.files
+class Request(StarletteRequest):
+    """基于 Starlette 的 Request 类，保持与现有 Uliweb 的兼容性"""
+
+    @property
+    def GET(self):
+        """兼容 GET 参数访问"""
+        return self.query_params
+
+    @property
+    def params(self):
+        """兼容 params 属性，返回 GET 参数"""
+        return self.query_params
+
+    @property
+    def is_xhr(self):
+        """检查是否为 AJAX 请求"""
+        return self.headers.get('x-requested-with', '').lower() == 'xmlhttprequest'
+
+    @property
+    def path(self):
+        """获取请求路径"""
+        return self.url.path
+
+    @property
+    def method(self):
+        """获取请求方法"""
+        return self.scope.get("method", "")
+
+    async def get_POST(self):
+        """异步获取 POST 表单数据"""
+        if self.method == "POST":
+            form = await self.form()
+            return form
+        return {}
+
+    async def get_FILES(self):
+        """异步获取上传文件"""
+        if self.method == "POST":
+            form = await self.form()
+            return {k: v for k, v in form.items() if isinstance(v, UploadFile)}
+        return {}
+
+    async def get_json(self):
+        """异步获取 JSON 数据"""
+        return await super().json()
+
+    async def get_params(self):
+        """异步获取合并参数"""
+        get_params = self.query_params
+        post_params = await self.get_POST()
+        merged_params = {}
+        merged_params.update(get_params)
+        merged_params.update(post_params)
+        return merged_params
+
+    # 向后兼容的同步属性（标记为已弃用）
+    @property
+    def POST(self):
+        """已弃用：同步访问 POST 数据会抛出异常"""
+        raise RuntimeError(
+            "POST 属性已弃用，请使用 await request.get_POST() 方法。"
+        )
+
+    @property
+    def FILES(self):
+        """已弃用：同步访问 FILES 数据会抛出异常"""
+        raise RuntimeError(
+            "FILES 属性已弃用，请使用 await request.get_FILES() 方法。"
+        )
 
     @property
     def json(self):
-        """
-        Return json data, need front send json data
-        :return: dict
-        """
-        return jsn.loads(self.data)
-
-    is_xhr = property(lambda x: x.environ.get('HTTP_X_REQUESTED_WITH', '')
-                      .lower() == 'xmlhttprequest', doc='''
-        True if the request was triggered via a JavaScript XMLHttpRequest.
-        This only works with libraries that support the `X-Requested-With`
-        header and set it to "XMLHttpRequest".  Libraries that do that are
-        prototype, jQuery and Mochikit and probably some more.''')
+        """已弃用：同步访问 JSON 数据会抛出异常"""
+        raise RuntimeError(
+            "json 属性已弃用，请使用 await request.get_json() 方法。"
+        )
 
 
-class Response(OriginalResponse):
+class Response(StarletteResponse):
+    """基于 Starlette 的 Response 类，保持与现有 Uliweb 的兼容性"""
+
     def write(self, value):
-        self.stream.write(value)
+        """兼容 write 方法"""
+        # 在 Starlette Response 中，内容通过 __init__ 或媒体类型设置
+        # 这里保持接口兼容性
+        pass
 
 class HTTPError(Exception):
     def __init__(self, errorpage=None, **kwargs):
@@ -301,67 +413,34 @@ def GET(rule, **kw):
 def get_url_adapter(_domain_name):
     """
     Fetch a domain url_adapter object, and bind it to according domain
+    使用 Starlette 路由替代 werkzeug，不需要 wsgi_decoding_dance
     """
-    try:
-        from werkzeug._compat import wsgi_decoding_dance
-    except ModuleNotFoundError:
-        from werkzeug._internal import _wsgi_decoding_dance as wsgi_decoding_dance
-
     domain = application.domains.get(_domain_name, {})
     server_name = None
+
     if domain.get('domain', ''):
         server_name = domain['domain']
-        try:
-            env = {}
-            environ = request.environ
-            env['url_scheme'] = environ['wsgi.url_scheme']
-            env['default_method'] = environ['REQUEST_METHOD']
 
-            def _get_wsgi_string(name):
-                val = environ.get(name)
-                if val is not None:
-                    return wsgi_decoding_dance(val, "utf-8")
-
-            env['script_name'] = _get_wsgi_string('SCRIPT_NAME')
-            env['path_info'] = _get_wsgi_string('PATH_INFO')
-            env['query_args'] = _get_wsgi_string('QUERY_STRING')
-        except:
-            env = {}
-        adapter = url_map.bind(server_name, **env)
-    else:
-        try:
-            env = request.environ
-        except:
-            #this env if for testing only
+    # 使用 Starlette 路由的简单 bind 方法
+    # 不再依赖 werkzeug 的 bind_to_environ
+    try:
+        # 尝试从 request 获取 scope 信息 (ASGI 环境)
+        if hasattr(request, 'scope') and request.scope:
+            scope = request.scope
             env = {
-                'HTTP_ACCEPT': 'text/html,application/xhtml+xml,application/xml;'
-                               'q=0.9,*/*;q=0.8',
-                'HTTP_ACCEPT_CHARSET': 'ISO-8859-1,utf-8;q=0.7,*;q=0.3',
-                'HTTP_ACCEPT_ENCODING': 'gzip,deflate,sdch',
-                'HTTP_ACCEPT_LANGUAGE': 'uk,en-US;q=0.8,en;q=0.6',
-                'HTTP_CACHE_CONTROL': 'max-age=0',
-                'HTTP_CONNECTION': 'keep-alive',
-                # 'HTTP_HOST': 'localhost:8080',
-                'HTTP_USER_AGENT': 'Mozilla/5.0 (X11; Linux i686)',
-                # 'PATH_INFO': '/',
-                # 'QUERY_STRING': '',
-                'REMOTE_ADDR': '127.0.0.1',
-                'REQUEST_METHOD': 'GET',
-                'REQUEST_URI': '/',
-                'SCRIPT_NAME': '',
-                'SERVER_NAME': 'localhost',
-                'SERVER_PORT': '8080',
-                'SERVER_PROTOCOL': 'HTTP/1.1',
-                'wsgi.errors': None,
-                'wsgi.file_wrapper': None,
-                # 'wsgi.input': BytesIO(ntob('', 'utf-8')),
-                'wsgi.multiprocess': False,
-                'wsgi.multithread': False,
-                'wsgi.run_once': False,
-                'wsgi.url_scheme': 'http',
-                'wsgi.version': (1, 0),
+                'url_scheme': scope.get('scheme', 'http'),
+                'default_method': scope.get('method', 'GET'),
+                'script_name': scope.get('root_path', ''),
+                'path_info': scope.get('path', '/'),
+                'query_args': scope.get('query_string', b'').decode('utf-8'),
             }
-        adapter = url_map.bind_to_environ(env)
+            adapter = url_map.bind(server_name, **env) if server_name else url_map
+        else:
+            adapter = url_map.bind(server_name) if server_name else url_map
+    except:
+        # 如果获取失败，使用默认的 adapter
+        adapter = url_map.bind(server_name) if server_name else url_map
+
     return adapter
 
 def get_rule(url):

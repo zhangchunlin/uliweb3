@@ -28,7 +28,18 @@ from uliweb.utils.common import (pkg, log, import_attr,
 import uliweb.utils.pyini as pyini
 from uliweb.i18n import gettext_lazy, i18n_ini_convertor
 from uliweb.utils.localproxy import LocalProxy, Global
-from uliweb import UliwebError, Middleware
+# 避免循环导入，直接从 SimpleFrame 导入或定义错误类
+try:
+    from .SimpleFrame import UliwebError
+except ImportError:
+    # 如果 SimpleFrame 还未加载，定义一个临时错误类
+    class UliwebError(Exception):
+        """Uliweb 基础错误类"""
+        pass
+
+# Middleware 不再需要，因为已迁移到 ASGI 中间件系统
+Middleware = None
+
 from uliweb.utils._compat import html_escape, isresponse
 
 # 使用共享的 contextvars
