@@ -7,7 +7,10 @@ from uliweb.utils.sorteddict import SortedDict
 import copy
 from ..utils._compat import string_types, iterkeys, get_class, ismethod
 
-class ReservedKeyError(Exception):pass
+
+class ReservedKeyError(Exception):
+    pass
+
 
 __exposes__ = SortedDict()
 __no_need_exposed__ = []
@@ -20,18 +23,9 @@ static_views = []
 reserved_keys = ['settings', 'redirect', 'application', 'request', 'response', 'error',
     'json']
 
-def add_rule(map, url, endpoint=None, **kwargs):
-    from werkzeug.routing import Rule
-    kwargs['endpoint'] = endpoint
-    try:
-        map.add(Rule(url, **kwargs))
-    except ValueError as e:
-        log.info("Wrong url is %s, endpoint=%s" % (url, endpoint))
-        raise
-            
 def merge_rules():
     from itertools import chain
-    
+
     s = []
     index = {}
     for v in sorted(__no_need_exposed__ + list(chain(*__exposes__.values())), key=lambda x:x[4]):
@@ -51,7 +45,7 @@ def merge_rules():
         else:
             s.append((appname, endpoint, url, kw))
             index[key] = len(s)-1
-            
+
     return s
 
 
@@ -92,7 +86,7 @@ def set_app_rules(rules=None):
     global __app_rules__
     __app_rules__ = {}
     __app_rules__.update(rules or {})
-    
+
 def set_urlroute_rules(rules=None):
     """
     rules should be (pattern, replace)
@@ -122,15 +116,15 @@ def get_template_args(appname, f):
         viewname = f.__name__
     else:
         viewname = f.__name__
-    return {'appname':appname, 'view_class':clsname, 'function':viewname} 
-    
+    return {'appname':appname, 'view_class':clsname, 'function':viewname}
+
 def expose(rule=None, **kwargs):
     e = Expose(rule, **kwargs)
     if e.parse_level == 1:
         return rule
     else:
         return e
-    
+
 class Expose(object):
     def __init__(self, rule=None, restful=False, replace=False, template=None,
                  layout=None, **kwargs):
@@ -198,7 +192,7 @@ class Expose(object):
             v['subdomain'] = _subdomain
         else:
             v.pop('subdomain', None)
-            
+
     def _get_path(self, f):
         m = f.__module__.split('.')
         s = []
@@ -207,7 +201,7 @@ class Expose(object):
                 s.append(i)
         appname = '.'.join(s)
         return appname, '/'.join(s)
-    
+
     def parse(self, f):
         if inspect.isfunction(f) or ismethod(f):
             func, result = self.parse_function(f)
@@ -215,7 +209,7 @@ class Expose(object):
             a.append(result)
         else:
             self.parse_class(f)
-            
+
     def parse_class(self, f):
         from uliweb.utils.date import now
         appname, path = self._get_path(f)
@@ -300,7 +294,7 @@ class Expose(object):
                     setattr(func, '__template__', None)
                     setattr(func, '__layout__', None)
                     setattr(func, '__fixed_url__', False)
-    
+
     def _get_url(self, appname, prefix, f):
         args = list(inspect.signature(f).parameters)
         if args:
@@ -315,7 +309,7 @@ class Expose(object):
         else:
             rule = self._fix_url(appname, '/'.join([prefix, f.__name__] +args))
         return rule
-    
+
     def parse_function(self, f):
         from uliweb.utils.date import now
         args = list(inspect.signature(f).parameters)
@@ -350,10 +344,10 @@ class Expose(object):
         kw = self.kwargs.copy()
         self._fix_kwargs(appname, kw)
         return f, (appname, endpoint, rule, kw, now())
-    
+
     def __call__(self, f):
         from uliweb.utils.common import safe_import
-        
+
         if isinstance(f, string_types):
             try:
                 _, f = safe_import(f)
