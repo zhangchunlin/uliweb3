@@ -1645,9 +1645,6 @@ class Dispatcher(object):
     def handler(self):
         return DispatcherHandler(self)
 
-    def __call__(self, environ, start_response):
-        response = self._open(environ)
-        return response(environ, start_response)
 
 # 使用统一的 contextvars 代理
 from .context import settings_proxy, request_proxy, response_proxy, application_proxy
