@@ -986,9 +986,6 @@ class StaticizeCommand(RunserverCommand):
 
         from uliweb.core.SimpleFrame import url_map
         from uliweb.utils.test import client_from_application
-        from werkzeug import Response
-
-        Response.autocorrect_location_header = False
 
         client = client_from_application(app)
 
