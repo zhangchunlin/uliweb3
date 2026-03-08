@@ -10,6 +10,7 @@
   - [3.2 阶段二：功能完整性](#32-阶段二功能完整性)
   - [3.3 阶段三：性能优化](#33-阶段三性能优化)
   - [3.4 阶段四：生态兼容](#34-阶段四生态兼容)
+  - [3.5 阶段五：完全移除 WSGI（最终目标）](#35-阶段五完全移除-wsgi最终目标)
 - [4. 核心组件迁移实现](#4-核心组件迁移实现)
   - [4.1 Request/Response 对象迁移](#41-requestresponse-对象迁移)
   - [4.2 Dispatcher 类重构](#42-dispatcher-类重构)
@@ -119,6 +120,114 @@ async def _call_view_function(self, func, request, *args, **kwargs):
 - 插件系统适配（提供迁移指南和工具）
 - 文档更新（包含兼容性说明和最佳实践）
 - 弃用策略（明确迁移时间表和兼容性保证）
+
+### 3.5 阶段五：完全移除 WSGI（最终目标）
+
+**目标**：完全移除所有 werkzeug 依赖和对 WSGI 的支持，只保留 ASGI 架构。
+
+**前置条件**（必须在此阶段开始前完成）：
+- 所有核心功能已完成 ASGI 迁移并稳定运行
+- 现有项目可以无缝迁移到 ASGI 架构
+- 插件生态系统完成适配
+
+**具体计划**：
+
+#### 3.5.1 模块重构（第一部分）
+
+1. **保留 SimpleFrame.py 作为统一入口**
+   - 保持 `uliweb/core/SimpleFrame.py` 不重命名
+   - 将 WSGI 相关代码移至 `uliweb/core/wsgi_adapter.py`（可选保留）
+   - 主要框架逻辑集中在 `uliweb/core/starlette.py`
+
+2. **重构 uliweb/__init__.py**
+   - 保留 ASGI/WSGI 双模式支持（与当前一致）
+   - 移除 `ASGI_AVAILABLE` 检查（始终假设 Starlette 可用）
+   - 简化导入逻辑，直接从 `starlette.py` 导入
+
+#### 3.5.2 werkzeug 依赖清理（第二部分）
+
+1. **识别所有 werkzeug 引用**
+   ```
+   搜索命令: grep -rn "from werkzeug\|import werkzeug" uliweb/
+
+   需要检查的模块：
+   - uliweb/core/SimpleFrame.py
+   - uliweb/core/starlette.py
+   - uliweb/utils/（工具模块）
+   - uliweb/contrib/（插件模块）
+   ```
+
+2. **逐模块迁移**
+   - Request/Response：已迁移到 Starlette
+   - routing：已迁移到 Starlette
+   - exceptions：考虑使用 Starlette 内置或自实现
+   - local：已迁移到 contextvars
+
+3. **更新依赖配置**
+   - 更新 `setup.py` 中的 `install_requires`
+   - 从 `werkzeug` 改为 `starlette`
+   - 考虑保留 `werkzeug` 作为可选依赖（用于 WSGI 兼容模式）
+
+#### 3.5.3 完整代码结构（目标状态）
+
+```
+uliweb/
+├── __init__.py              # 统一入口，ASGI/WSGI 双模式
+├── manage.py                # 管理命令入口
+├── core/
+│   ├── __init__.py
+│   ├── starlette.py         # 主要 ASGI 框架（核心）
+│   ├── SimpleFrame.py       # 统一框架（兼容层）
+│   ├── wsgi_adapter.py      # WSGI 适配器（可选保留）
+│   ├── context.py           # 上下文管理（contextvars）
+│   ├── dispatch.py          # 事件分发
+│   ├── template.py          # 模板系统
+│   ├── rules.py             # 路由规则
+│   ├── html.py              # HTML 工具
+│   ├── js.py                # JS 工具
+│   ├── uaml.py              # UAML 工具
+│   └── asgi.md              # ASGI 迁移指南
+├── contrib/
+│   ├── auth/                # 认证（已适配 ASGI）
+│   ├── session/             # 会话（已适配 ASGI）
+│   ├── orm/                 # ORM（需适配）
+│   └── ...
+└── utils/                   # 工具模块
+```
+
+#### 3.5.4 兼容性保障
+
+1. **向后兼容性策略**
+   - 提供 `uliweb.core.wsgi_adapter` 作为独立模块
+   - 需要 WSGI 的用户可以显式导入：`from uliweb.core.wsgi_adapter import Dispatcher`
+   - 主要入口 `from uliweb import Dispatcher` 默认返回 ASGI 版本
+
+2. **版本过渡方案**
+   - v4.0: 标记 WSGI 模式为 deprecated
+   - v4.1: 警告提示移除 WSGI 的时间表
+   - v5.0: 完全移除 WSGI（如果社区同意）
+
+3. **迁移工具**
+   - 提供命令行工具检查项目中的 werkzeug 使用
+   - 生成迁移报告和建议
+
+#### 3.5.5 风险评估与缓解
+
+| 风险 | 影响 | 缓解措施 |
+|------|------|----------|
+| 现有项目不兼容 | 高 | 提供迁移指南和兼容性层 |
+| 插件生态断裂 | 中 | 提供适配器框架和过渡期 |
+| 性能回退 | 低 | 充分测试和优化 |
+| WebSocket 依赖 | 中 | 确认 Starlette 满足需求 |
+
+#### 3.5.6 时间线建议
+
+- **Milestone 1** (v3.5): 完成所有核心组件 ASGI 迁移
+- **Milestone 2** (v3.6): 简化代码结构，移除冗余
+- **Milestone 3** (v4.0): 标记 WSGI 为 deprecated
+- **Milestone 4** (v5.0): 完全移除 WSGI（需要社区共识）
+
+**注意**：阶段五应该是长期目标，需要在确保 ASGI 框架稳定运行、插件生态完成适配后才能开始。建议以 major version 升级的方式推进此阶段。
 
 ## 4. 核心组件迁移实现
 
@@ -1546,6 +1655,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
    - 默认排序值为 500
 
 **迁移到纯 ASGI 的修改方案：**
+
+对于现有使用 WSGI 中间件接口（`process_request`、`process_response`、`process_exception` 方法）的中间件，需要统一修改为 ASGI 接口。根据中间件的功能复杂度，有两种修改方式：
+
+1. **复杂中间件**：建议完全重写为 ASGI 架构的中间件（高级接口或底层接口）
+2. **简单中间件**：如果业务逻辑简单，可以考虑直接迁移到 Starlette 的中间件架构
 
 为了完全支持 ASGI 架构，我们需要重新设计中间件系统，使其只支持 ASGI 接口：
 
