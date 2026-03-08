@@ -365,15 +365,16 @@ def get_url_adapter(_domain_name):
     return adapter
 
 def get_rule(url):
-    from werkzeug.test import EnvironBuilder
-
-    builder = EnvironBuilder(url)
-    env = builder.get_environ()
-
-    url_adapter = url_map.bind_to_environ(env)
+    """
+    获取 URL 的路由规则信息。
+    使用 bind 替代 bind_to_environ，避免依赖 werkzeug.test.EnvironBuilder。
+    NotFound 异常已在本文件顶部从 werkzeug.exceptions 导入。
+    """
+    # 使用 bind 替代 bind_to_environ
+    url_adapter = url_map.bind('localhost')
     result = {}
     try:
-        rule, values = url_adapter.match(return_rule=True)
+        rule, values = url_adapter.match(url, return_rule=True)
         result['rule'] = rule.rule
         result['endpoint'] = rule.endpoint
         result['doc'] = ''
