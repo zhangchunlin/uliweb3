@@ -13,14 +13,14 @@ def save_file(fname, fobj, replace=False, buffer_size=4096):
         except Exception as e:
             log.exception(e)
             raise Exception("Can't create %s directory" % path)
-    
+
     if not replace:
         ff, ext = os.path.splitext(fname)
         i = 1
         while os.path.exists(fname):
             fname = ff+'('+str(i)+')'+ext
             i += 1
-        
+
     out = open(fname, 'wb')
     try:
         while 1:
@@ -36,21 +36,21 @@ def save_file(fname, fobj, replace=False, buffer_size=4096):
 def unicode_filename(filename, encoding=None):
     encoding = encoding or sys.getfilesystemencoding()
     return u(filename, encoding)
-    
+
 def encode_filename(filename, from_encoding='utf-8', to_encoding=None):
     """
-    >>> print encode_filename('\xe4\xb8\xad\xe5\x9b\xbd.doc')
-    \xd6\xd0\xb9\xfa.doc
-    >>> f = unicode('\xe4\xb8\xad\xe5\x9b\xbd.doc', 'utf-8')
-    >>> print encode_filename(f)
-    \xd6\xd0\xb9\xfa.doc
-    >>> print encode_filename(f.encode('gbk'), 'gbk')
-    \xd6\xd0\xb9\xfa.doc
-    >>> print encode_filename(f, 'gbk', 'utf-8')
-    \xe4\xb8\xad\xe5\x9b\xbd.doc
-    >>> print encode_filename('\xe4\xb8\xad\xe5\x9b\xbd.doc', 'utf-8', 'gbk')
-    \xd6\xd0\xb9\xfa.doc
-    
+    >>> print(encode_filename('\\xe4\\xb8\\xad\\xe5\\x9b\\xbd.doc'))
+    b'\\xd6\\xd0\\xb9\\xfa.doc'
+    >>> f = '\\xe4\\xb8\\xad\\xe5\\x9b\\xbd.doc'
+    >>> print(encode_filename(f))
+    b'\\xd6\\xd0\\xb9\\xfa.doc'
+    >>> print(encode_filename(f.encode('gbk'), 'gbk'))
+    b'\\xd6\\xd0\\xb9\\xfa.doc'
+    >>> print(encode_filename(f, 'gbk', 'utf-8'))
+    b'\\xe4\\xb8\\xad\\xe5\\x9b\\xbd.doc'
+    >>> print(encode_filename('\\xe4\\xb8\\xad\\xe5\\x9b\\xbd.doc', 'utf-8', 'gbk'))
+    b'\\xd6\\xd0\\xb9\\xfa.doc'
+
     """
     import sys
     to_encoding = to_encoding or sys.getfilesystemencoding()
@@ -63,27 +63,27 @@ def encode_filename(filename, from_encoding='utf-8', to_encoding=None):
 
 def str_filesize(size):
     """
-    >>> print str_filesize(0)
+    >>> print(str_filesize(0))
     0
-    >>> print str_filesize(1023) 
+    >>> print(str_filesize(1023))
     1023
-    >>> print str_filesize(1024)
+    >>> print(str_filesize(1024))
     1K
-    >>> print str_filesize(1024*2)
+    >>> print(str_filesize(1024*2))
     2K
-    >>> print str_filesize(1024**2-1)
+    >>> print(str_filesize(1024**2-1))
     1023K
-    >>> print str_filesize(1024**2)
+    >>> print(str_filesize(1024**2))
     1M
     """
     import bisect
-    
+
     d = [(1024-1,'K'), (1024**2-1,'M'), (1024**3-1,'G'), (1024**4-1,'T')]
     s = [x[0] for x in d]
-    
+
     index = bisect.bisect_left(s, size) - 1
     if index == -1:
         return str(size)
     else:
         b, u = d[index]
-    return str(size / (b+1)) + u
+    return str(int(size // (b+1))) + u

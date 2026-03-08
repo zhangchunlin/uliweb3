@@ -7,19 +7,20 @@ def timesince(d, now=None, pos=True, flag=False):
     pos means calculate which direction, pos = True, now - d, pos = False, d - now
     flag means return value type, True will return since, message and Flase return message
     >>> d = datetime.datetime(2009, 10, 1, 12, 23, 19)
-    >>> timesince(d, d, True)
+    >>> print(timesince(d, d, True))
+    0 minutes ago
     >>> now = datetime.datetime(2009, 10, 1, 12, 24, 19)
-    >>> timesince(d, now, True)
-    u'1 minute ago'
+    >>> print(timesince(d, now, True))
+    1 minute ago
     >>> now = datetime.datetime(2009, 10, 1, 12, 24, 30)
-    >>> timesince(d, now, True)
-    u'1 minute ago'
+    >>> print(timesince(d, now, True))
+    1 minute ago
     >>> now = datetime.datetime(2009, 9, 28, 12, 24, 30)
-    >>> timesince(d, now, True)
-    u'2 days, 23 hours later'
+    >>> print(timesince(d, now, True))
+    2 days, 23 hours later
     >>> now = datetime.datetime(2009, 10, 3, 12, 24, 30)
-    >>> timesince(d, now, True)
-    u'2 days ago'
+    >>> print(timesince(d, now, True))
+    2 days ago
     """
     if not d:
         if flag:
@@ -40,10 +41,10 @@ def timesince(d, now=None, pos=True, flag=False):
     else:
         now = date.to_datetime(now)
     d = date.to_datetime(d)
-    
+
     delta = now - (d - datetime.timedelta(0, 0, d.microsecond))
     oldsince = since = delta.days * 24 * 60 * 60 + delta.seconds
-    
+
     suffix = ''
     if pos:
         if since >= 0:
@@ -51,7 +52,7 @@ def timesince(d, now=None, pos=True, flag=False):
         elif since < 0:
             suffix = ugettext(' later')
             since *= -1
-    
+
     for i, (seconds, name) in enumerate(chunks):
         count = since // seconds
         if count != 0:
@@ -63,9 +64,8 @@ def timesince(d, now=None, pos=True, flag=False):
         count2 = (since - (seconds * count)) // seconds2
         if count2 != 0:
             s += (', %(number)d %(type)s') % {'number': count2, 'type': name2(count2)}
-    #if flag==True, then return twe elements (since, message) 
+    #if flag==True, then return twe elements (since, message)
     if flag:
         return oldsince, s + suffix
     else:
         return s + suffix
-    

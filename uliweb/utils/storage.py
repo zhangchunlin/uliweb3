@@ -9,27 +9,27 @@ class Storage(dict):
     """
     A Storage object is like a dictionary except `obj.foo` can be used
     in addition to `obj['foo']`.
-    
+
         >>> o = Storage(a=1)
-        >>> o.a
+        >>> print(o.a)
         1
-        >>> o['a']
+        >>> print(o['a'])
         1
         >>> o.a = 2
-        >>> o['a']
+        >>> print(o['a'])
         2
         >>> del o.a
-        >>> o.a
+        >>> print(o.a)
         None
-    
+
     """
-    def __getattr__(self, key): 
+    def __getattr__(self, key):
         try:
             return self[key]
         except KeyError:
             return None
 
-    def __setattr__(self, key, value): 
+    def __setattr__(self, key, value):
         self[key] = value
 
     def __delattr__(self, key):
@@ -38,10 +38,10 @@ class Storage(dict):
         except KeyError as k:
             raise AttributeError(k)
 
-    def __repr__(self):     
+    def __repr__(self):
         return '<Storage ' + dict.__repr__(self) + '>'
 
-    def __getstate__(self): 
+    def __getstate__(self):
         return dict(self)
 
     def __setstate__(self, value):

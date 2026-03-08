@@ -768,14 +768,14 @@ class classonlymethod(classmethod):
     >>> class A(object):
     ...     @classonlymethod
     ...     def p(cls):
-    ...         print 'call p()'
+    ...         return 'call p()'
     >>> A.p()
-    call p()
+    'call p()'
     >>> a = A()
     >>> try:
     ...     a.p()
     ... except Exception as e:
-    ...     print e
+    ...     print(e)
     This method can only be called with class object.
     """
     def __get__(self, instance, owner):
