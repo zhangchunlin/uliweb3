@@ -2457,6 +2457,7 @@ async def websocket_endpoint(websocket: WebSocket):
 7. **CORS 支持**：内置跨域请求支持
 8. **WebSocket 支持**：完整的 WebSocket 协议支持
 9. **配置系统**：保持与现有 Uliweb 配置系统的兼容性
+10. **Profile 性能分析**：已迁移到 ASGI 方式（参考 uliweb/asgi/profile.py）
 
 ### 8.2 实际实现特点
 1. **渐进式迁移**：支持逐步将现有应用迁移到 ASGI
