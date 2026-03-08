@@ -588,39 +588,6 @@ class DispatcherHandler(object):
     def __init__(self, application):
         self.application = application
 
-    def open(self, *args, **kw):
-        return self.application.open(*args, **kw)
-
-    def get(self, *args, **kw):
-        """Like open but method is enforced to GET."""
-        kw['method'] = 'GET'
-        return self.open(*args, **kw)
-
-    def patch(self, *args, **kw):
-        """Like open but method is enforced to PATCH."""
-        kw['method'] = 'PATCH'
-        return self.open(*args, **kw)
-
-    def post(self, *args, **kw):
-        """Like open but method is enforced to POST."""
-        kw['method'] = 'POST'
-        return self.open(*args, **kw)
-
-    def head(self, *args, **kw):
-        """Like open but method is enforced to HEAD."""
-        kw['method'] = 'HEAD'
-        return self.open(*args, **kw)
-
-    def put(self, *args, **kw):
-        """Like open but method is enforced to PUT."""
-        kw['method'] = 'PUT'
-        return self.open(*args, **kw)
-
-    def delete(self, *args, **kw):
-        """Like open but method is enforced to DELETE."""
-        kw['method'] = 'DELETE'
-        return self.open(*args, **kw)
-
 class ContextStorage(object):
     """
     Used to save increament vars
@@ -1485,21 +1452,6 @@ class Dispatcher(object):
 
     def get_templateplugins_dirs(self):
         return [os.path.join(get_app_dir(p), 'template_plugins') for p in self.apps]
-
-    def open(self, *args, **kwargs):
-        from werkzeug.test import EnvironBuilder
-
-        pre_call = kwargs.pop('pre_call', None)
-        post_call = kwargs.pop('post_call', None)
-        middlewares = kwargs.pop('middlewares', None)
-
-        builder = EnvironBuilder(*args, **kwargs)
-        try:
-            environ = builder.get_environ()
-        finally:
-            builder.close()
-
-        return self._open(environ, pre_call=pre_call, post_call=post_call, middlewares=middlewares)
 
     def _open(self, environ, pre_call=None, post_call=None, middlewares=None):
         if middlewares is None:
