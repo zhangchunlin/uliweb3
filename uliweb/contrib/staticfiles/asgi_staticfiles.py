@@ -38,8 +38,18 @@ class ASGIStaticFilesMiddleware:
         # 首先检查项目静态目录
         if self.static_path:
             fname = os.path.normpath(os.path.join(self.static_path, filename).replace('\\', '/'))
-            if fname.startswith(self.static_path) and os.path.exists(fname):
-                return fname
+            # 使用 os.path.realpath 解析符号链接，并验证路径仍在静态目录内
+            real_fname = os.path.realpath(fname)
+            real_static_path = os.path.realpath(self.static_path)
+
+            # 检查规范化后的路径是否仍在静态文件目录内
+            if real_fname.startswith(real_static_path + os.sep) or real_fname == real_static_path:
+                if os.path.exists(real_fname):
+                    return real_fname
+            # 额外检查：确保相对路径遍历不能逃逸静态目录
+            elif os.path.commonpath([real_fname, real_static_path]) == real_static_path:
+                if os.path.exists(real_fname):
+                    return real_fname
 
         # 然后检查应用静态目录
         for p in reversed(application.apps):
@@ -51,7 +61,15 @@ class ASGIStaticFilesMiddleware:
                         # 尝试获取文件路径
                         f = pkg_resources.resource_filename(p, fname)
                         if os.path.exists(f):
-                            return f
+                            # 验证路径
+                            real_f = os.path.realpath(f)
+                            real_static = os.path.realpath(os.path.join(p.replace('.', os.sep), 'static'))
+                            # 检查是否在 static 目录内
+                            if real_f.startswith(real_static + os.sep) or real_f == real_static:
+                                return real_f
+                            # 使用 commonpath 检查
+                            elif os.path.commonpath([real_f, real_static]) == real_static:
+                                return real_f
                     except Exception:
                         pass
             except Exception:
@@ -66,7 +84,15 @@ class ASGIStaticFilesMiddleware:
             return
 
         # 获取请求路径
-        path = scope.get('path', '').strip('/')
+        # 优先使用 raw_path 以捕获可能已被服务器规范化的路径
+        raw_path = scope.get('raw_path')
+        if raw_path:
+            if isinstance(raw_path, bytes):
+                raw_path = raw_path.decode('utf-8', errors='ignore')
+            # 使用 raw_path 进行检查，因为它可能包含未规范化的路径
+            path = raw_path.strip('/')
+        else:
+            path = scope.get('path', '').strip('/')
 
         # 检查是否是静态文件请求
         if path.startswith(self.url_suffix.strip('/')):
@@ -91,7 +117,25 @@ class ASGIStaticFilesMiddleware:
                 return
 
             # 清理路径，防止目录遍历攻击
-            cleaned_filename = '/'.join([x for x in filename.split('/') if x and x != '..'])
+            # 使用 os.path.normpath 进行规范化，这会将 /static/../setup.py 转换为 /setup.py
+            cleaned_filename = os.path.normpath(filename).replace('\\', '/')
+
+            # 检查清理后的路径是否包含路径遍历
+            # 如果规范化后的路径与原始路径不同，说明存在路径遍历
+            if '..' in cleaned_filename or cleaned_filename.startswith('.'):
+                response = Response("You can not visit the file %s." % cleaned_filename, status_code=403)
+                await response(scope, receive, send)
+                return
+
+            # 额外检查：验证规范化后的路径仍然在静态文件目录内
+            # 这可以捕获那些被服务器规范化后的路径遍历攻击
+            normalized_path = os.path.normpath(path).replace('\\', '/')
+            if normalized_path.startswith(self.url_suffix.strip('/')):
+                normalized_filename = normalized_path[len(self.url_suffix.strip('/')):].strip('/')
+                if '..' in normalized_filename or normalized_filename.startswith('.'):
+                    response = Response("You can not visit the file %s." % normalized_filename, status_code=403)
+                    await response(scope, receive, send)
+                    return
 
             # 查找静态文件
             real_filename = self.find_static_file(cleaned_filename)
