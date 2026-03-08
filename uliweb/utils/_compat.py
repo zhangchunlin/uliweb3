@@ -31,15 +31,12 @@ try:
 except Exception as e:
     from html import escape
 
-#https://werkzeug.palletsprojects.com/en/2.2.x/changes/#version-2-0-0
-try:
-    from werkzeug.wrappers import Response, BaseResponse
-    def isresponse(item):
-        return isinstance(item, (Response, BaseResponse))
-except Exception as e:
-    from werkzeug.wrappers import Response
-    def isresponse(item):
-        return isinstance(item, Response)
+# ASGI 迁移：使用 starlette.responses.Response 替代 werkzeug.wrappers.Response
+# 迁移说明：uliweb/core/asgi.md
+from starlette.responses import Response as StarletteResponse
+
+def isresponse(item):
+    return isinstance(item, StarletteResponse)
 
 if not PY2:
     unichr = chr
