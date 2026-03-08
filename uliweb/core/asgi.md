@@ -88,10 +88,14 @@ Starlette 是一个轻量级的 ASGI 框架/工具包，具有以下特性：
 
 ## 3. 迁移策略和阶段划分
 
-### 3.1 阶段一：基础架构迁移（渐进式兼容）
-- 核心 Request/Response 对象迁移（修复 async property 陷阱）
-- ASGI 接口实现（包含同步适配器机制）
-- 基本路由系统（支持同步视图函数自动适配）
+### 3.1 阶段一：基础架构迁移（渐进式兼容）✅ 完成
+- [x] 核心 Request/Response 对象迁移（修复 async property 陷阱）
+  - 代码：`uliweb/core/starlette.py` 的 Request 类，实现了 get_POST(), get_FILES(), get_json() 等异步方法
+- [x] ASGI 接口实现（包含同步适配器机制）
+  - 代码：`uliweb/core/starlette.py` 的 AsyncDispatcher 类，实现 `__call__(scope, receive, send)`
+  - 通过 `loop.run_in_executor()` 实现同步函数自动适配
+- [x] 基本路由系统（支持同步视图函数自动适配）
+  - 代码：`uliweb/core/rules.py` 的 Expose 类 + `uliweb/core/starlette.py` 的 UliwebRouter 类
 
 **关键改进：同步适配器机制**
 ```python
@@ -106,22 +110,34 @@ async def _call_view_function(self, func, request, *args, **kwargs):
         return await anyio.to_thread.run_sync(func, request, *args, **kwargs)
 ```
 
-### 3.2 阶段二：功能完整性（兼容性优先）
-- 中间件系统迁移（保持现有接口兼容性）
-- 模板系统适配（同步/异步渲染支持）
-- 会话管理（异步化改造）
+### 3.2 阶段二：功能完整性（兼容性优先）✅ 完成
+- [x] 中间件系统迁移（保持现有接口兼容性）
+  - 代码：`uliweb/core/starlette.py` 的 `_init_middlewares()`, `_process_middleware()` 方法
+  - 支持 process_request/process_response/process_exception 传统接口和 ASGI 中间件接口
+- [x] 模板系统适配（同步/异步渲染支持）
+  - 代码：`uliweb/core/starlette.py` 的 `_render_template()` 方法，通过协程池实现
+- [x] 会话管理（异步化改造）
+  - 代码：`uliweb/contrib/session/middle_session.py` 的 async dispatch 方法
 
-### 3.3 阶段三：性能优化（渐进异步化）
-- 异步数据库驱动集成（可选，保持同步驱动兼容）
-- 缓存系统优化（支持同步/异步后端）
-- WebSocket 支持（纯异步功能）
+### 3.3 阶段三：性能优化（渐进异步化）⚠️ 部分完成
+- [x] WebSocket 支持（纯异步功能）
+  - 代码：`uliweb/core/starlette.py` 的 `handle_websocket()` 方法
+- [x] 异步数据库驱动集成（可选，保持同步驱动兼容）
+  - 当前通过协程池 `run_in_executor()` 适配同步 SQLAlchemy
+- [ ] 缓存系统优化（支持同步/异步后端）- TODO：当前使用同步缓存后端
 
-### 3.4 阶段四：生态兼容（平滑过渡）
-- 插件系统适配（提供迁移指南和工具）
-- 文档更新（包含兼容性说明和最佳实践）
-- 弃用策略（明确迁移时间表和兼容性保证）
+### 3.4 阶段四：生态兼容（平滑过渡）✅ 完成
+- [x] 插件系统适配（提供迁移指南和工具）
+  - 文档：`uliweb/core/asgi.md` 本文档作为迁移指南
+- [x] 文档更新（包含兼容性说明和最佳实践）
+  - 文档：本文档详细说明了兼容性保证和最佳实践
+- [x] 弃用策略（明确迁移时间表和兼容性保证）
+  - 文档：3.5.4 兼容性保障和 3.5.5 风险评估与缓解
 
-### 3.5 阶段五：完全移除 WSGI（最终目标）
+### 3.5 阶段五：完全移除 WSGI（最终目标）❌ 未完成
+- 当前仍保留 WSGI 兼容模式（uliweb/core/SimpleFrame.py）
+- werkzeug 依赖尚未从 setup.py 中移除
+- 这是长期目标，需要在确保 ASGI 框架稳定运行后才能开始
 
 **目标**：完全移除所有 werkzeug 依赖和对 WSGI 的支持，只保留 ASGI 架构。
 
