@@ -27,19 +27,6 @@ blogs/admin_layout.md
 blogs/blog_add.md
 {% endtoc %}
 
-## 视频
-
-* Codepark-day1 github项目建立 [wmv下载](http://pan.baidu.com/share/link?shareid=3130751943&uk=889513934) [在线视频](http://www.tudou.com/programs/view/MsZYfchhWyw/?bid=03&pid=02&resourceId=22909963_03_05_02)
-* Codepark-day1 uliwebzone介绍, uliweb入门讲解 [wmv下载](http://pan.baidu.com/share/link?shareid=3320943637&uk=889513934)
-* Codepark-day1 基础框架搭建 [wmv下载](http://pan.baidu.com/share/link?shareid=3324273125&uk=889513934)
-* Codepark-day2 从纯手工到使用Form来编写添加功能 [wmv下载](http://pan.baidu.com/share/link?shareid=3327090386&uk=889513934) [在线视频](http://www.tudou.com/programs/view/meDORhTcjJI/)
-* Codepark-day2 部署第一部分 [wmv下载](http://pan.baidu.com/share/link?shareid=3329851771&uk=889513934) [在线视频](http://www.tudou.com/programs/view/5ZC8CWZ-dGU/)
-* Codepark-day2 部署第二部分+geneirc替換Form实现的介绍 [wmv下载](http://pan.baidu.com/s/1zkfQU) [在线视频](http://www.tudou.com/programs/view/10_W-u_w8YI/)
-* Codepark-day3 活动页面的生成 [wmv下载](http://pan.baidu.com/share/link?shareid=3341522868&uk=889513934) [在线视频](http://www.tudou.com/programs/view/533byewawWU/)
-* Codepark-day3 Redis的使用及邮件发送处理的实现 [wmv下载](http://pan.baidu.com/share/link?shareid=3334921213&uk=889513934) [在线视频](http://www.tudou.com/programs/view/jNjPj-jILec/)
-* Codepark 活动后的代码项目 https://github.com/limodou/codepark
-* pycon-china-beijing 2013 《Uliweb比较与实践》[视频](http://pan.baidu.com/s/1em2XG) [PPT](http://t.cn/8k6kbty) [土豆](http://www.tudou.com/programs/view/3Rwhnp7IWDg/)
-
 ## 技术文档
 
 ### 功能说明
@@ -64,6 +51,7 @@ cache.md
 command.md
 uliweb_apps.md
 common_apis.md
+migration.md
 {% endtoc %}
 
 ### 数据库
