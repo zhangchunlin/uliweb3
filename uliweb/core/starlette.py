@@ -71,14 +71,24 @@ def merge_rules():
 
 
 def _convert_route_param(rule):
-    """正确转换路由参数，处理 <type:name> 格式"""
+    """正确转换路由参数，处理 <type:name> 格式
+
+    返回: (转换后的规则, 参数类型字典)
+    例如: '/api/users/<int:user_id>' -> ('/api/users/{user_id}', {'user_id': 'int'})
+    """
+    param_types = {}
+
     def replacer(m):
         param = m.group(1)
         if ':' in param:
-            return '{' + param.split(':')[1] + '}'
+            param_type, param_name = param.split(':', 1)
+            param_types[param_name] = param_type
+            return '{' + param_name + '}'
         else:
             return '{' + param + '}'
-    return re.sub(r'<([^>]+)>', replacer, rule)
+
+    converted_rule = re.sub(r'<([^>]+)>', replacer, rule)
+    return converted_rule, param_types
 
 
 class Request(StarletteRequest):
@@ -363,6 +373,8 @@ class AsyncDispatcher:
         self.router = UliwebRouter()
         self._initialized = False
         self._middleware_stack = None
+        # 存储路由的参数类型信息：{route_path: {param_name: param_type}}
+        self.route_param_types = {}
 
         # 无论 start 是 True 还是 False，都需要加载 settings
         # 这样在命令行环境中（如测试）也可以使用 functions 等
@@ -585,8 +597,12 @@ class AsyncDispatcher:
         # 注册路由到路由器
         for rule_info in merged_rules:
             appname, endpoint, url, kw = rule_info
-            # 转换 Werkzeug 风格路由到 Starlette 风格
-            starlette_rule = _convert_route_param(url)
+            # 转换 Werkzeug 风格路由到 Starlette 风格，返回 (转换后的规则, 参数类型字典)
+            starlette_rule, param_types = _convert_route_param(url)
+
+            # 存储参数类型信息
+            if param_types:
+                self.route_param_types[starlette_rule] = param_types
 
             # 处理静态视图
             static = kw.pop('static', None)
@@ -604,13 +620,19 @@ class AsyncDispatcher:
                     if isinstance(route_info, (list, tuple)) and len(route_info) >= 2:
                         url, endpoint = route_info[:2]
                         # 转换 Werkzeug 风格路由到 Starlette 风格
-                        starlette_rule = _convert_route_param(url)
+                        starlette_rule, param_types = _convert_route_param(url)
+                        # 存储参数类型信息
+                        if param_types:
+                            self.route_param_types[starlette_rule] = param_types
                         # 注册路由
                         self.router.add_route(starlette_rule, endpoint, name=name)
                     elif isinstance(route_info, str):
                         # 如果只有 URL，使用 name 作为 endpoint
                         url = route_info
-                        starlette_rule = _convert_route_param(url)
+                        starlette_rule, param_types = _convert_route_param(url)
+                        # 存储参数类型信息
+                        if param_types:
+                            self.route_param_types[starlette_rule] = param_types
                         # 注册路由
                         self.router.add_route(starlette_rule, name, name=name)
 
@@ -620,13 +642,19 @@ class AsyncDispatcher:
                 if isinstance(route_info, (list, tuple)) and len(route_info) >= 2:
                     url, endpoint = route_info[:2]
                     # 转换 Werkzeug 风格路由到 Starlette 风格
-                    starlette_rule = _convert_route_param(url)
+                    starlette_rule, param_types = _convert_route_param(url)
+                    # 存储参数类型信息
+                    if param_types:
+                        self.route_param_types[starlette_rule] = param_types
                     # 注册路由
                     self.router.add_route(starlette_rule, endpoint, name=name)
                 elif isinstance(route_info, str):
                     # 如果只有 URL，使用 name 作为 endpoint
                     url = route_info
-                    starlette_rule = _convert_route_param(url)
+                    starlette_rule, param_types = _convert_route_param(url)
+                    # 存储参数类型信息
+                    if param_types:
+                        self.route_param_types[starlette_rule] = param_types
                     # 注册路由
                     self.router.add_route(starlette_rule, name, name=name)
 
@@ -1040,18 +1068,38 @@ class AsyncDispatcher:
         # 提取路径参数 - 支持 Starlette 的两种格式：
         # {param} - 普通路径参数
         # {path:filename} - 捕获剩余路径部分
+        # 也支持 Uliweb 风格: {int:user_id}, {str:name}
         import re
-        # 获取参数名 - 包括 {param} 和 {path:filename} 格式
-        param_names = re.findall(r'\{(?:[^:}]+:)?([^}]+)\}', route_path)
-        # 构建匹配模式
+        # 获取参数名和类型 - 包括 {param} 和 {type:param} 格式
+        param_patterns = re.findall(r'\{(?:([^:}]+):)?([^}]+)\}', route_path)
+
+        # 构建匹配模式（去掉类型信息）
         pattern = re.sub(r'\{(?:[^:}]+:)?([^}]+)\}', r'([^/]+)', route_path)
         pattern = '^' + pattern + '$'
 
         match = re.match(pattern, request_path)
         if match:
             params = {}
-            for i, name in enumerate(param_names):
-                params[name] = match.group(i + 1)
+            # 优先使用 route_param_types 中存储的类型信息
+            param_types = self.route_param_types.get(route_path, {})
+
+            for i, (param_type, name) in enumerate(param_patterns):
+                value = match.group(i + 1)
+
+                # 优先从 route_param_types 获取类型信息
+                if name in param_types:
+                    param_type = param_types[name]
+
+                # 根据类型进行转换
+                if param_type == 'int':
+                    params[name] = int(value)
+                elif param_type == 'float':
+                    params[name] = float(value)
+                elif param_type == 'str' or param_type is None:
+                    params[name] = value
+                else:
+                    # 对于其他类型，保留字符串
+                    params[name] = value
             return params
 
         return {}
