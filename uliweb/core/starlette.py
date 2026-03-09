@@ -1726,13 +1726,26 @@ class AsyncDispatcher:
         )
 
 
+
 class ASGIApplication:
-    """纯 ASGI 应用处理器"""
+    """纯 ASGI 应用处理器（单例模式）"""
+
+    # 类级别变量用于存储单例实例
+    _instance = None
+    _instance_project_dir = None
+    _instance_asgi_app = None
+
+    def __new__(cls, project_dir=None):
+        # 单例模式：只创建一次实例
+        if cls._instance is None or cls._instance_project_dir != project_dir:
+            cls._instance = super(ASGIApplication, cls).__new__(cls)
+            cls._instance._initialized = False
+            cls._instance_project_dir = project_dir
+        return cls._instance
 
     def __init__(self, project_dir=None):
         self.project_dir = project_dir
-        self.asgi_app = None
-        self._initialized = False
+        # 不在这里初始化，延迟到 __call__ 时初始化
 
     def _initialize(self):
         """初始化 ASGI 应用"""
@@ -1743,8 +1756,10 @@ class ASGIApplication:
                 self.project_dir = os.getcwd()
 
             # 创建 ASGI Dispatcher
-            self.asgi_app = AsyncDispatcher(
-                apps_dir=os.path.join(self.project_dir, 'apps'),
+            # 注意：apps_dir 只需要传递 'apps'，而不是完整路径
+            # 因为 AsyncDispatcher 会将 project_dir 和 apps_dir 拼接
+            ASGIApplication._instance_asgi_app = AsyncDispatcher(
+                apps_dir='apps',
                 project_dir=self.project_dir
             )
             self._initialized = True
@@ -1752,8 +1767,7 @@ class ASGIApplication:
     async def __call__(self, scope, receive, send):
         """ASGI 接口"""
         self._initialize()
-        await self.asgi_app(scope, receive, send)
-
+        await ASGIApplication._instance_asgi_app(scope, receive, send)
 
 # 上下文管理中间件
 async def context_middleware(app):
