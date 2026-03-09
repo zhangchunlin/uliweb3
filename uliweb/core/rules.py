@@ -127,11 +127,12 @@ def expose(rule=None, **kwargs):
 
 class Expose(object):
     def __init__(self, rule=None, restful=False, replace=False, template=None,
-                 layout=None, **kwargs):
+                 layout=None, websocket=False, **kwargs):
         self.restful = restful
         self.replace = replace
         self.template = template
         self.layout = layout
+        self.websocket = websocket  # 新增：WebSocket 路由标志
         if inspect.isfunction(rule) or inspect.isclass(rule):
             self.parse_level = 1
             self.rule = None
@@ -342,6 +343,9 @@ class Expose(object):
         setattr(f, '__fixed_url__', fixed_url)
 
         kw = self.kwargs.copy()
+        # 添加 WebSocket 标志到 kw 中
+        if self.websocket:
+            kw['websocket'] = True
         self._fix_kwargs(appname, kw)
         return f, (appname, endpoint, rule, kw, now())
 

@@ -444,6 +444,11 @@ class AsyncDispatcher:
     async def _handle_request(self, scope, receive, send):
         """处理请求的核心逻辑"""
         from starlette.exceptions import HTTPException
+        from starlette.websockets import WebSocket
+
+        # 根据 scope type 判断是 HTTP 还是 WebSocket
+        if scope["type"] == "websocket":
+            return await self._handle_websocket_request(scope, receive, send)
 
         request = Request(scope, receive, send)
 
@@ -465,6 +470,118 @@ class AsyncDispatcher:
         finally:
             # 清理上下文
             request_var.reset(request_token)
+
+    async def _handle_websocket_request(self, scope, receive, send):
+        """处理 WebSocket 请求的核心逻辑"""
+        from starlette.exceptions import HTTPException
+        from starlette.websockets import WebSocket as StarletteWebSocket
+
+        logger.warning(f"[Core WebSocket] _handle_websocket_request called, path: {scope.get('path', 'unknown')}")
+        logger.warning(f"[Core WebSocket] scope: {scope}")
+
+        websocket = StarletteWebSocket(scope, receive, send)
+
+        # 设置 WebSocket 上下文
+        websocket_token = request_var.set(websocket)
+
+        try:
+            # 路由匹配
+            logger.warning(f"[Core WebSocket] Starting route matching for: {websocket.url.path}")
+            route, values = await self._match_websocket_route(websocket)
+            logger.warning(f"[Core WebSocket] Route matched: {route}, values: {values}")
+
+            # 将 route 对象绑定到 websocket，以便 _open_websocket 可以访问
+            websocket.rule = route
+
+            # 准备请求处理
+            mod, handler_cls, handler = self.prepare_request(websocket, route)
+
+            # 调用视图处理 WebSocket
+            await self._open_websocket(websocket)
+        except (HTTPException, RuntimeError) as exc:
+            # 处理异常
+            await self._handle_websocket_exception(websocket, exc)
+        finally:
+            # 清理上下文
+            request_var.reset(websocket_token)
+
+    async def _match_websocket_route(self, websocket):
+        """匹配 WebSocket 路由"""
+        from starlette.routing import WebSocketRoute
+
+        path = websocket.url.path
+
+        # 遍历所有路由进行匹配
+        for route in self.router.routes:
+            # 只处理 WebSocketRoute 对象
+            if not isinstance(route, WebSocketRoute):
+                continue
+            try:
+                route_path = route.path
+
+                # 检查路径是否匹配
+                if self._path_matches(route_path, path):
+                    # 提取路径参数
+                    path_params = self._extract_path_params(route_path, path)
+                    return route, path_params
+            except Exception:
+                continue
+
+        # 如果没有找到匹配的路由，抛出 404 错误
+        from starlette.exceptions import HTTPException
+        raise HTTPException(status_code=404, detail="WebSocket route not found")
+
+    async def _open_websocket(self, websocket):
+        """处理 WebSocket 连接的打开和消息循环"""
+        from starlette.responses import JSONResponse
+
+        # 从 route 获取 endpoint (处理函数)
+        rule = getattr(websocket, 'rule', None)
+        if rule and hasattr(rule, 'endpoint'):
+            endpoint = rule.endpoint
+
+            # 检查 endpoint 是否是协程函数
+            if iscoroutinefunction(endpoint):
+                # 尝试不同的调用方式
+                try:
+                    # 方式1: 直接传递 websocket 对象
+                    await endpoint(websocket)
+                except TypeError:
+                    try:
+                        # 方式2: ASGI 风格 (scope, receive, send)
+                        await endpoint(websocket.scope, websocket._receive, websocket._send)
+                    except Exception:
+                        # 方式3: 使用默认处理
+                        await self.handle_websocket(websocket.scope, websocket._receive, websocket._send)
+            else:
+                # 同步函数需要在协程池中执行
+                import functools
+                from contextvars import copy_context
+                loop = asyncio.get_event_loop()
+                ctx = copy_context()
+
+                try:
+                    partial_handler = functools.partial(endpoint, websocket)
+                    await loop.run_in_executor(None, ctx.run, partial_handler)
+                except TypeError:
+                    # 尝试 ASGI 风格
+                    try:
+                        partial_handler = functools.partial(endpoint, websocket.scope, websocket._receive, websocket._send)
+                        await loop.run_in_executor(None, ctx.run, partial_handler)
+                    except Exception:
+                        await self.handle_websocket(websocket.scope, websocket._receive, websocket._send)
+        else:
+            # 如果没有设置 handler，使用默认的 WebSocket 处理
+            await self.handle_websocket(websocket.scope, websocket._receive, websocket._send)
+
+    async def _handle_websocket_exception(self, websocket, exc):
+        """处理 WebSocket 异常"""
+        from starlette.websockets import WebSocketClose
+
+        try:
+            await websocket.close(code=1011, reason=str(exc))
+        except Exception:
+            pass
 
     def _init_middlewares(self):
         """初始化中间件配置"""
@@ -609,8 +726,14 @@ class AsyncDispatcher:
             if static:
                 self.static_views.append(endpoint)
 
-            # 注册路由
-            self.router.add_route(starlette_rule, endpoint, **kw)
+            # 处理 WebSocket 路由
+            websocket = kw.pop('websocket', False)
+            if websocket:
+                # 注册 WebSocket 路由
+                self.router.add_websocket_route(starlette_rule, endpoint, **kw)
+            else:
+                # 注册普通 HTTP 路由
+                self.router.add_route(starlette_rule, endpoint, **kw)
 
         # 处理每个应用的 EXPOSES 路由（来自 settings.ini 的路由定义）
         for app_name in self.apps:
@@ -624,8 +747,12 @@ class AsyncDispatcher:
                         # 存储参数类型信息
                         if param_types:
                             self.route_param_types[starlette_rule] = param_types
-                        # 注册路由
-                        self.router.add_route(starlette_rule, endpoint, name=name)
+                        # 处理 WebSocket 路由
+                        websocket = len(route_info) >= 3 and route_info[2] is True
+                        if websocket:
+                            self.router.add_websocket_route(starlette_rule, endpoint, name=name)
+                        else:
+                            self.router.add_route(starlette_rule, endpoint, name=name)
                     elif isinstance(route_info, str):
                         # 如果只有 URL，使用 name 作为 endpoint
                         url = route_info
@@ -646,8 +773,12 @@ class AsyncDispatcher:
                     # 存储参数类型信息
                     if param_types:
                         self.route_param_types[starlette_rule] = param_types
-                    # 注册路由
-                    self.router.add_route(starlette_rule, endpoint, name=name)
+                    # 处理 WebSocket 路由
+                    websocket = len(route_info) >= 3 and route_info[2] is True
+                    if websocket:
+                        self.router.add_websocket_route(starlette_rule, endpoint, name=name)
+                    else:
+                        self.router.add_route(starlette_rule, endpoint, name=name)
                 elif isinstance(route_info, str):
                     # 如果只有 URL，使用 name 作为 endpoint
                     url = route_info
