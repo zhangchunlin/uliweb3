@@ -11,6 +11,7 @@ import re
 import contextvars
 import asyncio
 import types
+import logging
 from inspect import iscoroutinefunction
 from starlette.requests import Request as StarletteRequest
 from starlette.responses import Response as StarletteResponse
@@ -18,6 +19,9 @@ from starlette.datastructures import UploadFile, FormData
 from starlette.routing import Route, Router, Mount
 from starlette.applications import Starlette
 import json as jsn
+
+# 创建日志记录器
+logger = logging.getLogger('uliweb')
 
 from . import template
 from .js import json_dumps
@@ -310,7 +314,9 @@ def _merge_rules():
 
     s = []
     index = {}
-    for v in sorted(__no_need_exposed__, key=lambda x: x[4]):  # 按时间戳排序
+    # 同时遍历 __no_need_exposed__ 和 __exposes__
+    all_rules = __no_need_exposed__ + list(chain(*__exposes__.values()))
+    for v in sorted(all_rules, key=lambda x: x[4]):  # 按时间戳排序
         appname, endpoint, url, kw, timestamp = v
         if 'name' in kw:
             url_name = kw.pop('name')
@@ -338,6 +344,16 @@ class AsyncDispatcher:
                  start=True, default_settings=None, settings_file='settings.ini',
                  local_settings_file='local_settings.ini', **kwargs):
 
+        # 将项目目录和 apps 目录添加到 sys.path
+        # 这样 pkg_resources 能找到本地的应用模块
+        if project_dir:
+            if project_dir not in sys.path:
+                sys.path.insert(0, project_dir)
+            # 将 apps 目录添加到 sys.path，以便 apps.home 这样的模块可以被找到
+            apps_path = os.path.join(project_dir, apps_dir)
+            if apps_path not in sys.path:
+                sys.path.insert(0, apps_path)
+
         self.apps_dir = apps_dir
         self.project_dir = project_dir
         self.include_apps = include_apps or []
@@ -350,17 +366,29 @@ class AsyncDispatcher:
 
         # 无论 start 是 True 还是 False，都需要加载 settings
         # 这样在命令行环境中（如测试）也可以使用 functions 等
+        # 注意：这里不能在已有事件循环的情况下创建新事件循环
+        # 需要延迟加载或在第一次请求时加载
         try:
             import asyncio
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            # 同步加载 settings
-            self.settings = loop.run_until_complete(self._load_settings())
+
+            # 检查是否已经有运行中的事件循环
+            try:
+                loop = asyncio.get_running_loop()
+                # 如果已经有运行中的事件循环，延迟加载 settings
+                # 在 _async_init 中会重新加载
+                self.settings = None
+            except RuntimeError:
+                # 没有运行中的事件循环，可以安全创建新的
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                # 同步加载 settings
+                self.settings = loop.run_until_complete(self._load_settings())
+                loop.close()
+
             # 设置到 contextvars 中，以便全局访问
             settings_token = settings_var.set(self.settings)
             # 同时设置 application 到 contextvars
             application_token = application_var.set(self)
-            loop.close()
         except Exception as e:
             # 如果加载失败，记录错误
             import logging
@@ -611,12 +639,23 @@ class AsyncDispatcher:
         # 添加项目目录到 Python 路径
         if self.project_dir and self.project_dir not in sys.path:
             sys.path.insert(0, self.project_dir)
+        # 添加 apps 目录到 Python 路径
+        apps_path = os.path.join(self.project_dir, 'apps') if self.project_dir else None
+        if apps_path and apps_path not in sys.path:
+            sys.path.insert(0, apps_path)
+
+        # 调试输出
+        logger.debug(f"sys.path = {sys.path[:5]}...")
+        logger.debug(f"self.apps = {self.apps}")
+        logger.debug(f"project_dir = {self.project_dir}")
+        logger.debug(f"apps_path = {apps_path}")
 
         # 收集所有应用的视图模块
         views_modules = []
         for app in self.apps:
             # 检查是否有 apps 目录
             has_apps_dir = self.project_dir and os.path.exists(os.path.join(self.project_dir, 'apps'))
+            logger.debug(f"Processing app: {app}, has_apps_dir: {has_apps_dir}")
 
             # 尝试导入 views.py
             try:
@@ -625,9 +664,27 @@ class AsyncDispatcher:
                     views_module = f"apps.{app}.views"
                 else:
                     views_module = f"{app}.views"
-                myimport(views_module)
-                views_modules.append(views_module)
-            except ImportError:
+
+                logger.debug(f"Trying to import: {views_module}")
+
+                # 尝试直接导入模块
+                try:
+                    myimport(views_module)
+                    views_modules.append(views_module)
+                    logger.debug(f"Successfully imported: {views_module}")
+                except ImportError as e1:
+                    logger.debug(f"Failed to import {views_module}: {e1}")
+                    # 如果失败，尝试直接导入应用模块
+                    try:
+                        myimport(app)
+                        views_modules.append(app)
+                        logger.debug(f"Successfully imported app: {app}")
+                    except ImportError as e2:
+                        logger.debug(f"Failed to import app {app}: {e2}")
+                        # 再次尝试 views 模块
+                        pass
+            except ImportError as e:
+                logger.debug(f"Error importing views for {app}: {e}")
                 # 如果 views.py 不存在，尝试导入 views 目录下的模块
                 try:
                     # 获取应用目录
@@ -748,11 +805,19 @@ class AsyncDispatcher:
         from uliweb.core.SimpleFrame import get_apps as get_sync_apps
 
         # 使用协程池执行同步的应用获取
+        # 注意：需要传递完整的 apps 目录路径
         loop = asyncio.get_event_loop()
+
+        # 构建完整的 apps 目录路径
+        if self.project_dir:
+            apps_dir_full = os.path.join(self.project_dir, self.apps_dir)
+        else:
+            apps_dir_full = self.apps_dir
+
         apps = await loop.run_in_executor(
             None,
             get_sync_apps,
-            self.apps_dir,
+            apps_dir_full,
             self.include_apps,
             self.settings_file,
             self.local_settings_file
