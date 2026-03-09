@@ -1829,8 +1829,19 @@ def redirect(location, code=302):
 
 
 def json(data, **kwargs):
-    """JSON 响应函数"""
+    """JSON 响应函数
+
+    支持的 kwargs 参数:
+        - status: HTTP 状态码 (别名 for status_code)
+        - status_code: HTTP 状态码
+        - 其他参数传递给 JSONResponse
+    """
     from starlette.responses import JSONResponse
+
+    # 处理 status 参数，转换为 status_code
+    if 'status' in kwargs:
+        kwargs['status_code'] = kwargs.pop('status')
+
     return JSONResponse(data, **kwargs)
 
 
