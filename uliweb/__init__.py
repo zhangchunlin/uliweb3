@@ -97,36 +97,10 @@ try:
     Dispatcher = AsyncDispatcher
 
 except ImportError:
-    # 如果 Starlette 不可用，回退到 WSGI
-    from .core.SimpleFrame import (
-        Request as WSGIRequest,
-        Response as WsgiResponse,
-        expose as wsgi_expose,
-        POST as wsgi_POST,
-        GET as wsgi_GET,
-        redirect as wsgi_redirect,
-        json as wsgi_json,
-        url_for as wsgi_url_for,
-        request as wsgi_request,
-        response as wsgi_response,
-        settings as wsgi_settings,
-        application as wsgi_application,
-        Dispatcher as WSGIDispatcher
+    # Uliweb3 需要 Starlette，不再支持 WSGI 回退
+    raise ImportError(
+        "Uliweb3 需要 Starlette。请运行: pip install starlette"
     )
-
-    Request = WSGIRequest
-    Response = WsgiResponse
-    expose = wsgi_expose
-    POST = wsgi_POST
-    GET = wsgi_GET
-    redirect = wsgi_redirect
-    json = wsgi_json
-    url_for = wsgi_url_for
-    request = wsgi_request
-    response = wsgi_response
-    settings = wsgi_settings
-    application = wsgi_application
-    Dispatcher = WSGIDispatcher
 
 # 兼容性导出
 __all__ = [
