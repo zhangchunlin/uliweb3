@@ -9,3 +9,4 @@ dist
 test/.*
 test/coverage_output
 .venv
+testproject
