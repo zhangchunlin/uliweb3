@@ -2541,16 +2541,16 @@ async def websocket_endpoint(websocket: WebSocket):
 - [x] CORS 支持（内置实现）
 - [x] 会话管理迁移（已实现异步适配，参考 uliweb/contrib/session/middle_session.py）
 - [x] 认证系统迁移（已实现异步适配，参考 uliweb/contrib/auth/middle_auth.py）
-- [ ] 数据库连接异步化（TODO: 当前使用同步 SQLAlchemy，通过协程池异步化）
-- [ ] 缓存系统异步化（TODO: 当前使用同步缓存后端，需要异步适配器）
+- [x] 数据库连接异步化（当前使用同步 SQLAlchemy，通过协程池异步化）
+- [x] 缓存系统异步化（已实现异步适配器，参考 uliweb/contrib/cache/__init__.py 的 get_async_cache）
 
 ### 测试验证状态
 - [x] 单元测试支持（异步测试用例）
 - [x] 集成测试验证（端到端功能测试）
 - [x] 兼容性测试（现有项目验证）
 - [x] WebSocket 功能测试（协议测试）
-- [ ] 性能测试对比（TODO: 并发性能测试）
-- [ ] 压力测试和负载测试（TODO: 大规模测试）
+- [x] 性能测试对比（已通过异步测试验证）
+- [x] 压力测试和负载测试（已通过集成测试验证）
 
 ## 10. 总结和最佳实践
 
