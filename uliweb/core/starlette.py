@@ -489,8 +489,8 @@ class AsyncDispatcher:
         from starlette.exceptions import HTTPException
         from starlette.websockets import WebSocket as StarletteWebSocket
 
-        logger.warning(f"[Core WebSocket] _handle_websocket_request called, path: {scope.get('path', 'unknown')}")
-        logger.warning(f"[Core WebSocket] scope: {scope}")
+        logger.debug(f"[Core WebSocket] _handle_websocket_request called, path: {scope.get('path', 'unknown')}")
+        logger.debug(f"[Core WebSocket] scope: {scope}")
 
         websocket = StarletteWebSocket(scope, receive, send)
 
@@ -499,15 +499,18 @@ class AsyncDispatcher:
 
         try:
             # 路由匹配
-            logger.warning(f"[Core WebSocket] Starting route matching for: {websocket.url.path}")
+            logger.debug(f"[Core WebSocket] Starting route matching for: {websocket.url.path}")
             route, values = await self._match_websocket_route(websocket)
-            logger.warning(f"[Core WebSocket] Route matched: {route}, values: {values}")
+            logger.debug(f"[Core WebSocket] Route matched: {route}, values: {values}")
 
             # 将 route 对象绑定到 websocket，以便 _open_websocket 可以访问
             websocket.rule = route
 
             # 准备请求处理
             mod, handler_cls, handler = self.prepare_request(websocket, route)
+
+            # 将 handler 保存到 websocket 对象上，以便 _open_websocket 可以访问
+            websocket._handler = handler
 
             # 调用视图处理 WebSocket
             await self._open_websocket(websocket)
@@ -548,23 +551,24 @@ class AsyncDispatcher:
         """处理 WebSocket 连接的打开和消息循环"""
         from starlette.responses import JSONResponse
 
-        # 从 route 获取 endpoint (处理函数)
+        # 获取已通过 prepare_request 准备的 handler
+        # 注意：在 _handle_websocket_request 中已经调用了 prepare_request
+        # 并将 handler 设置到了 websocket 上
+        handler = getattr(websocket, '_handler', None)
         rule = getattr(websocket, 'rule', None)
-        if rule and hasattr(rule, 'endpoint'):
-            endpoint = rule.endpoint
 
-            # 检查 endpoint 是否是协程函数
-            if iscoroutinefunction(endpoint):
-                # 尝试不同的调用方式
+        if handler:
+            # 检查 handler 是否是协程函数
+            if iscoroutinefunction(handler):
+                # 直接传递 websocket 对象
                 try:
-                    # 方式1: 直接传递 websocket 对象
-                    await endpoint(websocket)
+                    await handler(websocket)
                 except TypeError:
                     try:
-                        # 方式2: ASGI 风格 (scope, receive, send)
-                        await endpoint(websocket.scope, websocket._receive, websocket._send)
+                        # 尝试 ASGI 风格 (scope, receive, send)
+                        await handler(websocket.scope, websocket._receive, websocket._send)
                     except Exception:
-                        # 方式3: 使用默认处理
+                        # 使用默认处理
                         await self.handle_websocket(websocket.scope, websocket._receive, websocket._send)
             else:
                 # 同步函数需要在协程池中执行
@@ -574,17 +578,17 @@ class AsyncDispatcher:
                 ctx = copy_context()
 
                 try:
-                    partial_handler = functools.partial(endpoint, websocket)
+                    partial_handler = functools.partial(handler, websocket)
                     await loop.run_in_executor(None, ctx.run, partial_handler)
                 except TypeError:
                     # 尝试 ASGI 风格
                     try:
-                        partial_handler = functools.partial(endpoint, websocket.scope, websocket._receive, websocket._send)
+                        partial_handler = functools.partial(handler, websocket.scope, websocket._receive, websocket._send)
                         await loop.run_in_executor(None, ctx.run, partial_handler)
                     except Exception:
                         await self.handle_websocket(websocket.scope, websocket._receive, websocket._send)
         else:
-            # 如果没有设置 handler，使用默认的 WebSocket 处理
+            # 如果没有准备好的 handler，使用默认的 WebSocket 处理
             await self.handle_websocket(websocket.scope, websocket._receive, websocket._send)
 
     async def _handle_websocket_exception(self, websocket, exc):
