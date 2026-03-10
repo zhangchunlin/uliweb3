@@ -395,6 +395,13 @@ class AsyncDispatcher:
                 asyncio.set_event_loop(loop)
                 # 同步加载 settings
                 self.settings = loop.run_until_complete(self._load_settings())
+                # 同步加载 apps 列表，以便 ASGI 中间件可以在初始化时访问
+                # 这解决了静态文件等中间件在初始化时需要访问 apps 的问题
+                # 注意：必须在 loop.close() 之前调用
+                try:
+                    self.apps = loop.run_until_complete(self._get_apps())
+                except Exception:
+                    self.apps = []
                 loop.close()
 
             # 总是将 settings 设置到 contextvars 中，即使为 None

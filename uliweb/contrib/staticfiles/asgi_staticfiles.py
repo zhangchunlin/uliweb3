@@ -12,6 +12,14 @@ class ASGIStaticFilesMiddleware:
 
     def __init__(self, app, STATIC_URL, disallow=None, cache=True,
                  cache_timeout=60 * 60 * 12):
+        # app 可能是 AsyncDispatcher 或 bound method
+        # 尝试获取原始的 AsyncDispatcher 对象
+        if callable(app) and hasattr(app, '__self__'):
+            # 这是一个 bound method，保存对原始对象的引用
+            self.dispatcher = app.__self__
+        else:
+            self.dispatcher = app
+
         self.app = app
         self.url_suffix = settings.DOMAINS.static.get('url_prefix', '') + STATIC_URL.rstrip('/') + '/'
         self.cache = cache
@@ -24,6 +32,11 @@ class ASGIStaticFilesMiddleware:
             path = ''
         self.static_path = path
 
+        # 获取项目目录和 apps 目录，用于查找 app 静态文件
+        # 优先从 dispatcher 获取，其次从 app 获取
+        self.project_dir = getattr(self.dispatcher, 'project_dir', None) or getattr(app, 'project_dir', None)
+        self.apps_dir = getattr(self.dispatcher, 'apps_dir', 'apps') or getattr(app, 'apps_dir', 'apps')
+
     def is_allowed(self, filename):
         """Check if the file access is allowed"""
         if self.disallow is not None:
@@ -33,14 +46,16 @@ class ASGIStaticFilesMiddleware:
 
     def find_static_file(self, filename, apps=None):
         """Find static file in app directories"""
-        # 优先使用传入的 apps 参数，否则从 application 获取
+        # 优先使用传入的 apps 参数，否则从 self.app (AsyncDispatcher) 获取
         if apps is None:
-            from uliweb import application
-            if application is None:
-                return None
-            apps = getattr(application, 'apps', None)
+            apps = getattr(self.app, 'apps', None)
             if apps is None:
-                return None
+                # 尝试从 application proxy 获取
+                from uliweb import application
+                if application is not None:
+                    apps = getattr(application, 'apps', None)
+                if apps is None:
+                    return None
 
         # 首先检查项目静态目录
         if self.static_path:
@@ -58,7 +73,21 @@ class ASGIStaticFilesMiddleware:
                 if os.path.exists(real_fname):
                     return real_fname
 
-        # 然后检查应用静态目录
+        # 然后检查应用静态目录 - 优先检查 apps/ 目录结构（uliweb 标准结构）
+        if self.project_dir and self.apps_dir:
+            for p in reversed(apps):
+                # 检查 apps/{app}/static/ 目录（uliweb 标准结构）
+                app_static_dir = os.path.join(self.project_dir, self.apps_dir, p, 'static')
+                if os.path.isdir(app_static_dir):
+                    f = os.path.join(app_static_dir, filename)
+                    real_f = os.path.realpath(f)
+                    real_static = os.path.realpath(app_static_dir)
+                    # 检查是否在 static 目录内，防止路径遍历攻击
+                    if real_f.startswith(real_static + os.sep) or real_f == real_static:
+                        if os.path.exists(real_f):
+                            return real_f
+
+        # 继续使用 pkg_resources 检查应用包中的静态文件
         for p in reversed(apps):
             try:
                 fname = os.path.normpath(os.path.join('static', filename).replace('\\', '/'))
@@ -144,8 +173,14 @@ class ASGIStaticFilesMiddleware:
                     await response(scope, receive, send)
                     return
 
-            # 查找静态文件
-            real_filename = self.find_static_file(cleaned_filename)
+            # 查找静态文件 - 每次请求时动态获取 apps
+            apps = getattr(self.dispatcher, 'apps', None)
+            if apps is None:
+                # 尝试从 application 获取
+                from uliweb import application
+                if application is not None:
+                    apps = getattr(application, 'apps', None)
+            real_filename = self.find_static_file(cleaned_filename, apps=apps)
 
             if real_filename:
                 # 检查文件访问权限
