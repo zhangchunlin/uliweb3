@@ -31,9 +31,16 @@ class ASGIStaticFilesMiddleware:
             return not fnmatch(filename, self.disallow)
         return True
 
-    def find_static_file(self, filename):
+    def find_static_file(self, filename, apps=None):
         """Find static file in app directories"""
-        from uliweb import application
+        # 优先使用传入的 apps 参数，否则从 application 获取
+        if apps is None:
+            from uliweb import application
+            if application is None:
+                return None
+            apps = getattr(application, 'apps', None)
+            if apps is None:
+                return None
 
         # 首先检查项目静态目录
         if self.static_path:
@@ -52,7 +59,7 @@ class ASGIStaticFilesMiddleware:
                     return real_fname
 
         # 然后检查应用静态目录
-        for p in reversed(application.apps):
+        for p in reversed(apps):
             try:
                 fname = os.path.normpath(os.path.join('static', filename).replace('\\', '/'))
                 if fname.startswith('static/'):
