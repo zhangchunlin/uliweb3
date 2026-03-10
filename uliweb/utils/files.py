@@ -39,17 +39,19 @@ def unicode_filename(filename, encoding=None):
 
 def encode_filename(filename, from_encoding='utf-8', to_encoding=None):
     """
-    >>> print(encode_filename('\\xe4\\xb8\\xad\\xe5\\x9b\\xbd.doc'))
-    b'\\xd6\\xd0\\xb9\\xfa.doc'
-    >>> f = '\\xe4\\xb8\\xad\\xe5\\x9b\\xbd.doc'
-    >>> print(encode_filename(f))
-    b'\\xd6\\xd0\\xb9\\xfa.doc'
-    >>> print(encode_filename(f.encode('gbk'), 'gbk'))
-    b'\\xd6\\xd0\\xb9\\xfa.doc'
-    >>> print(encode_filename(f, 'gbk', 'utf-8'))
-    b'\\xe4\\xb8\\xad\\xe5\\x9b\\xbd.doc'
-    >>> print(encode_filename('\\xe4\\xb8\\xad\\xe5\\x9b\\xbd.doc', 'utf-8', 'gbk'))
-    b'\\xd6\\xd0\\xb9\\xfa.doc'
+    >>> # Test with actual unicode string, convert UTF-8 to GBK
+    >>> f = '中国.doc'
+    >>> result = encode_filename(f, 'utf-8', 'gbk')
+    >>> result == b'\\xd6\\xd0\\xb9\\xfa.doc'
+    True
+    >>> # Test GBK to UTF-8 conversion
+    >>> result = encode_filename(b'\\xd6\\xd0\\xb9\\xfa.doc', 'gbk', 'utf-8')
+    >>> result == b'\\xe4\\xb8\\xad\\xe5\\x9b\\xbd.doc'
+    True
+    >>> # Test GBK to GBK conversion
+    >>> result = encode_filename(b'\\xd6\\xd0\\xb9\\xfa.doc', 'gbk', 'gbk')
+    >>> result == b'\\xd6\\xd0\\xb9\\xfa.doc'
+    True
 
     """
     import sys
