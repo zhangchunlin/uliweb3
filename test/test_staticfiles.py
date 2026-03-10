@@ -16,8 +16,21 @@ class TestASGIStaticFiles(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        """创建测试环境"""
+        """创建测试环境
+
+        按照 uliweb 标准目录结构：
+        project_dir/
+            apps/
+                settings.ini
+            home/           # app 目录
+                __init__.py
+                static/      # 静态文件在 app 目录下，不是 apps/home/static
+                    ...
+            static/         # 项目级静态目录
+                ...
+        """
         from uliweb import manage
+        from uliweb.core.SimpleFrame import get_app_dir, __app_dirs__
 
         cls.test_dir = tempfile.mkdtemp()
         cls.project_dir = os.path.join(cls.test_dir, 'TestStaticProject')
@@ -40,6 +53,7 @@ DEBUG_TEMPLATE = False
 
 INSTALLED_APPS = [
     'uliweb.contrib.staticfiles',
+    'home',
 ]
 
 [STATICFILES]
@@ -49,11 +63,28 @@ STATIC_FOLDER = 'static'
 static = {'domain': '', 'display': False, 'url_prefix': ''}
 """)
 
-        # 创建静态文件目录
+        # 创建 home app 目录（按照 uliweb 标准，app 在项目根目录下）
+        home_dir = os.path.join(cls.project_dir, 'home')
+        os.makedirs(home_dir)
+
+        # 创建 __init__.py 使其成为 Python 包
+        with open(os.path.join(home_dir, '__init__.py'), 'w') as f:
+            f.write('')
+
+        # 创建 app 级的静态文件目录（home/static/）
+        cls.app_static_dir = os.path.join(home_dir, 'static')
+        os.makedirs(cls.app_static_dir)
+
+        # 创建 app 静态文件测试
+        cls.app_test_file = os.path.join(cls.app_static_dir, 'app_test.txt')
+        with open(cls.app_test_file, 'w') as f:
+            f.write('App Hello, World!')
+
+        # 创建项目级静态文件目录
         cls.static_dir = os.path.join(cls.project_dir, 'static')
         os.makedirs(cls.static_dir)
 
-        # 创建测试文件
+        # 创建项目级测试文件
         cls.test_file = os.path.join(cls.static_dir, 'test.txt')
         with open(cls.test_file, 'w') as f:
             f.write('Hello, World!')
@@ -73,6 +104,9 @@ static = {'domain': '', 'display': False, 'url_prefix': ''}
         # 切换到项目目录
         cls.old_cwd = os.getcwd()
         os.chdir(cls.project_dir)
+
+        # 注册 home app 的路径，以便 get_app_dir 能找到它
+        __app_dirs__['home'] = home_dir
 
         # 使用 make_application
         cls.app = manage.make_application(
@@ -218,6 +252,19 @@ static = {'domain': '', 'display': False, 'url_prefix': ''}
                 self.assertEqual(response.status_code, 200)
                 # 检查是否有 Cache-Control 头
                 self.assertIn('Cache-Control', response.headers)
+
+        asyncio.run(run_test())
+
+    def test_app_static_file_served(self):
+        """测试 app 目录下的静态文件能够正常访问（uliweb 标准结构）"""
+        import asyncio
+
+        async def run_test():
+            async with self.get_async_client() as client:
+                # 访问 app (home) 下的静态文件
+                response = await client.get('/static/app_test.txt')
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.content, b'App Hello, World!')
 
         asyncio.run(run_test())
 

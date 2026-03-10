@@ -397,7 +397,8 @@ class AsyncDispatcher:
                 self.settings = loop.run_until_complete(self._load_settings())
                 loop.close()
 
-            # 设置到 contextvars 中，以便全局访问
+            # 总是将 settings 设置到 contextvars 中，即使为 None
+            # 这样可以避免 settings proxy 访问时出错
             settings_token = settings_var.set(self.settings)
             # 同时设置 application 到 contextvars
             application_token = application_var.set(self)
@@ -425,6 +426,11 @@ class AsyncDispatcher:
         """初始化 ASGI 应用"""
         # 加载设置
         self.settings = await self._load_settings()
+
+        # 将 settings 重新设置到 contextvars 中
+        # 因为在 __init__ 中可能设置为 None，现在需要更新为实际加载的值
+        settings_var.set(self.settings)
+        application_var.set(self)
 
         # 初始化应用
         self.apps = await self._get_apps()
