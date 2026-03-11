@@ -22,7 +22,10 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.exceptions import HTTPException as BadRequest
 from starlette.exceptions import HTTPException as InternalServerError
 from starlette.exceptions import HTTPException as NotFound
-from starlette.responses import Response as StarletteResponse
+
+# 从 starlette.py 导入 Request 和 Response 类，避免重复定义
+# 确保使用统一的实现（starlette.py 版本包含 state 属性）
+from .starlette import Request, Response
 # 为了兼容性，创建别名
 OriginalResponse = StarletteResponse
 
@@ -155,92 +158,8 @@ class Finder(object):
 decorators = Finder('DECORATORS')
 functions = Finder('FUNCTIONS')
 
-class Request(StarletteRequest):
-    """基于 Starlette 的 Request 类，保持与现有 Uliweb 的兼容性"""
-
-    @property
-    def GET(self):
-        """兼容 GET 参数访问"""
-        return self.query_params
-
-    @property
-    def params(self):
-        """兼容 params 属性，返回 GET 参数"""
-        return self.query_params
-
-    @property
-    def is_xhr(self):
-        """检查是否为 AJAX 请求"""
-        return self.headers.get('x-requested-with', '').lower() == 'xmlhttprequest'
-
-    @property
-    def path(self):
-        """获取请求路径"""
-        return self.url.path
-
-    @property
-    def method(self):
-        """获取请求方法"""
-        return self.scope.get("method", "")
-
-    async def get_POST(self):
-        """异步获取 POST 表单数据"""
-        if self.method == "POST":
-            form = await self.form()
-            return form
-        return {}
-
-    async def get_FILES(self):
-        """异步获取上传文件"""
-        if self.method == "POST":
-            form = await self.form()
-            return {k: v for k, v in form.items() if isinstance(v, UploadFile)}
-        return {}
-
-    async def get_json(self):
-        """异步获取 JSON 数据"""
-        return await super().json()
-
-    async def get_params(self):
-        """异步获取合并参数"""
-        get_params = self.query_params
-        post_params = await self.get_POST()
-        merged_params = {}
-        merged_params.update(get_params)
-        merged_params.update(post_params)
-        return merged_params
-
-    # 向后兼容的同步属性（标记为已弃用）
-    @property
-    def POST(self):
-        """已弃用：同步访问 POST 数据会抛出异常"""
-        raise RuntimeError(
-            "POST 属性已弃用，请使用 await request.get_POST() 方法。"
-        )
-
-    @property
-    def FILES(self):
-        """已弃用：同步访问 FILES 数据会抛出异常"""
-        raise RuntimeError(
-            "FILES 属性已弃用，请使用 await request.get_FILES() 方法。"
-        )
-
-    @property
-    def json(self):
-        """已弃用：同步访问 JSON 数据会抛出异常"""
-        raise RuntimeError(
-            "json 属性已弃用，请使用 await request.get_json() 方法。"
-        )
-
-
-class Response(StarletteResponse):
-    """基于 Starlette 的 Response 类，保持与现有 Uliweb 的兼容性"""
-
-    def write(self, value):
-        """兼容 write 方法"""
-        # 在 Starlette Response 中，内容通过 __init__ 或媒体类型设置
-        # 这里保持接口兼容性
-        pass
+# Request 和 Response 类已移至 starlette.py，避免代码重复
+# 从 .starlette 导入的 Request 和 Response 类已包含所有必要的兼容方法
 
 class HTTPError(Exception):
     def __init__(self, errorpage=None, **kwargs):
