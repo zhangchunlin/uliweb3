@@ -3,14 +3,22 @@
 {% alert class=info %}
 **Uliweb3 异步变更说明**
 
-Uliweb3 已迁移到 ASGI 架构，Request 对象发生了变化：
+Uliweb3 已从 Werkzeug/WSGI 迁移到 Starlette/ASGI 架构。主要变化：
 
+**Request 对象变化：**
 - `request.POST` 已弃用，请使用 `await request.get_POST()` 异步获取
 - `request.FILES` 已弃用，请使用 `await request.get_FILES()` 异步获取
 - `request.json` 已弃用，请使用 `await request.get_json()` 异步获取
 - `request.params` 仅返回 GET 参数，请使用 `await request.get_params()` 获取合并参数
 
-同步视图函数仍然可以使用（通过框架的同步适配器），但建议重构为异步函数以获得更好的性能。
+**同步适配器机制：**
+- 同步视图函数仍然可以使用，框架会自动将其适配为异步执行
+- 同步函数在协程池中执行，不会阻塞事件循环
+- 建议重构为异步函数以获得更好的性能
+
+**运行环境：**
+- Uliweb3 是纯 ASGI 框架，需要使用 ASGI 服务器运行（如 Uvicorn、Hypercorn、Daphne）
+- 不再支持 WSGI 模式
 
 {% endalert %}
 
@@ -25,6 +33,93 @@ URL管理的时候，Uliweb会自动将所有有效的app的视图文件在启�
 views.py, views_about.py都是合法的view模块。
 
 
+## 异步视图函数
+
+Uliweb3 支持异步视图函数，推荐使用 async/await 语法以获得更好的性能。
+
+### 异步视图函数定义
+
+```python
+@expose('/api/data')
+async def async_view():
+    # 推荐：使用异步方法获取请求数据
+    post_data = await request.get_POST()
+    json_data = await request.get_json()
+    files = await request.get_FILES()
+    params = await request.get_params()
+
+    # 处理业务逻辑
+    result = await some_async_operation()
+
+    return {"status": "success", "data": result}
+```
+
+### 同步视图函数（向后兼容）
+
+现有的同步视图函数仍然可以使用，框架会自动通过协程池将其适配为异步执行：
+
+```python
+@expose('/sync/view')
+def sync_view():
+    # 框架会自动适配为异步执行
+    # 注意：不能直接调用异步方法
+    return {"status": "sync function"}
+```
+
+{% alert class=warning %}
+**注意事项：**
+- 在同步视图中不能直接调用 `await request.get_POST()` 等异步方法
+- 如果需要访问 POST/JSON/_FILES 数据，建议重构为异步函数
+- 框架会为同步函数预加载请求数据，可以通过 `request._cached_post_data` 等属性访问
+{% endalert %}
+
+### 混合模式
+
+可以在异步视图中调用同步函数（通过协程池）：
+
+```python
+import asyncio
+
+@expose('/mixed/view')
+async def mixed_view():
+    # 调用同步函数
+    sync_result = await asyncio.to_thread(sync_function, data)
+
+    # 同时使用异步功能
+    async_result = await async_operation(data)
+
+    return {"sync": sync_result, "async": async_result}
+```
+
+## WebSocket 支持
+
+Uliweb3 原生支持 WebSocket，可以用于实时双向通信。
+
+### WebSocket 视图函数
+
+```python
+from starlette.websockets import WebSocket
+
+@expose('/ws', websocket=True)
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+
+    while True:
+        data = await websocket.receive_text()
+        # 处理消息
+        await websocket.send_text(f"Message: {data}")
+```
+
+### WebSocket 配置
+
+在 `settings.ini` 中可以配置 WebSocket 相关选项：
+
+```ini
+[WEBSOCKET]
+ping_interval = 30
+ping_timeout = 10
+```
+
 ## 基于函数的View方法
 
 
@@ -33,17 +128,18 @@ views.py, views_about.py都是合法的view模块。
 在Uliweb中，一个view函数可以简单地定义为:
 
 
-def index(): --
+```
+@expose('/index')
+async def index():
     pass
+```
 
-
-可以看到，它就是一个普通的函数。目前对于view函数，你只能使用普通的函数，而不能使用类。
-每个view函数都应与一个或多个URL定义相匹配，一个完整的view定义如下:
+可以看到，它就是一个普通的异步函数。推荐使用 async def 定义视图函数。每个view函数都应与一个或多个URL定义相匹配，一个完整的view定义如下:
 
 
 ```
 @expose('/index')
-def index():
+async def index():
     pass
 ```
 
@@ -54,7 +150,7 @@ expose后面是可以没有参数的，如:
 
 ```
 @expose
-def index():
+async def index():
     pass
 ```
 
@@ -77,7 +173,8 @@ view函数是可以有参数的，但首先你需要先在它的URL中定义参�
 
 ```
 @expose('/documents/<lang>/<path:filename>')
-def show_document(filename, lang):
+async def show_document(filename, lang):
+    post_data = await request.get_POST()
     return _show(request, response, filename, env, lang, False)
 ```
 
@@ -90,7 +187,8 @@ lang和filename，所以在下面的view函数中也定义了两个参数。
 ```
 @expose('/documents/<path:filename>', defaults={'lang':''})
 @expose('/documents/<lang>/<path:filename>')
-def show_document(filename, lang):
+async def show_document(filename, lang):
+    post_data = await request.get_POST()
     return _show(request, response, filename, env, lang, False)
 ```
 
@@ -172,7 +270,7 @@ Uliweb支持一种view模块的入口和出口的处理。即你可以在view模
 
 
 ```
-def __begin__():
+async def __begin__():
     from uliweb.contrib.auth.views import login
 
     if not request.user:
