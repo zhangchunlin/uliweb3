@@ -16,7 +16,7 @@ from inspect import iscoroutinefunction
 from starlette.requests import Request as StarletteRequest
 from starlette.responses import Response as StarletteResponse
 from starlette.datastructures import UploadFile, FormData
-from starlette.routing import Route, Router, Mount
+from starlette.routing import Route, Router, Mount, Match
 from starlette.applications import Starlette
 import json as jsn
 
@@ -1223,51 +1223,32 @@ class AsyncDispatcher:
             application_var.reset(application_token)
 
     async def _match_route(self, request):
-        """异步路由匹配"""
-        # 使用更直接的路由匹配方法
-        path = request.url.path
-        method = request.method
+        """异步路由匹配 - 使用 Starlette Router 的内置匹配功能"""
+        from starlette.exceptions import HTTPException
+        from starlette.routing import Match
 
-        # 收集所有匹配的路由
-        matched_routes = []
+        # 获取请求的 scope
+        scope = request.scope
 
-        # 遍历所有路由进行匹配
-        for route in self.router.routes:
+        # 遍历所有路由，使用 Starlette 的 route.matches 方法进行匹配
+        # Starlette Router 已经预编译了正则表达式，性能更好
+        for route in self.router.router.routes:
             # 只处理 Route 对象，跳过 Mount 对象
-            # Route 有 'methods' 属性，Mount 没有
             if not isinstance(route, Route):
                 continue
-            try:
-                route_path = route.path
 
-                # 检查路径是否匹配
-                path_matches = self._path_matches(route_path, path)
+            match, child_scope = route.matches(scope)
 
-                if path_matches:
-                    # 检查方法是否匹配
-                    if hasattr(route, 'methods'):
-                        if method in route.methods:
-                            # 提取路径参数
-                            path_params = self._extract_path_params(route_path, path)
-                            matched_routes.append((route, path_params))
-                    else:
-                        # 如果没有指定方法，默认匹配 GET
-                        if method == 'GET':
-                            path_params = self._extract_path_params(route_path, path)
-                            matched_routes.append((route, path_params))
-            except Exception:
-                # 如果匹配出错，继续尝试下一个路由
+            if match == Match.FULL:
+                # 完全匹配，提取路径参数
+                path_params = child_scope.get('path_params', {})
+                return route, path_params
+            elif match == Match.PARTIAL:
+                # 部分匹配（方法不匹配），记录下来以便后续处理
+                # 这里暂时不处理，后续可以考虑返回 405
                 continue
 
-        # 如果有多个匹配的路由，选择最具体的那个
-        if matched_routes:
-            # 按路径长度排序，最长的路径最具体
-            matched_routes.sort(key=lambda x: len(x[0].path), reverse=True)
-            selected_route = matched_routes[0]
-            return selected_route
-
         # 如果没有匹配到路由，抛出 404 异常
-        from starlette.exceptions import HTTPException
         raise HTTPException(status_code=404)
 
     def _path_matches(self, route_path, request_path):
