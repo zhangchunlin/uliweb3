@@ -459,6 +459,10 @@ class AsyncDispatcher:
         from starlette.exceptions import HTTPException
         from starlette.websockets import WebSocket
 
+        # 确保应用已初始化（处理首次请求时 settings 未加载的问题）
+        if not self._initialized:
+            await self._async_init()
+
         # 根据 scope type 判断是 HTTP 还是 WebSocket
         if scope["type"] == "websocket":
             return await self._handle_websocket_request(scope, receive, send)
@@ -489,19 +493,23 @@ class AsyncDispatcher:
         from starlette.exceptions import HTTPException
         from starlette.websockets import WebSocket as StarletteWebSocket
 
-        logger.debug(f"[Core WebSocket] _handle_websocket_request called, path: {scope.get('path', 'unknown')}")
-        logger.debug(f"[Core WebSocket] scope: {scope}")
+        # 确保应用已初始化（与 HTTP 请求一致）
+        if not self._initialized:
+            await self._async_init()
 
         websocket = StarletteWebSocket(scope, receive, send)
 
         # 设置 WebSocket 上下文
         websocket_token = request_var.set(websocket)
 
+        # 设置 settings 和 application 上下文（与 _open 方法一致）
+        # 重要：使用初始化后的 self.settings
+        settings_token = settings_var.set(self.settings)
+        application_token = application_var.set(self)
+
         try:
             # 路由匹配
-            logger.debug(f"[Core WebSocket] Starting route matching for: {websocket.url.path}")
             route, values = await self._match_websocket_route(websocket)
-            logger.debug(f"[Core WebSocket] Route matched: {route}, values: {values}")
 
             # 将 route 对象绑定到 websocket，以便 _open_websocket 可以访问
             websocket.rule = route
@@ -520,6 +528,8 @@ class AsyncDispatcher:
         finally:
             # 清理上下文
             request_var.reset(websocket_token)
+            settings_var.reset(settings_token)
+            application_var.reset(application_token)
 
     async def _match_websocket_route(self, websocket):
         """匹配 WebSocket 路由"""
