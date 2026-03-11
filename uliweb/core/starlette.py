@@ -454,6 +454,90 @@ class AsyncDispatcher:
         # 初始化中间件配置
         self._init_middlewares()
 
+        # 初始化日志系统
+        self.set_log()
+
+    def set_log(self):
+        """初始化日志系统"""
+        import logging
+
+        s = self.settings
+
+        def _get_level(level):
+            return getattr(logging, level.upper())
+
+        # get basic configuration
+        config = {}
+        for k, v in s.LOG.items():
+            if k in ['format', 'datefmt', 'filename', 'filemode']:
+                config[k] = v
+
+        if s.get_var('LOG/level'):
+            config['level'] = _get_level(s.get_var('LOG/level'))
+        logging.basicConfig(**config)
+
+        if config.get('filename'):
+            Handler = 'logging.FileHandler'
+            if config.get('filemode'):
+                _args = (config.get('filename'), config.get('filemode'))
+            else:
+                _args = (config.get('filename'),)
+        else:
+            Handler = 'logging.StreamHandler'
+            _args = ()
+
+        # process formatters
+        formatters = {}
+        for f, v in s.get_var('LOG.Formatters', {}).items():
+            formatters[f] = logging.Formatter(v)
+
+        # process handlers
+        handlers = {}
+        for h, v in s.get_var('LOG.Handlers', {}).items():
+            handler_cls = v.get('class', Handler)
+            handler_args = v.get('args', _args)
+            handler_kwargs = v.get('kwargs', {})
+
+            handler = import_attr(handler_cls)(*handler_args, **handler_kwargs)
+            if v.get('level'):
+                handler.setLevel(_get_level(v.get('level')))
+
+            format = v.get('format')
+            if format in formatters:
+                handler.setFormatter(formatters[format])
+            elif format:
+                fmt = logging.Formatter(format)
+                handler.setFormatter(fmt)
+
+            handlers[h] = handler
+
+        # process loggers
+        for logger_name, v in s.get_var('LOG.Loggers', {}).items():
+            if logger_name == 'ROOT':
+                log = logging.getLogger('')
+                log.handlers = []
+            else:
+                log = logging.getLogger(logger_name)
+
+            if v.get('level'):
+                log.setLevel(_get_level(v.get('level')))
+            if 'propagate' in v:
+                log.propagate = v.get('propagate')
+            if 'handlers' in v:
+                for h in v['handlers']:
+                    if h in handlers:
+                        log.addHandler(handlers[h])
+                    else:
+                        raise UliwebError("Log Handler %s is not defined yet!")
+            elif 'format' in v:
+                if v['format'] not in formatters:
+                    fmt = logging.Formatter(v['format'])
+                else:
+                    fmt = formatters[v['format']]
+                _handler = import_attr(Handler)(*_args)
+                _handler.setFormatter(fmt)
+                log.addHandler(_handler)
+
     async def _handle_request(self, scope, receive, send):
         """处理请求的核心逻辑"""
         from starlette.exceptions import HTTPException
