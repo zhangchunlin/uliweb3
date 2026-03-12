@@ -393,16 +393,18 @@ class AsyncDispatcher:
                 # 没有运行中的事件循环，可以安全创建新的
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
-                # 同步加载 settings
-                self.settings = loop.run_until_complete(self._load_settings())
-                # 同步加载 apps 列表，以便 ASGI 中间件可以在初始化时访问
-                # 这解决了静态文件等中间件在初始化时需要访问 apps 的问题
-                # 注意：必须在 loop.close() 之前调用
+                # 使用 try-finally 确保事件循环被正确关闭
                 try:
-                    self.apps = loop.run_until_complete(self._get_apps())
-                except Exception:
-                    self.apps = []
-                loop.close()
+                    # 同步加载 settings
+                    self.settings = loop.run_until_complete(self._load_settings())
+                    # 同步加载 apps 列表，以便 ASGI 中间件可以在初始化时访问
+                    # 这解决了静态文件等中间件在初始化时需要访问 apps 的问题
+                    try:
+                        self.apps = loop.run_until_complete(self._get_apps())
+                    except Exception:
+                        self.apps = []
+                finally:
+                    loop.close()
 
             # 总是将 settings 设置到 contextvars 中，即使为 None
             # 这样可以避免 settings proxy 访问时出错
@@ -975,9 +977,9 @@ class AsyncDispatcher:
                                     views_modules.append(full_module)
                                 except ImportError:
                                     pass
-                except Exception as e:
+                except ImportError:
                     pass
-            except Exception as e:
+            except ImportError:
                 pass
 
         # 导入 contrib 应用的模块
@@ -1226,6 +1228,7 @@ class AsyncDispatcher:
         """异步路由匹配 - 使用 Starlette Router 的内置匹配功能"""
         from starlette.exceptions import HTTPException
         from starlette.routing import Match
+        from .context import settings_var
 
         # 获取请求的 scope
         scope = request.scope
