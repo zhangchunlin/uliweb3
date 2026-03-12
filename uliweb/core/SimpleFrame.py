@@ -1461,8 +1461,7 @@ class Dispatcher(object):
             m = self._sort_middlewares(middlewares)
             process_request_classes, process_response_classes, process_exception_classes = self._get_middlewares_classes(m)
 
-        self.lock.acquire()
-        try:
+        with self.lock:
             local.request = req = Request(environ)
             local.response = res = Response(content_type='text/html')
 
@@ -1474,8 +1473,6 @@ class Dispatcher(object):
             local.local_cache = {}
             #add in web flag
             local.in_web = True
-        finally:
-            self.lock.release()
 
         url_adapter = get_url_adapter('default')
         try:
