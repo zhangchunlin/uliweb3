@@ -22,7 +22,7 @@ class TestUliwebUtilsModified(unittest.TestCase):
 
     def test_client_from_application(self):
         """测试从应用创建客户端功能"""
-        from uliweb.core.starlette import ASGIApplication
+        from uliweb.core.SimpleFrame import ASGIApplication
         app = ASGIApplication()
         c = client_from_application(app)
         self.assertIsNotNone(c)

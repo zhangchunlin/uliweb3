@@ -16,7 +16,7 @@ path = os.path.dirname(os.path.abspath(__file__))
 if path not in sys.path:
     sys.path.insert(0, path)
 
-from uliweb.core.starlette import ASGIApplication
+from uliweb.core.SimpleFrame import ASGIApplication
 
 # 使用纯 ASGI 处理程序
 application = ASGIApplication(project_dir=path)

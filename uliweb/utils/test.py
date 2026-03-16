@@ -21,7 +21,7 @@ def get_app(project_path='.', settings_file='settings.ini', local_settings_file=
 
 def client(project_path='.', settings_file='settings.ini', local_settings_file='local_settings.ini'):
     from starlette.testclient import TestClient
-    from uliweb.core.starlette import ASGIApplication
+    from uliweb.core.SimpleFrame import ASGIApplication
 
     # 创建 ASGI 应用
     app = ASGIApplication(project_dir=project_path)
@@ -50,7 +50,7 @@ def client_from_application(app):
 
 
 def BlankRequest(url, **kwargs):
-    from uliweb.core.starlette import Request
+    from uliweb.core.SimpleFrame import Request
     from urllib.parse import urlparse
 
     # 解析 URL 以提取路径和查询字符串

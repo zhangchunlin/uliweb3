@@ -62,38 +62,34 @@ ASGI_AVAILABLE = False
 
 # 尝试导入 ASGI 组件
 try:
-    from .core.starlette import (
-        Request as ASGIRequest,
-        Response as ASGIResponse,
-        AsyncDispatcher,
-        expose as asgi_expose,
-        POST as asgi_POST,
-        GET as asgi_GET,
-        redirect as asgi_redirect,
-        json as asgi_json,
-        url_for as asgi_url_for,
-        request as asgi_request,
-        response as asgi_response,
-        settings as asgi_settings,
-        application as asgi_application
+    # 直接从 SimpleFrame.py 导入所有 ASGI 组件
+    from .core.SimpleFrame import (
+        Request,
+        Response,
+        expose,
+        POST,
+        GET,
+        redirect,
+        json,
+        url_for,
+        merge_rules,
+        _convert_route_param,
+        _merge_rules,
+        context_middleware,
+        get_request,
+        get_response,
+        get_settings,
+        get_application,
+        request,
+        response,
+        settings,
+        application,
     )
-
     # 如果导入成功，标记 ASGI 可用
     ASGI_AVAILABLE = True
 
-    # 使用 ASGI 组件
-    Request = ASGIRequest
-    Response = ASGIResponse
-    expose = asgi_expose
-    POST = asgi_POST
-    GET = asgi_GET
-    redirect = asgi_redirect
-    json = asgi_json
-    url_for = asgi_url_for
-    request = asgi_request
-    response = asgi_response
-    settings = asgi_settings
-    application = asgi_application
+    # 从 SimpleFrame.py 导入 AsyncDispatcher（已从 starlette.py 迁移）
+    from .core.SimpleFrame import AsyncDispatcher, ASGIApplication
     Dispatcher = AsyncDispatcher
 
 except ImportError:

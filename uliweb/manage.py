@@ -6,7 +6,7 @@ import inspect
 from optparse import make_option
 import uliweb
 from uliweb.core.commands import Command, CommandManager
-from uliweb.core.starlette import AsyncDispatcher, ASGIApplication
+from uliweb.core.SimpleFrame import AsyncDispatcher, ASGIApplication
 from .utils._compat import input, string_types, iteritems, exec_
 
 apps_dir = 'apps'
@@ -900,7 +900,7 @@ class RunserverCommand(Command):
             return
 
         # 添加应用模块路径
-        cmd.append('uliweb.core.starlette:ASGIApplication')
+        cmd.append('uliweb.core.SimpleFrame:ASGIApplication')
 
         # 设置环境变量
         env = os.environ.copy()

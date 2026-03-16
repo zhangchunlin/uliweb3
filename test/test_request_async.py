@@ -69,7 +69,7 @@ def test_params_property():
     """
     # This test just verifies that the property exists
     # Actual testing would require a proper ASGI environment
-    from uliweb.core.starlette import Request
+    from uliweb.core.SimpleFrame import Request
 
     # Create a minimal ASGI scope for testing
     scope = {
@@ -97,7 +97,7 @@ def test_deprecated_post_property():
     """
     Test that accessing POST property raises RuntimeError (deprecated)
     """
-    from uliweb.core.starlette import Request
+    from uliweb.core.SimpleFrame import Request
 
     # Create a minimal ASGI scope for testing
     scope = {
@@ -128,7 +128,7 @@ def test_deprecated_files_property():
     """
     Test that accessing FILES property raises RuntimeError (deprecated)
     """
-    from uliweb.core.starlette import Request
+    from uliweb.core.SimpleFrame import Request
 
     scope = {
         'type': 'http',
@@ -158,7 +158,7 @@ def test_deprecated_json_property():
     """
     Test that accessing json property raises RuntimeError (deprecated)
     """
-    from uliweb.core.starlette import Request
+    from uliweb.core.SimpleFrame import Request
 
     scope = {
         'type': 'http',
@@ -188,7 +188,7 @@ def test_get_params_method():
     """
     Test the new async get_params method exists
     """
-    from uliweb.core.starlette import Request
+    from uliweb.core.SimpleFrame import Request
 
     scope = {
         'type': 'http',
@@ -220,7 +220,7 @@ def test_state_property():
     ASGI feature that allows middleware and applications to store and share
     state data during request processing.
     """
-    from uliweb.core.starlette import Request
+    from uliweb.core.SimpleFrame import Request
 
     # Test 1: state property exists and returns a dict
     scope = {

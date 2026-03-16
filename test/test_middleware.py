@@ -29,5 +29,5 @@ def test_middleware():
     >>> f = open("apps/settings.ini", "a").write(INI_MIDDLEWARE_SAME_ORDER)
     >>> app = manage.make_simple_application(project_dir=path)
     >>> print(type(app))
-    <class 'uliweb.core.starlette.AsyncDispatcher'>
+    <class 'uliweb.core.SimpleFrame.AsyncDispatcher'>
     """
