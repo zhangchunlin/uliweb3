@@ -2,7 +2,10 @@ from uliweb.core.SimpleFrame import expose
 
 
 def startup_installed(sender):
-    url = sender.settings.GLOBAL.STATIC_URL.rstrip('/')
+    static_url = sender.settings.GLOBAL.get('STATIC_URL')
+    if not static_url:
+        return
+    url = static_url.rstrip('/')
     expose('%s/<path:filename>' % url, static=True)(static)
 
 
@@ -14,7 +17,7 @@ def url_for_static(filename=None, **kwargs):
     from uliweb import settings
     from uliweb.core.SimpleFrame import get_url_adapter
     from uliweb.core.context import get_application
-    from ...utils._compat import import_
+    from uliweb.utils._compat import import_
 
     urlparse, urlunparse, urljoin, urlencode = import_('urllib.parse',
         ['urlparse', 'urlunparse', 'urljoin', 'urlencode'])

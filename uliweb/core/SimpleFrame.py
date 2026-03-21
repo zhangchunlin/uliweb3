@@ -2635,27 +2635,6 @@ class AsyncDispatcher:
                     # 忽略绑定函数执行中的错误
                     pass
 
-        # 特殊处理静态文件和上传模块的路由注册
-        if app_name == 'uliweb.contrib.staticfiles':
-            # 注册静态文件路由
-            from uliweb.core.SimpleFrame import expose
-            static_url = self.settings.GLOBAL.get('STATIC_URL', '/static')
-            if static_url:
-                url = static_url.rstrip('/')
-                # 直接注册静态文件路由
-                def static_handler(filename):
-                    pass
-                expose('%s/<path:filename>' % url, static=True)(static_handler)
-
-        elif app_name == 'uliweb.contrib.upload':
-            # 注册上传文件路由
-            from uliweb.core.SimpleFrame import expose
-            # 直接注册上传文件路由
-            def file_serving(filename):
-                from uliweb.contrib.upload import file_serving as upload_file_serving
-                return upload_file_serving(filename)
-            expose('/uploads/<path:filename>', name='uliweb.contrib.upload.file_serving')(file_serving)
-
     def _get_app_dir(self, app):
         """获取应用目录"""
         from uliweb.core.SimpleFrame import get_app_dir
