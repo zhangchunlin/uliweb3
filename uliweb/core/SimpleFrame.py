@@ -322,19 +322,26 @@ class UliwebRouter:
         根据 endpoint 名称和参数构建 URL
         兼容 werkzeug 的 build 方法
         """
-        # 查找对应的路由
+        # 查找对应的路由 - 首先尝试通过 endpoint 名称直接查找
         route = self.url_map.get(endpoint)
+
         if route:
             # 使用 Starlette 的 url_path_for 方法
             try:
-                return self.router.url_path_for(endpoint, **values).path
+                # 尝试使用 route 的 name 属性
+                if route.name:
+                    url = self.router.url_path_for(route.name, **values).path
+                    return url
             except Exception:
                 pass
 
-        # 如果找不到路由，返回一个基本的 URL
-        # 从路由规则中提取路径模式
+        # 如果找不到路由，从路由规则中提取路径模式
         for r in self.routes:
-            if r.name == endpoint:
+            # 检查路由的 endpoint（通过 route.endpoint 属性）
+            endpoint_attr = getattr(r, 'endpoint', None)
+
+            # 匹配 endpoint
+            if endpoint_attr == endpoint or r.name == endpoint:
                 # 获取路由的路径模式并替换参数
                 path = r.path
                 for key, value in values.items():
@@ -581,9 +588,20 @@ def get_url_adapter(_domain_name):
     Fetch a domain url_adapter object, and bind it to according domain
     使用 Starlette 路由替代 werkzeug，不需要 wsgi_decoding_dance
     """
-    # 使用 get_application() 来获取 application，它会回退到 __global__.application
+    # 使用 get_application() 来获取 application，如果为 None 则使用 __global__.application
     from .context import get_application
     _app = get_application()
+
+    # 如果 contextvars 中的 application 为 None，尝试使用 __global__.application
+    if _app is None:
+        _app = __global__.application
+
+    # 如果有 AsyncDispatcher 实例，使用它的 router
+    if _app and hasattr(_app, 'router'):
+        # 返回 AsyncDispatcher 的 router，它有 build 方法
+        return _app.router
+
+    # 否则使用全局的 url_map（WSGI 模式）
     domain = _app.domains.get(_domain_name, {}) if _app else {}
     server_name = None
 
@@ -1963,6 +1981,9 @@ class AsyncDispatcher:
         self.apps = await self._get_apps()
         self.static_views = []
 
+        # 处理域名配置
+        self.process_domains(self.settings)
+
         # 获取 debug 模式配置
         self.debug = self.settings.GLOBAL.get('DEBUG', False)
 
@@ -2151,6 +2172,20 @@ class AsyncDispatcher:
                 for h in v['handlers']:
                     if h in handlers:
                         log.addHandler(handlers[h])
+
+    def process_domains(self, settings):
+        """处理域名配置"""
+        from uliweb.utils._compat import import_
+        urlparse = import_('urllib.parse', 'urlparse')
+
+        self.domains = {}
+
+        for k, v in settings.DOMAINS.items():
+            _domain = urlparse(v['domain'])
+            self.domains[k] = {'domain':v.get('domain'), 'domain_parse':_domain,
+                'host':_domain.netloc or v.get('domain'),
+                'scheme':_domain.scheme or 'http', 'display':v.get('display', False),
+                'url_prefix':v.get('url_prefix', '')}
 
     async def _handle_request(self, scope, receive, send):
         """处理请求的核心逻辑"""
@@ -2479,14 +2514,16 @@ class AsyncDispatcher:
                         else:
                             self.router.add_route(starlette_rule, endpoint, name=name)
                     elif isinstance(route_info, str):
-                        # 如果只有 URL，使用 name 作为 endpoint
+                        # 如果只有 URL，使用 name 作为 endpoint，同时作为 name 参数
                         url = route_info
                         starlette_rule, param_types = _convert_route_param(url)
                         # 存储参数类型信息
                         if param_types:
                             self.route_param_types[starlette_rule] = param_types
-                        # 注册路由
+                        # 注册路由，使用 name 同时作为 endpoint 和路由名称
                         self.router.add_route(starlette_rule, name, name=name)
+                        # 同步更新 url_map，确保 build 方法能找到正确的路由
+                        self.router.url_map[name] = self.router.routes[-1]
 
         # 处理全局 EXPOSES 路由（来自 settings.ini 的路由定义）
         if hasattr(self.settings, 'EXPOSES') and self.settings.EXPOSES:

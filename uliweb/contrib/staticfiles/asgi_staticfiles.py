@@ -97,9 +97,13 @@ class ASGIStaticFilesMiddleware:
                         # 尝试获取文件路径
                         f = pkg_resources.resource_filename(p, fname)
                         if os.path.exists(f):
-                            # 验证路径
+                            # 验证路径 - 使用 pkg_resources 返回的实际路径来计算 static 目录
                             real_f = os.path.realpath(f)
-                            real_static = os.path.realpath(os.path.join(p.replace('.', os.sep), 'static'))
+                            # 正确计算包的 static 目录路径
+                            # 使用 pkg_resources.resource_filename(p, '') 获取包的实际路径
+                            package_path = pkg_resources.resource_filename(p, '')
+                            static_path = os.path.join(package_path, 'static')
+                            real_static = os.path.realpath(static_path)
                             # 检查是否在 static 目录内
                             if real_f.startswith(real_static + os.sep) or real_f == real_static:
                                 return real_f

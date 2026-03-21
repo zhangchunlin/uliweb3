@@ -30,7 +30,7 @@ class TestASGIStaticFiles(unittest.TestCase):
                 ...
         """
         from uliweb import manage
-        from uliweb.core.SimpleFrame import get_app_dir, __app_dirs__
+        from uliweb.core.SimpleFrame import __app_dirs__
 
         cls.test_dir = tempfile.mkdtemp()
         cls.project_dir = os.path.join(cls.test_dir, 'TestStaticProject')
@@ -61,6 +61,8 @@ STATIC_FOLDER = 'static'
 
 [DOMAINS]
 static = {'domain': '', 'display': False, 'url_prefix': ''}
+
+[MIME_TYPES]
 """)
 
         # 创建 home app 目录（按照 uliweb 标准，app 在项目根目录下）
@@ -157,7 +159,6 @@ static = {'domain': '', 'display': False, 'url_prefix': ''}
 
         # 直接创建中间件实例进行测试
         from uliweb.contrib.staticfiles.asgi_staticfiles import ASGIStaticFilesMiddleware
-        from starlette.responses import Response
 
         # 创建一个简单的 app 用于传递
         async def dummy_app(scope, receive, send):
@@ -174,6 +175,7 @@ static = {'domain': '', 'display': False, 'url_prefix': ''}
         )
 
         async def run_test():
+
             # 模拟 scope - 包含路径遍历的原始请求
             scope = {
                 'type': 'http',
@@ -267,6 +269,60 @@ static = {'domain': '', 'display': False, 'url_prefix': ''}
                 self.assertEqual(response.content, b'App Hello, World!')
 
         asyncio.run(run_test())
+
+    def test_pkg_resources_static_file(self):
+        """测试通过 pkg_resources 查找已安装包的静态文件"""
+        import asyncio
+        import pkg_resources
+        from unittest.mock import patch
+
+        # 测试 find_static_file 方法的路径验证逻辑
+        from uliweb.contrib.staticfiles.asgi_staticfiles import ASGIStaticFilesMiddleware
+
+        # 创建一个临时包用于测试
+        import tempfile
+        test_dir = tempfile.mkdtemp()
+        try:
+            # 创建临时包目录结构
+            pkg_name = 'test_static_pkg'
+            pkg_dir = os.path.join(test_dir, pkg_name)
+            os.makedirs(pkg_dir)
+
+            # 创建 __init__.py
+            with open(os.path.join(pkg_dir, '__init__.py'), 'w') as f:
+                f.write('')
+
+            # 创建 static 目录
+            static_dir = os.path.join(pkg_dir, 'static')
+            os.makedirs(static_dir)
+
+            # 创建一个测试文件
+            test_file = os.path.join(static_dir, 'test.js')
+            with open(test_file, 'w') as f:
+                f.write('test')
+
+            # 模拟已安装的包
+            with patch.object(pkg_resources, 'resource_filename', side_effect=lambda pkg, path: os.path.join(pkg_dir, path) if pkg == pkg_name else pkg_resources.resource_filename(pkg, path)):
+                async def run_test():
+                    # 创建中间件实例
+                    async def dummy_app(scope, receive, send):
+                        pass
+
+                    middleware = ASGIStaticFilesMiddleware(
+                        dummy_app,
+                        STATIC_URL='/static/',
+                    )
+
+                    # 测试 find_static_file
+                    result = middleware.find_static_file('test.js', apps=[pkg_name])
+
+                    # 验证结果
+                    self.assertIsNotNone(result)
+                    self.assertTrue(result.endswith('test.js'))
+
+                asyncio.run(run_test())
+        finally:
+            shutil.rmtree(test_dir, ignore_errors=True)
 
 
 if __name__ == '__main__':

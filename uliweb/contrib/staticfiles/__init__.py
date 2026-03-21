@@ -15,15 +15,18 @@ def prepare_default_env(sender, env):
 
 def url_for_static(filename=None, **kwargs):
     from uliweb import settings
-    from uliweb.core.SimpleFrame import get_url_adapter
+    from uliweb.core.SimpleFrame import get_url_adapter, __global__
     from uliweb.core.context import get_application
     from uliweb.utils._compat import import_
 
     urlparse, urlunparse, urljoin, urlencode = import_('urllib.parse',
         ['urlparse', 'urlunparse', 'urljoin', 'urlencode'])
 
-    # 使用 get_application() 来获取 application，它会回退到 __global__.application
+    # 使用 get_application() 来获取 application，如果为 None 则使用 __global__.application
     application = get_application()
+    if application is None:
+        application = __global__.application
+
     domain = application.domains.get('static', {}) if application else {}
 
     # add STATIC_VER support
@@ -58,8 +61,9 @@ def url_for_static(filename=None, **kwargs):
 
     kwargs['filename'] = filename
     url_adapter = get_url_adapter('static')
-    return url_adapter.build('uliweb.contrib.staticfiles.static',
+    result = url_adapter.build('uliweb.contrib.staticfiles.static',
                              kwargs, force_external=external)
+    return result
 
 
 def static(filename):
