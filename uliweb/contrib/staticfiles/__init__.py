@@ -11,14 +11,17 @@ def prepare_default_env(sender, env):
 
 
 def url_for_static(filename=None, **kwargs):
-    from uliweb import settings, application
+    from uliweb import settings
     from uliweb.core.SimpleFrame import get_url_adapter
+    from uliweb.core.context import get_application
     from ...utils._compat import import_
 
     urlparse, urlunparse, urljoin, urlencode = import_('urllib.parse',
         ['urlparse', 'urlunparse', 'urljoin', 'urlencode'])
 
-    domain = application.domains.get('static', {})
+    # 使用 get_application() 来获取 application，它会回退到 __global__.application
+    application = get_application()
+    domain = application.domains.get('static', {}) if application else {}
 
     # add STATIC_VER support
     ver = settings.GLOBAL.STATIC_VER

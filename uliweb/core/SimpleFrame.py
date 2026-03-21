@@ -317,6 +317,33 @@ class UliwebRouter:
         """迭代所有路由规则"""
         return iter(self.routes)
 
+    def build(self, endpoint, values, force_external=False):
+        """
+        根据 endpoint 名称和参数构建 URL
+        兼容 werkzeug 的 build 方法
+        """
+        # 查找对应的路由
+        route = self.url_map.get(endpoint)
+        if route:
+            # 使用 Starlette 的 url_path_for 方法
+            try:
+                return self.router.url_path_for(endpoint, **values).path
+            except Exception:
+                pass
+
+        # 如果找不到路由，返回一个基本的 URL
+        # 从路由规则中提取路径模式
+        for r in self.routes:
+            if r.name == endpoint:
+                # 获取路由的路径模式并替换参数
+                path = r.path
+                for key, value in values.items():
+                    path = path.replace('{' + key + '}', str(value))
+                return path
+
+        # 如果还是找不到，返回一个占位符
+        return f"/{endpoint}"
+
 
 url_map = UliwebRouter()
 static_views = []
@@ -554,7 +581,10 @@ def get_url_adapter(_domain_name):
     Fetch a domain url_adapter object, and bind it to according domain
     使用 Starlette 路由替代 werkzeug，不需要 wsgi_decoding_dance
     """
-    domain = application.domains.get(_domain_name, {})
+    # 使用 get_application() 来获取 application，它会回退到 __global__.application
+    from .context import get_application
+    _app = get_application()
+    domain = _app.domains.get(_domain_name, {}) if _app else {}
     server_name = None
 
     if domain.get('domain', ''):
@@ -1924,10 +1954,17 @@ class AsyncDispatcher:
         # 因为在 __init__ 中可能设置为 None，现在需要更新为实际加载的值
         settings_var.set(self.settings)
         application_var.set(self)
+        # 同时设置到 __global__，用于线程池等场景
+        # 参考 WSGI 中 settings 和 application 使用 Global 的设计
+        __global__.settings = self.settings
+        __global__.application = self
 
         # 初始化应用
         self.apps = await self._get_apps()
         self.static_views = []
+
+        # 获取 debug 模式配置
+        self.debug = self.settings.GLOBAL.get('DEBUG', False)
 
         # 初始化中间件
         self.process_request_classes = []
@@ -1940,11 +1977,112 @@ class AsyncDispatcher:
         # 初始化中间件配置
         self._init_middlewares()
 
+        # 初始化模板目录和模板加载器
+        self.get_template_dirs()
+        self.install_template_loader()
         # 初始化日志系统
+        # 初始化 dispatch 绑定（必须在调用 startup_installed 之前）
+        self.install_binds()
         self.set_log()
 
+        # 调用 startup_installed 钩子，这会触发 uliweb.contrib.template 的初始化
+        # 并将 _tag_use 等函数添加到 template.default_namespace
+        dispatch.call(self, 'startup_installed')
+        # 调用 after_init_settings 钩子，在设置加载完成后调用
+        dispatch.call(self, 'after_init_settings')
+
+        # 调用 after_init_apps 钩子，在所有 App 安装完成后调用
+        dispatch.call(self, 'after_init_apps')
+
+        # 准备模板环境并调用 prepare_default_env
+        env = await self._prepare_env()
+
+        dispatch.call(self, 'prepare_default_env', env)
+
+        # 保存 env 到 self.env，以便后续 get_view_env() 可以访问
+        self.env = env
+
+        # 初始化 URL
+        await self._init_routes()
+
+        # 调用 startup 钩子，所有初始化工作完成后执行
+        dispatch.call(self, 'startup')
+        dispatch.call(self, 'startup')
+
+    def get_template_dirs(self):
+        """
+        获取模板目录，使用与同步 Dispatcher 相同的逻辑
+        """
+        def if_not_empty(dir):
+            if not os.path.exists(dir):
+                return
+            for root, dirs, files in os.walk(dir):
+                if dirs:
+                    return True
+                for f in files:
+                    if f != 'readme.txt':
+                        return True
+
+        template_dirs = [os.path.join(self.project_dir, x) for x in self.settings.GLOBAL.TEMPLATE_DIRS or []]
+        taglibs_dirs = []
+        for p in reversed(self.apps):
+            app_path = get_app_dir(p)
+            path = os.path.join(app_path, 'templates')
+            if if_not_empty(path):
+                template_dirs.append(path)
+
+            path = os.path.join(app_path, 'taglibs')
+            if if_not_empty(path):
+                taglibs_dirs.append(path)
+
+        self.template_dirs = template_dirs
+        self.taglibs_dirs = taglibs_dirs
+
+    def install_template_loader(self):
+        """
+        安装模板加载器
+        """
+        Loader = import_attr(self.settings.get_var('TEMPLATE_PROCESSOR/loader'))
+        args = self.settings.get_var('TEMPLATE')
+
+        if self.debug:
+            args['check_modified_time'] = True
+            args['log'] = log
+            args['debug'] = self.settings.get_var('GLOBAL/DEBUG_TEMPLATE', False)
+        self.template_loader = Loader(self.template_dirs, **args)
+
+
+    def install_binds(self):
+        """处理 DISPATCH hooks"""
+        #BINDS format
+        #func = topic              #bind_name will be the same with function
+        #bind_name = topic, func
+        #bind_name = topic, func, {args}
+        d = self.settings.get('BINDS', {})
+        for bind_name, args in d.items():
+            if not args:
+                continue
+            is_wrong = False
+            if isinstance(args, (tuple, list)):
+                if len(args) == 2:
+                    dispatch.bind(args[0])(args[1])
+                elif len(args) == 3:
+                    if not isinstance(args[2], dict):
+                        is_wrong = True
+                    else:
+                        dispatch.bind(args[0], **args[2])(args[1])
+                else:
+                    is_wrong = True
+            elif isinstance(args, string_types):
+                dispatch.bind(args)(bind_name)
+            else:
+                is_wrong = True
+            if is_wrong:
+                log.error('BINDS definition should be "function=topic" or "bind_name=topic, function" or "bind_name=topic, function, {"args":value1,...}"')
+                raise UliwebError('BINDS definition [%s=%r] is not right' % (bind_name, args))
+
     def set_log(self):
-        """初始化日志系统"""
+        """设置日志"""
         import logging
 
         s = self.settings
@@ -1952,7 +2090,7 @@ class AsyncDispatcher:
         def _get_level(level):
             return getattr(logging, level.upper())
 
-        # get basic configuration
+        #get basic configuration
         config = {}
         for k, v in s.LOG.items():
             if k in ['format', 'datefmt', 'filename', 'filemode']:
@@ -1965,19 +2103,19 @@ class AsyncDispatcher:
         if config.get('filename'):
             Handler = 'logging.FileHandler'
             if config.get('filemode'):
-                _args = (config.get('filename'), config.get('filemode'))
+                _args =(config.get('filename'), config.get('filemode'))
             else:
                 _args = (config.get('filename'),)
         else:
             Handler = 'logging.StreamHandler'
             _args = ()
 
-        # process formatters
+        #process formatters
         formatters = {}
         for f, v in s.get_var('LOG.Formatters', {}).items():
             formatters[f] = logging.Formatter(v)
 
-        # process handlers
+        #process handlers
         handlers = {}
         for h, v in s.get_var('LOG.Handlers', {}).items():
             handler_cls = v.get('class', Handler)
@@ -1997,7 +2135,7 @@ class AsyncDispatcher:
 
             handlers[h] = handler
 
-        # process loggers
+        #process loggers
         for logger_name, v in s.get_var('LOG.Loggers', {}).items():
             if logger_name == 'ROOT':
                 log = logging.getLogger('')
@@ -2013,16 +2151,6 @@ class AsyncDispatcher:
                 for h in v['handlers']:
                     if h in handlers:
                         log.addHandler(handlers[h])
-                    else:
-                        raise UliwebError("Log Handler %s is not defined yet!")
-            elif 'format' in v:
-                if v['format'] not in formatters:
-                    fmt = logging.Formatter(v['format'])
-                else:
-                    fmt = formatters[v['format']]
-                _handler = import_attr(Handler)(*_args)
-                _handler.setFormatter(fmt)
-                log.addHandler(_handler)
 
     async def _handle_request(self, scope, receive, send):
         """处理请求的核心逻辑"""
@@ -2544,7 +2672,7 @@ class AsyncDispatcher:
         # 直接调用 collect_settings 和 pyini.Ini，避免 get_settings 导入问题
         from uliweb.core.SimpleFrame import collect_settings
         import uliweb.utils.pyini as pyini
-        
+
         def load_settings():
             settings = collect_settings(
                 project_dir,
@@ -2554,7 +2682,15 @@ class AsyncDispatcher:
             )
             x = pyini.Ini(lazy=True, basepath=os.path.join(project_dir, 'apps'))
             for v in settings:
-                x.read(v)
+                # 判断是否是默认设置文件
+                if 'default_settings.ini' in v:
+                    x.read(v)
+                else:
+                    # 从路径中提取 app 名称
+                    # 例如: /path/to/project/apps/uliweb_comui/settings.ini -> uliweb_comui
+                    appname = os.path.basename(os.path.dirname(v))
+                    x.set_pre_variables({'appname': appname})
+                    x.read(v)
             d = dict([(k, repr(v)) for k, v in self.default_settings.items()])
             x.update(d or {})
             x.freeze()
@@ -2606,6 +2742,7 @@ class AsyncDispatcher:
         env['settings'] = self.settings
         env['json'] = json
         env['json_dumps'] = json_dumps
+        env['functions'] = functions
 
         return env
 
@@ -3115,63 +3252,20 @@ class AsyncDispatcher:
     def _sync_render_template(self, template_file, vars, env):
         """同步渲染模板（在协程池中执行）"""
         # 获取模板目录
-        template_dirs = []
-
-        # 首先尝试直接查找模板文件
-        # 检查应用级模板目录
-        apps_template_dir = os.path.join(self.project_dir, 'apps', 'templates')
-        if os.path.exists(apps_template_dir):
-            template_dirs.append(apps_template_dir)
-
-        # 检查项目级模板目录
-        project_template_dir = os.path.join(self.project_dir, 'templates')
-        if os.path.exists(project_template_dir):
-            template_dirs.append(project_template_dir)
-
-        # 添加应用级模板目录（相对于项目目录）
-        for app in self.apps:
-            # 应用级模板目录
-            app_template_dir = os.path.join(self.project_dir, 'apps', app, 'templates')
-            if os.path.exists(app_template_dir):
-                template_dirs.append(app_template_dir)
-
-            # 应用视图级模板目录
-            app_views_template_dir = os.path.join(self.project_dir, 'apps', app, 'views', 'templates')
-            if os.path.exists(app_views_template_dir):
-                template_dirs.append(app_views_template_dir)
-
-        # 如果模板目录为空，尝试使用 SimpleFrame 的方式获取模板目录
-        if not template_dirs:
-            from uliweb.core.SimpleFrame import Dispatcher
-            try:
-                # 创建一个临时的 Dispatcher 来获取模板目录
-                temp_dispatcher = Dispatcher(
-                    apps_dir=self.apps_dir,
-                    project_dir=self.project_dir,
-                    start=False
-                )
-                template_dirs = temp_dispatcher.template_dirs
-            except Exception:
-                pass
-
-        # 如果仍然为空，尝试直接搜索项目目录下的模板
-        if not template_dirs:
-            # 直接搜索项目目录下的所有 templates 目录
-            for root, dirs, files in os.walk(self.project_dir):
-                if 'templates' in dirs:
-                    template_dir = os.path.join(root, 'templates')
-                    if os.path.exists(template_dir):
-                        template_dirs.append(template_dir)
+        template_dirs = getattr(self, 'template_dirs', [])
 
         # 尝试从各个模板目录中查找模板文件
         for template_dir in template_dirs:
             template_path = os.path.join(template_dir, template_file)
             if os.path.exists(template_path):
-                # 找到模板文件，使用 uliweb 的模板系统进行渲染
+                # 找到模板文件，使用 AsyncDispatcher 的 template_loader 进行渲染
                 try:
-                    # 创建模板加载器
-                    from uliweb.core.template import Loader
-                    loader = Loader(template_dirs)
+                    # 使用已初始化的 template_loader，它包含了 taglibs 配置
+                    loader = self.template_loader
+
+                    if loader is None:
+                        from uliweb.core.template import Loader
+                        loader = Loader(template_dirs)
 
                     # 加载并渲染模板
                     template_obj = loader.load(template_file)

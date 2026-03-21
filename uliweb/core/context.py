@@ -44,8 +44,15 @@ class GlobalSettingsProxy:
 
     def _get_instance(self):
         """获取 settings 实例"""
-        # 只从 contextvars 获取
+        # 优先从 contextvars 获取
         result = self._var.get(None)
+        if result is None:
+            # 回退到 __global__，用于线程池等场景
+            try:
+                from uliweb.core.SimpleFrame import __global__
+                result = getattr(__global__, 'settings', None)
+            except ImportError:
+                pass
         if result is None:
             raise RuntimeError("settings not initialized. Please ensure AsyncDispatcher or Dispatcher has been created.")
         return result
