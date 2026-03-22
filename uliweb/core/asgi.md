@@ -2537,6 +2537,11 @@ async def websocket_endpoint(websocket: WebSocket):
 - [x] HTML 生成工具支持（保持兼容）
 - [x] JSON 编码工具支持（保持兼容）
 - [x] 静态文件服务（兼容现有机制）
+  - 支持项目级静态目录（`project_dir/static/`）
+  - 支持 app 级静态目录（`apps/{app}/static/`）
+  - 支持通过 `pkg_resources` 查找已安装包的静态文件
+  - 内置路径遍历攻击防护（检测 `..`、`%2f`、`%5c` 等）
+  - 支持隐藏文件访问控制
 - [x] 文件上传下载（异步化支持）
 - [x] CORS 支持（内置实现）
 - [x] 会话管理迁移（已实现异步适配，参考 uliweb/contrib/session/middle_session.py）
