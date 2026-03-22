@@ -58,6 +58,8 @@
 - **强制异步化接口**：避免 async property 兼容性陷阱，采用明确的异步方法
 - **渐进式迁移**：支持外部异步、内部同步的平滑过渡，降低迁移风险
 
+> **注意**：本文档中提到的所有代码实现均位于 `uliweb/core/SimpleFrame.py` 中，而非独立的 `starlette.py` 文件。SimpleFrame.py 导入了 Starlette 的 Request/Response 类作为基类，并在此基础上进行了扩展和适配。
+
 ## 2. 架构对比分析
 
 ### 2.1 原有 WSGI 架构（基于 Werkzeug）
@@ -90,29 +92,29 @@ Starlette 是一个轻量级的 ASGI 框架/工具包，具有以下特性：
 
 ### 3.1 阶段一：基础架构迁移（渐进式兼容）✅ 完成
 - [x] 核心 Request/Response 对象迁移（修复 async property 陷阱）
-  - 代码：`uliweb/core/starlette.py` 的 Request 类，实现了 get_POST(), get_FILES(), get_json() 等异步方法
+  - 代码：`uliweb/core/SimpleFrame.py` 的 Request 类，继承自 StarletteRequest，实现了 get_POST(), get_FILES(), get_json() 等异步方法
   - 验证：`python -c "from uliweb import Request; print(Request)"`
 - [x] ASGI 接口实现（包含同步适配器机制）
-  - 代码：`uliweb/core/starlette.py` 的 AsyncDispatcher 类，实现 `__call__(scope, receive, send)`
+  - 代码：`uliweb/core/SimpleFrame.py` 的 AsyncDispatcher 类，实现 `__call__(scope, receive, send)`
   - 通过 `asyncio.to_thread.run_sync()` 实现同步函数自动适配
-  - 验证：`python -c "from uliweb.core.starlette import AsyncDispatcher; print(AsyncDispatcher)"`
+  - 验证：`python -c "from uliweb.core.SimpleFrame import AsyncDispatcher; print(AsyncDispatcher)"`
 - [x] 基本路由系统（支持同步视图函数自动适配）
-  - 代码：`uliweb/core/rules.py` 的 Expose 类 + `uliweb/core/starlette.py` 的 UliwebRouter 类
+  - 代码：`uliweb/core/rules.py` 的 Expose 类 + `uliweb/core/SimpleFrame.py` 的 UliwebRouter 类
   - 验证：`python -c "from uliweb import expose; print(expose)"`
 
 ### 3.2 阶段二：功能完整性（兼容性优先）✅ 完成
 - [x] 中间件系统迁移（保持现有接口兼容性）
-  - 代码：`uliweb/core/starlette.py` 的 `_init_middlewares()`, `_process_middleware()` 方法
+  - 代码：`uliweb/core/SimpleFrame.py` 的 `_init_middlewares()`, `_process_middleware()` 方法
   - 支持 process_request/process_response/process_exception 传统接口和 ASGI 中间件接口
   - 验证：`python -c "from uliweb import Middleware; print(Middleware)"`
 - [x] 模板系统适配（同步/异步渲染支持）
-  - 代码：`uliweb/core/starlette.py` 的 `_render_template()` 方法，通过协程池实现
+  - 代码：`uliweb/core/SimpleFrame.py` 的 `_render_template()` 方法，通过协程池实现
 - [x] 会话管理（异步化改造）
   - 代码：`uliweb/contrib/session/middle_session.py` 的 async dispatch 方法
 
 ### 3.3 阶段三：性能优化（渐进异步化）✅ 完成
 - [x] WebSocket 支持（纯异步功能）
-  - 代码：`uliweb/core/starlette.py` 的 `handle_websocket()` 方法
+  - 代码：`uliweb/core/SimpleFrame.py` 的 `handle_websocket()` 方法
 - [x] 异步数据库驱动集成（可选，保持同步驱动兼容）
   - 当前通过协程池 `asyncio.to_thread.run_sync()` 适配同步 SQLAlchemy
 - [x] 缓存系统支持
@@ -139,8 +141,7 @@ Starlette 是一个轻量级的 ASGI 框架/工具包，具有以下特性：
    - 全局状态管理：已迁移到 contextvars
 
 2. **代码结构**
-   - `uliweb/core/starlette.py`：主要 ASGI 框架（核心）
-   - `uliweb/core/SimpleFrame.py`：保留但不再支持 WSGI 接口
+   - `uliweb/core/SimpleFrame.py`：主要 ASGI 框架实现（包含 AsyncDispatcher、Request、Response、UliwebRouter 等）
    - `uliweb/core/context.py`：使用 contextvars 实现全局状态管理
    - `uliweb/__init__.py`：统一入口，导出所有核心组件
 
@@ -187,11 +188,11 @@ class Request(OriginalRequest):
                       .lower() == 'xmlhttprequest')
 ```
 
-**改进的实现（修复 async property 陷阱）：**
+**改进的实现（修复 async property 陷阱）- 实际代码位于 `uliweb/core/SimpleFrame.py`：**
 ```python
 from starlette.requests import Request as StarletteRequest
 from starlette.responses import Response as StarletteResponse
-from starlette.datastructures import UploadFile, FormData
+from starlette.datastructures import UploadFile
 import json as jsn
 
 class Request(StarletteRequest):
@@ -199,43 +200,57 @@ class Request(StarletteRequest):
 
     @property
     def GET(self):
-        """兼容 GET 参数访问（同步属性）"""
+        """兼容 GET 参数访问"""
         return self.query_params
 
+    @property
+    def state(self):
+        """获取请求状态容器"""
+        if 'state' not in self.scope:
+            self.scope['state'] = {}
+        return self.scope['state']
+
     async def get_POST(self):
-        """异步获取 POST 表单数据（强制异步方法）"""
+        """异步获取 POST 表单数据"""
         if self.method == "POST":
             form = await self.form()
             return form
         return {}
 
     async def get_FILES(self):
-        """异步获取上传文件（强制异步方法）"""
+        """异步获取上传文件"""
         if self.method == "POST":
             form = await self.form()
             return {k: v for k, v in form.items() if isinstance(v, UploadFile)}
         return {}
 
     async def get_json(self):
-        """异步获取 JSON 数据（强制异步方法，修复递归调用）"""
+        """异步获取 JSON 数据"""
         return await super().json()
 
-    @property
-    def is_xhr(self):
-        """检查是否为 AJAX 请求（同步属性）"""
-        return self.headers.get('x-requested-with', '').lower() == 'xmlhttprequest'
-
     async def get_params(self):
-        """异步获取合并参数（强制异步方法，避免阻塞）"""
-        # 由于 POST 数据需要异步读取，params 必须也是异步方法
+        """异步获取合并参数"""
         get_params = self.query_params
         post_params = await self.get_POST()
-
-        # 合并 GET 和 POST 参数
         merged_params = {}
         merged_params.update(get_params)
         merged_params.update(post_params)
         return merged_params
+
+    @property
+    def is_xhr(self):
+        """检查是否为 AJAX 请求"""
+        return self.headers.get('x-requested-with', '').lower() == 'xmlhttprequest'
+
+    @property
+    def path(self):
+        """获取请求路径"""
+        return self.url.path
+
+    @property
+    def method(self):
+        """获取请求方法"""
+        return self.scope.get("method", "")
 
     # 向后兼容的同步属性（标记为已弃用）
     @property
@@ -243,7 +258,6 @@ class Request(StarletteRequest):
         """已弃用：同步访问 POST 数据会抛出异常"""
         raise RuntimeError(
             "POST 属性已弃用，请使用 await request.get_POST() 方法。"
-            "同步代码可以使用同步适配器机制。"
         )
 
     @property
@@ -251,7 +265,6 @@ class Request(StarletteRequest):
         """已弃用：同步访问 FILES 数据会抛出异常"""
         raise RuntimeError(
             "FILES 属性已弃用，请使用 await request.get_FILES() 方法。"
-            "同步代码可以使用同步适配器机制。"
         )
 
     @property
@@ -259,25 +272,11 @@ class Request(StarletteRequest):
         """已弃用：同步访问 JSON 数据会抛出异常"""
         raise RuntimeError(
             "json 属性已弃用，请使用 await request.get_json() 方法。"
-            "同步代码可以使用同步适配器机制。"
         )
 
     @property
     def params(self):
-        """兼容 params 属性，返回 GET 参数
-
-        注意：由于 POST 数据需要异步读取，此属性仅返回 GET (query) 参数。
-        如需合并 GET 和 POST 参数，请在异步视图函数中：
-
-        ```python
-        @expose('/api/data')
-        async def async_view():
-            get_params = dict(request.query_params)
-            post_params = dict(await request.get_POST())
-            all_params = {**get_params, **post_params}
-            return all_params
-        ```
-        """
+        """兼容 params 属性，返回 GET 参数"""
         return self.query_params
 
 class Response(StarletteResponse):
@@ -285,18 +284,17 @@ class Response(StarletteResponse):
 
     def write(self, value):
         """兼容 write 方法"""
-        # 在异步环境中，write 方法需要特殊处理
-        # 这里暂时保持接口兼容性
         pass
 ```
 
 **兼容性改进说明：**
 
 1. **避免 async property 陷阱**：将 `async def POST`、`async def FILES`、`async def json` 改为明确的异步方法 `get_POST()`、`get_FILES()`、`get_json()`
-2. **修复递归调用错误**：`async def json` 中的 `return await self.json()` 改为 `return await super().json()`
+2. **修复递归调用错误**：使用 `await super().json()` 而不是 `await self.json()`
 3. **强制异步化**：`params` 属性改为异步方法 `get_params()`，因为需要异步读取 POST 数据
 4. **明确的弃用策略**：保留同步属性但抛出异常，指导用户使用正确的异步方法
 5. **同步适配器支持**：框架层提供同步到异步的自动适配，支持现有同步代码
+6. **新增 state 属性**：提供 `request.state` 用于在请求生命周期内存储数据
 
 **使用示例：**
 ```python
@@ -308,6 +306,9 @@ async def async_view():
     json_data = await request.get_json()
     files = await request.get_FILES()
     params = await request.get_params()
+
+    # 使用 state 存储请求级数据
+    request.state.user_id = 123
 
     return {"status": "success"}
 
@@ -336,7 +337,7 @@ class Dispatcher(object):
 ```
 
 
-**实际实现（与规划一致但更完整）：**
+**实际实现（位于 `uliweb/core/SimpleFrame.py`）：**
 ```python
 class AsyncDispatcher:
     """支持 ASGI 3.0 接口的异步 Dispatcher"""
@@ -353,29 +354,31 @@ class AsyncDispatcher:
         self.local_settings_file = local_settings_file
         self.router = UliwebRouter()
         self._initialized = False
+        self._middleware_stack = None
+        self.route_param_types = {}
 
-        if start:
-            # 注意：使用 asyncio.create_task 可能导致竞态条件
-            # 第一个请求可能在初始化完成前到达
-            # handle_http 中有等待初始化完成的逻辑，这是正确的处理方式
-            # 但在构造函数中创建任务可能导致初始化任务被取消
-            # 建议：在应用启动时显式调用 init() 或使用事件等待
-            asyncio.create_task(self._async_init())
+        # 设置初始化策略：延迟加载或同步加载
+        # ...
 
     async def _async_init(self):
         """异步初始化方法"""
         if not self._initialized:
             await self.init()
+            # 初始化路由
+            await self._init_routes()
             self._initialized = True
 
     async def __call__(self, scope, receive, send):
         """ASGI 3.0 接口实现"""
-        if scope["type"] == "http":
-            await self.handle_http(scope, receive, send)
-        elif scope["type"] == "websocket":
-            await self.handle_websocket(scope, receive, send)
-        else:
-            raise ValueError(f"Unsupported scope type: {scope['type']}")
+        # 确保应用已初始化
+        if not self._initialized:
+            await self._async_init()
+
+        # 构建中间件调用链
+        app = await self._build_middleware_stack()
+
+        # 处理请求
+        await app(scope, receive, send)
 
     async def handle_http(self, scope, receive, send):
         """处理 HTTP 请求"""
@@ -406,12 +409,10 @@ class AsyncDispatcher:
 
         try:
             await websocket.accept()
-            # 这里可以添加 WebSocket 处理逻辑
             while True:
                 message = await websocket.receive()
                 if message["type"] == "websocket.disconnect":
                     break
-                # 处理消息
                 await self._handle_websocket_message(websocket, message)
         finally:
             request_var.reset(websocket_token)
@@ -428,12 +429,7 @@ url_map = Map(strict_slashes=False)
 rules.add_rule(url_map, _url, endpoint, **kw)
 ```
 
-**迁移到 Starlette 路由：**
-```python
-from starlette.routing import Route, Router, Mount
-from starlette.applications import Starlette
-
-**实际实现（与规划一致但更完整）：**
+**迁移到 Starlette 路由（实际实现位于 `uliweb/core/SimpleFrame.py`）：**
 ```python
 class UliwebRouter:
     """Uliweb 路由适配器，将 Werkzeug 风格路由转换为 Starlette 风格"""
@@ -446,8 +442,6 @@ class UliwebRouter:
     def add_route(self, rule, endpoint, **kwargs):
         """转换 Werkzeug 风格路由到 Starlette 风格"""
         # 转换参数格式: <name> -> {name}
-        # 注意：Werkzeug 的类型提示如 <int:id> 会被转换为 {id}，类型信息会丢失
-        # 开发者需要在视图函数中进行类型转换
         starlette_rule = re.sub(r'<([^:>]+)(?::[^>]+)?>', r'{\1}', rule)
 
         methods = kwargs.get('methods', ['GET'])
@@ -482,96 +476,45 @@ class UliwebRouter:
         self.router.routes.append(mount)
         return mount
 
-# 路由收集机制，类似 SimpleFrame.py 中的 __exposes__
-__exposes__ = {}
-__no_need_exposed__ = []
-__url_names__ = {}
+    def bind(self, server_name=None, **kwargs):
+        """返回路由绑定对象（兼容 werkzeug）"""
+        return self.router
 
-def expose(rule=None, **kwargs):
-    """适配现有的 expose 装饰器"""
-    def decorator(func):
-        # 收集路由信息，而不是直接注册
-        from uliweb.utils.date import now
-        from uliweb.utils._compat import ismethod, get_class
+    def iter_rules(self):
+        """迭代所有路由规则"""
+        return iter(self.routes)
 
-        # 获取应用名称
-        def _get_appname(module_name):
-            parts = module_name.split('.')
-            # 找到第一个不是 'views' 的部分作为应用名
-            for part in parts:
-                if part != 'views' and not part.startswith('_'):
-                    return part
-            return parts[0] if parts else 'unknown'
+    def build(self, endpoint, values, force_external=False):
+        """根据 endpoint 名称和参数构建 URL"""
+        # 查找对应的路由
+        route = self.url_map.get(endpoint)
+        if route:
+            try:
+                if route.name:
+                    url = self.router.url_path_for(route.name, **values).path
+                    return url
+            except Exception:
+                pass
 
-        # 获取端点名称
-        def _get_endpoint(func):
-            if ismethod(func):
-                _class = get_class(func)
-                return '.'.join([_class.__module__, _class.__name__, func.__name__])
-            elif callable(func):
-                # 直接返回函数对象，而不是字符串端点名
-                # 这样在路由匹配时可以直接调用函数
-                return func
-            else:
-                return str(func)
+        # 如果找不到路由，从路由规则中提取路径模式
+        for r in self.routes:
+            endpoint_attr = getattr(r, 'endpoint', None)
+            if endpoint_attr == endpoint or r.name == endpoint:
+                path = r.path
+                for key, value in values.items():
+                    path = path.replace('{' + key + '}', str(value))
+                return path
 
-        # 获取应用名和端点
-        appname = _get_appname(func.__module__)
-        endpoint = _get_endpoint(func)
+        return f"/{endpoint}"
 
-        # 收集路由信息
-        route_info = (appname, endpoint, rule, kwargs, now())
-        __no_need_exposed__.append(route_info)
 
-        # 设置函数属性，保持与 SimpleFrame.py 的兼容性
-        setattr(func, '__exposed__', True)
-        setattr(func, '__no_rule__', rule is None)
-        if not hasattr(func, '__old_rule__'):
-            setattr(func, '__old_rule__', {})
-        getattr(func, '__old_rule__')[rule] = rule
-        setattr(func, '__template__', kwargs.get('template'))
-        setattr(func, '__layout__', kwargs.get('layout'))
-        setattr(func, '__fixed_url__', rule and rule.startswith('!'))
-
-        return func
-    return decorator
-
-def POST(rule, **kw):
-    """POST 方法装饰器"""
-    kw['methods'] = ['POST']
-    return expose(rule, **kw)
-
-def GET(rule, **kw):
-    """GET 方法装饰器"""
-    kw['methods'] = ['GET']
-    return expose(rule, **kw)
-
-def _merge_rules():
-    """合并路由规则，类似 SimpleFrame.py 中的 merge_rules 函数"""
-    from itertools import chain
-
-    s = []
-    index = {}
-    for v in sorted(__no_need_exposed__, key=lambda x: x[4]):  # 按时间戳排序
-        appname, endpoint, url, kw, timestamp = v
-        if 'name' in kw:
-            url_name = kw.pop('name')
-        else:
-            url_name = endpoint
-        __url_names__[url_name] = endpoint
-        methods = [y.upper() for y in kw.get('methods', [])]
-        methods.sort()
-
-        key = url, tuple(methods), kw.get('subdomain')
-        i = index.get(key, None)
-        if i is not None:
-            s[i] = (appname, endpoint, url, kw)
-        else:
-            s.append((appname, endpoint, url, kw))
-            index[key] = len(s) - 1
-
-    return s
+url_map = UliwebRouter()
 ```
+
+路由收集机制使用 `rules.py` 模块中的函数：
+- `expose(rule=None, **kwargs)` - 路由装饰器
+- `_merge_rules()` - 合并路由规则
+- `POST(rule, **kw)` / `GET(rule, **kw)` - HTTP 方法装饰器
 
 ### 4.4 全局状态管理迁移
 
@@ -592,10 +535,10 @@ __global__.application = None
 
 **实际实现（使用 contextvars）：**
 
-Uliweb3 使用 Python 的 `contextvars` 模块来实现全局状态管理，它比线程局部存储更适合异步环境。所有的全局状态都存储在 `uliweb/core/context.py` 模块中，提供统一的访问接口。
+Uliweb3 使用 Python 的 `contextvars` 模块来实现全局状态管理，它比线程局部存储更适合异步环境。实际实现位于 `uliweb/core/context.py` 模块中。
 
 ```python
-# uliweb/core/context.py
+# uliweb/core/context.py 关键代码
 import contextvars
 
 # 请求上下文变量
@@ -604,40 +547,21 @@ response_var = contextvars.ContextVar('response')
 settings_var = contextvars.ContextVar('settings')
 application_var = contextvars.ContextVar('application')
 
-# 获取当前值的辅助函数
-def get_request():
-    return request_var.get(None)
-
-def get_response():
-    return response_var.get(None)
-
-def get_settings():
-    return settings_var.get(None)
-
-def get_application():
-    return application_var.get(None)
-
-# 代理类：从 contextvars 获取值
+# 代理类
 class GlobalSettingsProxy:
-    """全局 settings 代理类，只从 contextvars 获取 settings"""
-
     def __init__(self):
         self._var = settings_var
 
     def _get_instance(self):
         result = self._var.get(None)
         if result is None:
-            raise RuntimeError("settings not initialized. Please ensure AsyncDispatcher or Dispatcher has been created.")
+            raise RuntimeError("settings not initialized.")
         return result
 
     def __getattr__(self, name):
         return getattr(self._get_instance(), name)
 
-    # ... 其他代理方法
-
 class ContextProxy:
-    """通用代理类，用于 request/response/application"""
-
     def __init__(self, var, default=None):
         self._var = var
         self._default = default
@@ -648,16 +572,20 @@ class ContextProxy:
     def __getattr__(self, name):
         return getattr(self._get_instance(), name)
 
-    # ... 其他代理方法
-
 # 创建全局代理对象
 settings_proxy = GlobalSettingsProxy()
 request_proxy = ContextProxy(request_var, None)
 response_proxy = ContextProxy(response_var, None)
 application_proxy = ContextProxy(application_var, None)
+
+# 导出
+settings = settings_proxy
+request = request_proxy
+response = response_proxy
+application = application_proxy
 ```
 
-**在 AsyncDispatcher 中设置上下文：**
+**在 SimpleFrame.py 的 AsyncDispatcher 中设置上下文：**
 
 ```python
 class AsyncDispatcher:
@@ -2121,27 +2049,34 @@ path = os.path.dirname(os.path.abspath(__file__))
 if path not in sys.path:
     sys.path.insert(0, path)
 
-**实际实现（与规划一致但更完整）：**
+**实际实现（位于 `uliweb/core/SimpleFrame.py`）：**
 ```python
 class ASGIApplication:
-    """纯 ASGI 应用处理器"""
+    """纯 ASGI 应用处理器（单例模式）"""
+
+    _instance = None
+    _instance_project_dir = None
+    _instance_asgi_app = None
+
+    def __new__(cls, project_dir=None):
+        # 单例模式：只创建一次实例
+        if cls._instance is None or cls._instance_project_dir != project_dir:
+            cls._instance = super(ASGIApplication, cls).__new__(cls)
+            cls._instance._initialized = False
+            cls._instance_project_dir = project_dir
+        return cls._instance
 
     def __init__(self, project_dir=None):
         self.project_dir = project_dir
-        self.asgi_app = None
-        self._initialized = False
 
     def _initialize(self):
         """初始化 ASGI 应用"""
         if not self._initialized:
-            # 处理 project_dir 为 None 的情况
             if self.project_dir is None:
-                # 尝试获取当前工作目录作为默认项目目录
                 self.project_dir = os.getcwd()
 
-            # 创建 ASGI Dispatcher
-            self.asgi_app = AsyncDispatcher(
-                apps_dir=os.path.join(self.project_dir, 'apps'),
+            ASGIApplication._instance_asgi_app = AsyncDispatcher(
+                apps_dir='apps',
                 project_dir=self.project_dir
             )
             self._initialized = True
@@ -2149,7 +2084,7 @@ class ASGIApplication:
     async def __call__(self, scope, receive, send):
         """ASGI 接口"""
         self._initialize()
-        await self.asgi_app(scope, receive, send)
+        await ASGIApplication._instance_asgi_app(scope, receive, send)
 
 # 创建应用实例
 application = ASGIApplication(project_dir=path)
@@ -2163,27 +2098,28 @@ def create_application():
 
 **实际实现的关键特性：**
 
-基于 `starlette.py` 的实际实现，Uliweb 的 Starlette 集成具有以下特点：
+基于 `uliweb/core/SimpleFrame.py` 的实际实现，Uliweb 的 ASGI 架构具有以下特点：
 
-1. **完全兼容现有 Uliweb 架构**：保持与 SimpleFrame.py 相同的接口和设计模式
+1. **完全兼容现有 Uliweb 架构**：保持与原有 SimpleFrame.py 相同的接口和设计模式
 2. **渐进式迁移支持**：可以逐步将现有应用迁移到 ASGI
 3. **保持现有配置系统**：继续使用现有的 settings.ini 配置机制
-4. **模板系统兼容**：继续使用 Uliweb 的模板系统，支持异步渲染
+4. **模板系统兼容**：继续使用 Uliweb 的模板系统，通过协程池实现异步渲染
 5. **路由系统适配**：将 Werkzeug 风格路由转换为 Starlette 风格
 
 6. **完整的模板渲染支持**：支持 Uliweb 模板系统的异步渲染
-7. **中间件系统兼容**：支持现有的 Uliweb 中间件架构
+7. **中间件系统兼容**：支持现有的 Uliweb 中间件架构（process_request/process_response/process_exception）
 8. **错误处理机制**：提供完整的异常处理和错误页面支持
 9. **CORS 支持**：内置 CORS 跨域请求支持
 10. **WebSocket 支持**：完整的 WebSocket 协议支持
 
-**实际实现与规划的主要差异：**
+**实际实现与原规划的主要差异：**
 
-1. **配置系统保持同步**：实际实现中配置加载仍然使用同步方式，通过协程池处理
-2. **模板渲染使用协程池**：模板系统继续使用 Uliweb 的同步模板，通过 `run_in_executor` 在协程池中异步执行，而非真正的异步 I/O
-3. **中间件系统简化**：实际实现采用更直接的中间件处理方式
-4. **路由匹配优化**：实现了更精确的路由匹配算法，支持参数提取
-5. **错误处理增强**：提供了更完善的异常处理和调试信息
+1. **所有代码位于 SimpleFrame.py**：不再有独立的 `starlette.py` 文件
+2. **配置系统保持同步**：实际实现中配置加载仍然使用同步方式，通过协程池处理
+3. **模板渲染使用协程池**：模板系统继续使用 Uliweb 的同步模板，通过 `run_in_executor` 在协程池中异步执行
+4. **中间件系统简化**：实际实现采用更直接的中间件处理方式，支持传统接口和 ASGI 接口
+5. **路由匹配优化**：实现了更精确的路由匹配算法，支持参数提取
+6. **错误处理增强**：提供了更完善的异常处理和调试信息
 
 **使用方式：**
 - 使用 ASGI 服务器如 Uvicorn、Hypercorn、Daphne 运行应用
@@ -2496,12 +2432,12 @@ async def websocket_endpoint(websocket: WebSocket):
 ## 8. 实际实现状态总结
 
 ### 8.1 已实现的功能
-基于 `starlette.py` 的实际实现，以下功能已经完成：
+基于 `uliweb/core/SimpleFrame.py` 的实际实现，以下功能已经完成：
 
 1. **ASGI 接口实现**：完整的 ASGI 3.0 接口支持
 2. **Request/Response 对象**：基于 Starlette 的异步请求/响应对象
 3. **路由系统**：支持 Werkzeug 风格路由到 Starlette 路由的转换
-4. **模板渲染**：支持 Uliweb 模板系统的异步渲染
+4. **模板渲染**：支持 Uliweb 模板系统的异步渲染（通过协程池）
 5. **中间件系统**：兼容现有 Uliweb 中间件架构
 6. **错误处理**：完整的异常处理和错误页面支持
 7. **CORS 支持**：内置跨域请求支持
@@ -2514,6 +2450,7 @@ async def websocket_endpoint(websocket: WebSocket):
 2. **兼容性优先**：保持与现有 Uliweb 项目的完全兼容
 3. **性能优化**：通过协程池实现同步到异步的平滑过渡
 4. **开发友好**：提供详细的错误信息和调试支持
+5. **代码集中**：所有 ASGI 相关实现集中在 `uliweb/core/SimpleFrame.py` 中
 
 ### 8.3 使用方式
 - **运行方式**：使用 ASGI 服务器如 Uvicorn、Hypercorn、Daphne
@@ -2685,7 +2622,7 @@ DEBUG = true                      # 开发阶段启用调试模式
 - 持续优化和改进
 
 ### 实际实现验证
-基于 `starlette.py` 的实际实现已经验证了以下关键功能：
+基于 `uliweb/core/SimpleFrame.py` 的实际实现已经验证了以下关键功能：
 - ASGI 3.0 接口的完整实现
 - 与现有 Uliweb 项目的兼容性
 - 异步模板渲染的性能优化
