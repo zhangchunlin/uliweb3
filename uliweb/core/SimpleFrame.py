@@ -188,6 +188,7 @@ def _merge_rules():
     index = {}
     # 同时遍历 __no_need_exposed__ 和 __exposes__
     all_rules = __no_need_exposed__ + list(chain(*__exposes__.values()))
+
     for v in sorted(all_rules, key=lambda x: x[4]):  # 按时间戳排序
         appname, endpoint, url, kw, timestamp = v
         if 'name' in kw:
@@ -1883,6 +1884,34 @@ class AsyncDispatcher:
     def _init_settings(self):
         """同步初始化 settings"""
         import asyncio
+        import concurrent.futures
+
+        # 检查是否已经有事件循环在运行
+        try:
+            loop = asyncio.get_running_loop()
+            # 如果已经有事件循环在运行，使用 run_in_executor 执行同步代码
+            def load_settings_sync():
+                return self._load_settings_sync()
+
+            # 使用线程池执行同步加载
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(load_settings_sync)
+                settings, apps = future.result()
+
+            # 设置结果
+            self.settings = settings
+            self.apps = apps
+            __global__.settings = settings
+            settings.set(settings)
+            self._settings_loaded = True
+
+            # 同步初始化路由（调用 init_urls）
+            self._init_routes_sync()
+
+            return
+        except RuntimeError:
+            # 没有事件循环在运行，可以使用 new_event_loop
+            pass
 
         # 创建新的事件循环来执行异步初始化
         loop = asyncio.new_event_loop()
@@ -1890,8 +1919,55 @@ class AsyncDispatcher:
         try:
             # 执行异步初始化
             loop.run_until_complete(self._load_settings_and_apps())
+
+            # 同步初始化路由（调用 init_urls）
+            self._init_routes_sync()
         finally:
             loop.close()
+
+    def _load_settings_sync(self):
+        """同步加载 settings（在线程池中执行）"""
+        # 复用 _load_settings() 的内部逻辑，但以同步方式执行
+        # 直接调用 load_settings 内部函数（不通过 run_in_executor）
+        project_dir = self.project_dir
+        if project_dir is None:
+            project_dir = os.getcwd()
+
+        # 定义内部函数，复用 _load_settings 中的逻辑
+        def load_settings():
+            from uliweb.core.SimpleFrame import collect_settings
+            import uliweb.utils.pyini as pyini
+
+            settings = collect_settings(
+                project_dir,
+                self.include_apps,
+                self.settings_file,
+                self.local_settings_file
+            )
+            x = pyini.Ini(lazy=True, basepath=os.path.join(project_dir, 'apps'))
+            for v in settings:
+                if 'default_settings.ini' in v:
+                    x.read(v)
+                else:
+                    appname = os.path.basename(os.path.dirname(v))
+                    x.set_pre_variables({'appname': appname})
+                    x.read(v)
+            d = dict([(k, repr(v)) for k, v in self.default_settings.items()])
+            x.update(d or {})
+            x.freeze()
+            if not x.GLOBAL.FILESYSTEM_ENCODING:
+                x.GLOBAL.FILESYSTEM_ENCODING = sys.getfilesystemencoding() or x.GLOBAL.DEFAULT_ENCODING
+            return x
+
+        # 执行 settings 加载
+        settings = load_settings()
+
+        # 获取 apps 列表
+        from uliweb.core.SimpleFrame import get_apps as get_sync_apps
+        apps_dir_full = os.path.join(self.project_dir, self.apps_dir) if self.project_dir else self.apps_dir
+        apps = get_sync_apps(apps_dir_full, self.include_apps, self.settings_file, self.local_settings_file)
+
+        return settings, apps
 
     async def _load_settings_and_apps(self):
         """加载 settings 和 apps"""
@@ -1909,6 +1985,41 @@ class AsyncDispatcher:
 
         # 标记 settings 已加载
         self._settings_loaded = True
+
+    def _init_routes_sync(self):
+        """同步初始化路由"""
+        # 设置域名
+        self.domains = {}
+        if hasattr(self.settings, 'DOMAINS') and self.settings.DOMAINS:
+            from uliweb.utils._compat import import_
+            urlparse = import_('urllib.parse', 'urlparse')
+            for k, v in self.settings.DOMAINS.items():
+                _domain = urlparse(v['domain'])
+                self.domains[k] = {'domain': v.get('domain'), 'domain_parse': _domain,
+                    'host': _domain.netloc or v.get('domain'),
+                    'scheme': _domain.scheme or 'http', 'display': v.get('display', False),
+                    'url_prefix': v.get('url_prefix', '')}
+
+        # 使用 rules.merge_rules() 获取所有路由规则
+        # 然后使用 rules.add_rule 注册路由
+        # rules.add_rule 已经支持 websocket 参数
+        for v in rules.merge_rules():
+            appname, endpoint, url, kw = v
+            static = kw.pop('static', None)
+            if static:
+                domain_name = 'static'
+            else:
+                domain_name = 'default'
+            domain = self.domains.get(domain_name, {})
+            url_prefix = domain.get('url_prefix', '')
+            _url = url_prefix + url
+
+            if static:
+                self.static_views.append(endpoint)
+
+            # 使用 rules.add_rule 注册路由
+            # 这个函数支持 websocket 参数
+            rules.add_rule(self.router, _url, endpoint, **kw)
 
     async def _async_init(self):
         """异步初始化方法"""
@@ -2197,13 +2308,13 @@ class AsyncDispatcher:
 
         try:
             # 路由匹配
-            rule, values = await self._match_websocket_route(websocket)
+            matched_rule, values = await self._match_websocket_route(websocket)
 
-            # 将 route 对象绑定到 websocket，以便 _open_websocket 可以访问
-            websocket.rule = route
+            # 将 rule 对象绑定到 websocket，以便 _open_websocket 可以访问
+            websocket.rule = matched_rule
 
             # 准备请求处理
-            mod, handler_cls, handler = self.prepare_request(websocket, route)
+            mod, handler_cls, handler = self.prepare_request(websocket, matched_rule)
 
             # 将 handler 保存到 websocket 对象上，以便 _open_websocket 可以访问
             websocket._handler = handler
@@ -2419,16 +2530,20 @@ class AsyncDispatcher:
         # 首先导入视图模块，这样 expose 装饰器才能被调用
         await self._import_views()
 
-        # 合并路由规则
-        merged_rules = _merge_rules()
+        # 合并路由规则 - 使用 rules.merge_rules() 而不是 _merge_rules()
+        # 因为 rules.merge_rules() 会保留 websocket 参数
+        merged_rules = rules.merge_rules()
 
-        # 清空现有路由，避免重复
-        self.router.routes.clear()
-        self.router.router.routes.clear()
+        # 检查是否已经有路由，如果有则跳过重复注册
+        # 因为 _init_routes_sync 已经正确注册了路由
+        existing_route_paths = set(r.path for r in self.router.routes)
+        if existing_route_paths:
+            return
 
         # 注册路由到路由器
         for rule_info in merged_rules:
             appname, endpoint, url, kw = rule_info
+
             # 转换 Werkzeug 风格路由到 Starlette 风格，返回 (转换后的规则, 参数类型字典)
             starlette_rule, param_types = _convert_route_param(url)
 
@@ -2520,18 +2635,11 @@ class AsyncDispatcher:
         if apps_path and apps_path not in sys.path:
             sys.path.insert(0, apps_path)
 
-        # 调试输出
-        logger.debug(f"sys.path = {sys.path[:5]}...")
-        logger.debug(f"self.apps = {self.apps}")
-        logger.debug(f"project_dir = {self.project_dir}")
-        logger.debug(f"apps_path = {apps_path}")
-
         # 收集所有应用的视图模块
         views_modules = []
         for app in self.apps:
             # 检查是否有 apps 目录
             has_apps_dir = self.project_dir and os.path.exists(os.path.join(self.project_dir, 'apps'))
-            logger.debug(f"Processing app: {app}, has_apps_dir: {has_apps_dir}")
 
             # 尝试导入 views.py
             try:
@@ -2541,26 +2649,19 @@ class AsyncDispatcher:
                 else:
                     views_module = f"{app}.views"
 
-                logger.debug(f"Trying to import: {views_module}")
-
                 # 尝试直接导入模块
                 try:
                     myimport(views_module)
                     views_modules.append(views_module)
-                    logger.debug(f"Successfully imported: {views_module}")
-                except ImportError as e1:
-                    logger.debug(f"Failed to import {views_module}: {e1}")
+                except ImportError:
                     # 如果失败，尝试直接导入应用模块
                     try:
                         myimport(app)
                         views_modules.append(app)
-                        logger.debug(f"Successfully imported app: {app}")
-                    except ImportError as e2:
-                        logger.debug(f"Failed to import app {app}: {e2}")
+                    except ImportError:
                         # 再次尝试 views 模块
                         pass
-            except ImportError as e:
-                logger.debug(f"Error importing views for {app}: {e}")
+            except ImportError:
                 # 如果 views.py 不存在，尝试导入 views 目录下的模块
                 try:
                     # 获取应用目录
@@ -2583,8 +2684,6 @@ class AsyncDispatcher:
                                     pass
                 except ImportError:
                     pass
-            except ImportError:
-                pass
 
         # 导入 contrib 应用的模块
         for app in self.apps:
@@ -3598,10 +3697,17 @@ class ASGIApplication:
             # 创建 ASGI Dispatcher
             # 注意：apps_dir 只需要传递 'apps'，而不是完整路径
             # 因为 AsyncDispatcher 会将 project_dir 和 apps_dir 拼接
-            ASGIApplication._instance_asgi_app = AsyncDispatcher(
+            asgi_app = AsyncDispatcher(
                 apps_dir='apps',
                 project_dir=self.project_dir
             )
+
+            # 直接调用 _init_routes_sync，确保路由正确初始化
+            asgi_app._init_routes_sync()
+
+            # 保存实例
+            ASGIApplication._instance_asgi_app = asgi_app
+
             self._initialized = True
 
     async def __call__(self, scope, receive, send):

@@ -125,6 +125,22 @@ def expose(rule=None, **kwargs):
     else:
         return e
 
+
+def add_rule(map, url, endpoint, **kw):
+    """将路由规则添加到路由映射中
+
+    这个函数用于 WSGI 版本的 Dispatcher.init_urls 方法
+    支持 websocket 参数来注册 WebSocket 路由
+    """
+    # 获取 websocket 参数
+    websocket = kw.pop('websocket', False)
+
+    # 根据是否有 websocket 参数来选择路由方法
+    if hasattr(map, 'add_websocket_route') and websocket:
+        map.add_websocket_route(url, endpoint, **kw)
+    else:
+        map.add_route(url, endpoint, **kw)
+
 class Expose(object):
     def __init__(self, rule=None, restful=False, replace=False, template=None,
                  layout=None, websocket=False, **kwargs):
