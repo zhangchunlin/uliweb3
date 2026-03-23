@@ -1,16 +1,25 @@
 """
 Uliweb 上下文变量模块
-提供统一的 contextvars 支持，用于在异步和同步环境中存储请求相关的全局变量
+
+根据 asgi.md 文档的设计方案：
+- settings 和 application 使用普通全局变量（整个应用生命周期内保持一致）
+- request 和 response 使用 contextvars（每个协程独立隔离）
+
+使用新的 LocalProxy 实现（来自 uliweb/utils/localproxy.py）
 """
 
+from uliweb.utils.localproxy import LocalProxy
+
+# request 和 response 使用 contextvars（每个协程独立隔离）
 import contextvars
-
-
-# 请求上下文变量
 request_var = contextvars.ContextVar('request')
 response_var = contextvars.ContextVar('response')
-settings_var = contextvars.ContextVar('settings')
-application_var = contextvars.ContextVar('application')
+
+# settings 和 application 使用普通全局变量
+# 定义为 LocalProxy，use_contextvars=False 表示使用 __global__ 获取值
+# 这样可以在不同模块间共享
+settings_var = LocalProxy('settings', use_contextvars=False)
+application_var = LocalProxy('application', use_contextvars=False)
 
 
 def get_request():
@@ -33,105 +42,20 @@ def get_application():
     return application_var.get(None)
 
 
-class GlobalSettingsProxy:
-    """
-    全局 settings 代理类
-    只从 contextvars 获取 settings，不再回退到 __global__
-    """
+# 创建全局代理对象
+# settings 和 application 使用 LocalProxy（普通全局变量）
+settings_proxy = settings_var
+application_proxy = application_var
 
-    def __init__(self):
-        self._var = settings_var
-
-    def _get_instance(self):
-        """获取 settings 实例"""
-        # 优先从 contextvars 获取
-        result = self._var.get(None)
-        if result is None:
-            # 回退到 __global__，用于线程池等场景
-            try:
-                from uliweb.core.SimpleFrame import __global__
-                result = getattr(__global__, 'settings', None)
-            except ImportError:
-                pass
-        if result is None:
-            raise RuntimeError("settings not initialized. Please ensure AsyncDispatcher or Dispatcher has been created.")
-        return result
-
-    def __getattr__(self, name):
-        return getattr(self._get_instance(), name)
-
-    def __setattr__(self, name, value):
-        if name.startswith('_'):
-            object.__setattr__(self, name, value)
-        else:
-            setattr(self._get_instance(), name, value)
-
-    def __delattr__(self, name):
-        delattr(self._get_instance(), name)
-
-    def __bool__(self):
-        return bool(self._get_instance())
-
-    def __str__(self):
-        return str(self._get_instance())
-
-    def __repr__(self):
-        return repr(self._get_instance())
-
-    def __iter__(self):
-        return iter(self._get_instance())
-
-    def __len__(self):
-        return len(self._get_instance())
-
-    def __contains__(self, item):
-        return item in self._get_instance()
-
-    def __getitem__(self, item):
-        return self._get_instance()[item]
-
-    def __setitem__(self, item, value):
-        self._get_instance()[item] = value
-
-    def __delitem__(self, item):
-        del self._get_instance()[item]
-
-    def get(self, key, default=None):
-        return self._get_instance().get(key, default)
-
-    def get_var(self, key, default=None):
-        return self._get_instance().get_var(key, default)
-
-    def set_var(self, key, value):
-        return self._get_instance().set_var(key, value)
-
-    def items(self):
-        return self._get_instance().items()
-
-    def keys(self):
-        return self._get_instance().keys()
-
-    def values(self):
-        return self._get_instance().values()
-
-    def __getstate__(self):
-        return {}
-
-    def __setstate__(self, state):
-        pass
-
-
-class ContextProxy:
-    """
-    一个简单的代理类，用于将 contextvars 包装成类似普通对象的方式
-    """
+# request 和 response 使用 contextvars 包装
+class _ContextProxy:
+    """request/response 代理类，使用 contextvars"""
 
     def __init__(self, var, default=None):
         self._var = var
         self._default = default
 
     def _get_instance(self):
-        """获取当前 contextvars 中存储的对象"""
         return self._var.get(self._default)
 
     def __getattr__(self, name):
@@ -177,34 +101,23 @@ class ContextProxy:
         return self._get_instance().get(key, default)
 
     def get_var(self, key, default=None):
-        return self._get_instance().get_var(key, default)
+        return getattr(self._get_instance(), 'get_var', lambda k, d: d)(key, default)
 
     def set_var(self, key, value):
-        return self._get_instance().set_var(key, value)
+        return getattr(self._get_instance(), 'set_var', lambda k, v: None)(key, value)
 
     def items(self):
-        return self._get_instance().items()
+        return getattr(self._get_instance(), 'items', lambda: [])()
 
     def keys(self):
-        return self._get_instance().keys()
+        return getattr(self._get_instance(), 'keys', lambda: [])()
 
     def values(self):
-        return self._get_instance().values()
-
-    def __getstate__(self):
-        return {'_var': self._var, '_default': self._default}
-
-    def __setstate__(self, state):
-        object.__setattr__(self, '_var', state['_var'])
-        object.__setattr__(self, '_default', state['_default'])
+        return getattr(self._get_instance(), 'values', lambda: [])()
 
 
-# 创建使用 contextvars 的全局代理对象
-# 对于 settings，使用特殊的 GlobalSettingsProxy，它会回退到 __global__.settings
-settings_proxy = GlobalSettingsProxy()
-request_proxy = ContextProxy(request_var, None)
-response_proxy = ContextProxy(response_var, None)
-application_proxy = ContextProxy(application_var, None)
+request_proxy = _ContextProxy(request_var, None)
+response_proxy = _ContextProxy(response_var, None)
 
 
 __all__ = [
@@ -216,7 +129,6 @@ __all__ = [
     'get_response',
     'get_settings',
     'get_application',
-    'ContextProxy',
     'settings_proxy',
     'request_proxy',
     'response_proxy',

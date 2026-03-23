@@ -524,7 +524,7 @@ from werkzeug.local import Local, LocalManager
 local = Local()
 local.request = None
 local.response = None
-local_manager = LocalManager([local])
+local_manager = local_manager = LocalManager([local])
 
 # 全局对象存储
 __global__ = Global()
@@ -532,60 +532,76 @@ __global__.settings = pyini.Ini(lazy=True)
 __global__.application = None
 ```
 
+#### 4.4.1 LocalProxy 统一设计方案
 
-**实际实现（使用 contextvars）：**
+Uliweb3 使用 LocalProxy 来管理全局状态，支持两种存储方式：
+- **普通全局变量**：适用于 settings 和 application（整个应用生命周期内保持一致）
+- **contextvars**：适用于需要每个协程独立的变量（通过 `use_contextvars` 参数启用）
 
-Uliweb3 使用 Python 的 `contextvars` 模块来实现全局状态管理，它比线程局部存储更适合异步环境。实际实现位于 `uliweb/core/context.py` 模块中。
+**LocalProxy 实现（位于 `uliweb/utils/localproxy.py`）：**
 
 ```python
-# uliweb/core/context.py 关键代码
 import contextvars
+from typing import Any
 
-# 请求上下文变量
-request_var = contextvars.ContextVar('request')
-response_var = contextvars.ContextVar('response')
-settings_var = contextvars.ContextVar('settings')
-application_var = contextvars.ContextVar('application')
 
-# 代理类
-class GlobalSettingsProxy:
-    def __init__(self):
-        self._var = settings_var
+class LocalProxy:
+    """LocalProxy 代理类
 
-    def _get_instance(self):
-        result = self._var.get(None)
-        if result is None:
-            raise RuntimeError("settings not initialized.")
-        return result
+    参数：
+        name: 变量名称
+        default: 默认值
+        use_contextvars: 是否使用 contextvars（默认 False）
+    """
 
-    def __getattr__(self, name):
-        return getattr(self._get_instance(), name)
+    __slots__ = ['_name', '_default', '_use_contextvars', '_var', '_value']
 
-class ContextProxy:
-    def __init__(self, var, default=None):
-        self._var = var
+    def __init__(self, name: str, default: Any = None, use_contextvars: bool = False):
+        self._name = name
         self._default = default
+        self._use_contextvars = use_contextvars
 
-    def _get_instance(self):
-        return self._var.get(self._default)
+        if use_contextvars:
+            # 使用 contextvars（支持协程隔离）
+            self._var = contextvars.ContextVar(name, default=default)
+        else:
+            # 使用普通全局变量
+            self._value = default
 
-    def __getattr__(self, name):
-        return getattr(self._get_instance(), name)
+    def _get_instance(self) -> Any:
+        if self._use_contextvars:
+            return self._var.get(self._default)
+        else:
+            return self._value
 
-# 创建全局代理对象
-settings_proxy = GlobalSettingsProxy()
-request_proxy = ContextProxy(request_var, None)
-response_proxy = ContextProxy(response_var, None)
-application_proxy = ContextProxy(application_var, None)
+    def set(self, value: Any) -> None:
+        """设置值"""
+        if self._use_contextvars:
+            self._var.set(value)
+        else:
+            self._value = value
 
-# 导出
-settings = settings_proxy
-request = request_proxy
-response = response_proxy
-application = application_proxy
+    # ... 其他代理方法
 ```
 
-**在 SimpleFrame.py 的 AsyncDispatcher 中设置上下文：**
+#### 4.4.2 ASGI 环境下的设计
+
+在 ASGI 环境下：
+- **request/response**：不再需要，因为是异步的，可以通过参数直接传递
+- **settings**：使用普通全局变量（整个应用生命周期内保持一致，不需要协程隔离）
+- **application**：使用普通全局变量（整个应用生命周期内保持一致，不需要协程隔离）
+
+**在 uliweb/__init__.py 中定义：**
+
+```python
+from uliweb.utils.localproxy import LocalProxy
+
+# settings 和 application 使用普通全局变量（默认 use_contextvars=False）
+settings = LocalProxy('settings', None, use_contextvars=False)
+application = LocalProxy('application', None, use_contextvars=False)
+```
+
+**在 AsyncDispatcher 中初始化：**
 
 ```python
 class AsyncDispatcher:
@@ -595,75 +611,45 @@ class AsyncDispatcher:
 
         # ... 其他初始化代码
 
-        # 加载 settings 并设置到 contextvars
+        # 加载 settings 并设置到 LocalProxy
         try:
             import asyncio
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             self.settings = loop.run_until_complete(self._load_settings())
 
-            # 关键：设置到 contextvars
-            settings_var.set(self.settings)
-            application_var.set(self)  # 设置当前应用实例
+            # 关键：设置到 LocalProxy（使用普通全局变量）
+            settings.set(self.settings)
+            application.set(self)
             loop.close()
         except Exception as e:
             # 错误处理
             pass
 ```
 
-**在请求处理中更新上下文：**
+#### 4.4.3 与 WSGI 版本的对比
 
-```python
-async def _open(self, request):
-    """处理请求的核心方法"""
-    # 设置请求上下文
-    response = Response()
-    response_token = response_var.set(response)
-    settings_token = settings_var.set(self.settings)
-    application_token = application_var.set(self)
+| 方面 | WSGI 版本 | ASGI 版本 |
+|------|-----------|-----------|
+| settings | LocalProxy (threading.local) | LocalProxy (普通全局变量) |
+| application | LocalProxy (threading.local) | LocalProxy (普通全局变量) |
+| request | LocalProxy (threading.local) | 不需要（通过参数传递） |
+| response | LocalProxy (threading.local) | 不需要（通过参数传递） |
 
-    try:
-        # 处理请求...
-        response = await self._process_request(request)
-        return response
-    finally:
-        # 清理上下文
-        response_var.reset(response_token)
-        settings_var.reset(settings_token)
-        application_var.reset(application_token)
-```
+#### 4.4.4 设计优势
 
-**导出供外部使用的接口：**
+1. **统一接口**：对外保持与 WSGI 一致的 LocalProxy 接口
+2. **灵活配置**：通过 `use_contextvars` 参数控制是否使用 contextvars
+3. **默认兼容**：默认不启用 contextvars，保持与 WSGI 一致的行为
+4. **ASGI 简化**：在 ASGI 环境下不需要 request/response 全局访问
+5. **唯一真实变量**：不使用"优先回退"机制，变量存储位置唯一
 
-```python
-# uliweb/__init__.py 和 uliweb/core/starlette.py
-from .context import (
-    settings_proxy,
-    request_proxy,
-    response_proxy,
-    application_proxy
-)
+#### 4.4.5 注意事项
 
-# 直接导出代理对象
-settings = settings_proxy
-request = request_proxy
-response = response_proxy
-application = application_proxy
-```
-
-**关键特性：**
-
-1. **只使用 contextvars**：不再使用 `__global__` 回退机制，更简洁清晰
-2. **统一的上下文管理**：所有模块使用相同的 contextvars 来源
-3. **请求级别的隔离**：每个请求有独立的上下文，不会相互干扰
-4. **异步友好**：`contextvars` 是 Python 3.7+ 引入的标准库，专门为异步场景设计
-5. **向后兼容**：通过代理类保持与现有代码的兼容性
-
-**注意事项：**
-
-- 在使用任何全局对象（settings、request、response、application）之前，必须确保已经创建了 Dispatcher 并初始化了 contextvars
+- settings 和 application 在整个应用生命周期内保持一致，不需要每个协程独立
+- 如果需要协程级别的隔离（如线程池中执行的任务），可以使用 `use_contextvars=True`
+- 在使用任何全局对象（settings、application）之前，必须确保已经创建了 Dispatcher 并初始化
 - 如果在未初始化的情况下访问 settings，会抛出 `RuntimeError` 提示用户初始化应用
-- 在测试环境中，需要手动调用 `make_simple_application` 来初始化上下文
 
 ### 4.5 中间件系统适配
 

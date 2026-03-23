@@ -17,13 +17,16 @@ __all__ = ['save_file', 'get_filename', 'get_url', 'save_file_field', 'save_imag
 
 default_fileserving = None
 
+
 def norm_filename(filename):
     return os.path.normpath(filename).replace('\\', '/')
+
 
 class FilenameConverter(object):
     @staticmethod
     def convert(filename):
         return filename
+
 
 class UUIDFilenameConverter(object):
     @staticmethod
@@ -31,6 +34,7 @@ class UUIDFilenameConverter(object):
         import uuid
         _f, ext = os.path.splitext(filename)
         return uuid.uuid1().hex + ext
+
 
 class MD5FilenameConverter(object):
     @staticmethod
@@ -42,16 +46,17 @@ class MD5FilenameConverter(object):
 
         _f, ext = os.path.splitext(filename)
         f = md5(
-                    md5("%f%s%f%s" % (time.time(), id({}), random.random(),
-                                      os.getpid())).hexdigest(),
-                ).hexdigest()
+            md5("%f%s%f%s" % (time.time(), id({}), random.random(),
+                              os.getpid())).hexdigest(),
+        ).hexdigest()
 
         return f + ext
+
 
 class FileServing(object):
     default_config = 'UPLOAD'
     options = {
-        'x_sendfile' : ('X_SENDFILE', None),
+        'x_sendfile': ('X_SENDFILE', None),
         'x_header_name': ('X_HEADER_NAME', ''),
         'x_file_prefix': ('X_FILE_PREFIX', '/files'),
         'to_path': ('TO_PATH', './uploads'),
@@ -63,8 +68,8 @@ class FileServing(object):
         self.config = config or self.default_config
         for k, v in self.options.items():
             item, default = v
-            #if there is no '/' in option, then combine config with option
-            #else assume the option is just like 'SECTION/OPTION', then skip it
+            # if there is no '/' in option, then combine config with option
+            # else assume the option is just like 'SECTION/OPTION', then skip it
             if '/' not in item:
                 item = self.config + '/' + item
             value = settings.get_var(item, default)
@@ -99,7 +104,7 @@ class FileServing(object):
         from uliweb.utils.common import safe_unicode
         from starlette.exceptions import HTTPException
 
-        #make sure the filename is unicode
+        # make sure the filename is unicode
         s = settings.GLOBAL
         if convert:
             _p, _f = os.path.split(filename)
@@ -163,21 +168,21 @@ class FileServing(object):
 
         xsend_flag = bool(self.x_sendfile) if x_sendfile is None else x_sendfile
         return await filedown(request, filename, action=action,
-            x_sendfile=xsend_flag, x_header_name=self.x_header_name,
-            x_filename=x_filename, real_filename=real_filename)
+                              x_sendfile=xsend_flag, x_header_name=self.x_header_name,
+                              x_filename=x_filename, real_filename=real_filename)
 
     def save_file(self, filename, fobj, replace=False, convert=True, subpath=''):
         from uliweb.utils import files
 
-        #get full path and converted filename
+        # get full path and converted filename
         fname = self.get_filename(filename, True, convert=convert, subpath=subpath)
-        #save file and get the changed filename, because the filename maybe change when
-        #there is duplicate filename, if replace=True, then the filename
-        #will not changed
+        # save file and get the changed filename, because the filename maybe change when
+        # there is duplicate filename, if replace=True, then the filename
+        # will not changed
         fname2 = files.save_file(fname, fobj, replace, self.buffer_size)
 
         s = settings.GLOBAL
-        #create new filename according fname2 and filename, the result should be unicode
+        # create new filename according fname2 and filename, the result should be unicode
         return norm_filename(os.path.join(subpath, os.path.dirname(filename), files.unicode_filename(fname2, s.FILESYSTEM_ENCODING)))
 
     def save_file_field(self, field, replace=False, filename=None, convert=True, subpath=''):
@@ -225,6 +230,7 @@ class FileServing(object):
         query_para = query_para or {}
         return str(Tag('a', title, href=self.get_href(filename, **query_para), **url_args))
 
+
 def get_backend(config=None):
     global default_fileserving
 
@@ -241,11 +247,12 @@ def get_backend(config=None):
             default_fileserving = fileserving
         return fileserving
 
+
 get_fileserving = get_backend
+
 
 async def file_serving(filename, action='download', real_filename=None, x_sendfile=None, x_filename=None):
     from uliweb import request
-
 
     alt_filename = request.GET.get('alt')
     if not alt_filename:
@@ -260,32 +267,42 @@ async def file_serving(filename, action='download', real_filename=None, x_sendfi
         x_filename = filename
     return await get_backend().download(alt_filename, action=action, real_filename=_filename, x_sendfile=x_sendfile, x_filename=x_filename)
 
+
 def filename_convert(filename, convert_cls=None):
     return get_backend().filename_convert(filename, convert_cls=convert_cls)
+
 
 def get_filename(filename, filesystem=False, convert=False, subpath=''):
     return get_backend().get_filename(filename, filesystem, convert=convert, subpath=subpath)
 
+
 def save_file(filename, fobj, replace=False, convert=True, subpath=''):
     return get_backend().save_file(filename, fobj, replace, convert, subpath=subpath)
+
 
 def save_file_field(field, replace=False, filename=None, convert=True, subpath=''):
     return get_backend().save_file_field(field, replace, filename, convert, subpath=subpath)
 
+
 def save_image_field(field, resize_to=None, replace=False, filename=None, convert=True, subpath=''):
     return get_backend().save_image_field(field, resize_to, replace, filename, convert, subpath=subpath)
+
 
 def delete_filename(filename):
     return get_backend().delete_filename(filename)
 
+
 def get_url(filename, query_para=None, **url_args):
     return get_backend().get_url(filename, query_para, **url_args)
+
 
 def get_href(filename, *args, **kwargs):
     return get_backend().get_href(filename, *args, **kwargs)
 
+
 def download(filename, *args, **kwargs):
     return get_backend().download(filename, *args, **kwargs)
+
 
 def after_init_apps(sender):
     import mimetypes

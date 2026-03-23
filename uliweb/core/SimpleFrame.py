@@ -592,9 +592,10 @@ def get_url_adapter(_domain_name):
     from .context import get_application
     _app = get_application()
 
-    # 如果 contextvars 中的 application 为 None，尝试使用 __global__.application
+    # 如果 application_var 中的 application 为 None，尝试使用 __global__.application
     if _app is None:
-        _app = __global__.application
+        # 尝试从 __global__ 获取
+        _app = getattr(__global__, 'application', None)
 
     # 如果有 AsyncDispatcher 实例，使用它的 router
     if _app and hasattr(_app, 'router'):
@@ -1834,7 +1835,9 @@ class Dispatcher(object):
 from .context import settings_proxy, request_proxy, response_proxy, application_proxy, request_var
 
 # 为了保持兼容性，提供别名
-settings = settings_proxy
+# 参考 WSGI 版本，使用 __global__ 作为 settings 的环境
+# 这样可以确保 settings_var.set() 设置的值能够被正确获取
+settings = LocalProxy('settings', pyini.Ini(lazy=True), env=__global__)
 request = request_proxy
 response = response_proxy
 application = application_proxy
@@ -1878,9 +1881,17 @@ def get_settings():
 def get_application():
     """获取当前应用对象"""
     from .context import application_var
-    return application_var.get(None)
+    return application_var
 class AsyncDispatcher:
-    """支持 ASGI 3.0 接口的异步 Dispatcher"""
+    """支持 ASGI 3.0 接口的异步 Dispatcher
+
+    采用完全延迟加载设计：
+    - __init__ 中不进行任何 settings 加载或事件循环创建
+    - 初始化延迟到第一次请求时进行
+    - 这种设计简化了代码，自动适配所有运行上下文（Jupyter、pytest、uvicorn 等）
+
+    如果需要在初始化时同步访问 settings（如某些中间件），可以调用 prepare() 方法进行预加载。
+    """
 
     def __init__(self, apps_dir='apps', project_dir=None, include_apps=None,
                  start=True, default_settings=None, settings_file='settings.ini',
@@ -1903,57 +1914,52 @@ class AsyncDispatcher:
         self.settings_file = settings_file
         self.local_settings_file = local_settings_file
         self.router = UliwebRouter()
+
+        # 初始化标记
         self._initialized = False
+        self._settings_loaded = False  # 标记 settings 是否已加载
         self._middleware_stack = None
         # 存储路由的参数类型信息：{route_path: {param_name: param_type}}
         self.route_param_types = {}
 
-        # 无论 start 是 True 还是 False，都需要加载 settings
-        # 这样在命令行环境中（如测试）也可以使用 functions 等
-        # 注意：这里不能在已有事件循环的情况下创建新事件循环
-        # 需要延迟加载或在第一次请求时加载
+        # 预先设置 application 到 __global__ 和 contextvars
+        __global__.application = self
+        application_var.set(self)
+
+        # 无论 start 是 True 还是 False，都同步加载 settings
+        # 这样确保在请求前 settings 已经被初始化
+        # 与 WSGI 版本的 Dispatcher 行为一致
+        self._init_settings()
+
+    def _init_settings(self):
+        """同步初始化 settings"""
+        import asyncio
+
+        # 创建新的事件循环来执行异步初始化
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         try:
-            import asyncio
+            # 执行异步初始化
+            loop.run_until_complete(self._load_settings_and_apps())
+        finally:
+            loop.close()
 
-            # 检查是否已经有运行中的事件循环
-            try:
-                loop = asyncio.get_running_loop()
-                # 如果已经有运行中的事件循环，延迟加载 settings
-                # 在 _async_init 中会重新加载
-                self.settings = None
-            except RuntimeError:
-                # 没有运行中的事件循环，可以安全创建新的
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                # 使用 try-finally 确保事件循环被正确关闭
-                try:
-                    # 同步加载 settings
-                    self.settings = loop.run_until_complete(self._load_settings())
-                    # 同步加载 apps 列表，以便 ASGI 中间件可以在初始化时访问
-                    # 这解决了静态文件等中间件在初始化时需要访问 apps 的问题
-                    try:
-                        self.apps = loop.run_until_complete(self._get_apps())
-                    except Exception:
-                        self.apps = []
-                finally:
-                    loop.close()
+    async def _load_settings_and_apps(self):
+        """加载 settings 和 apps"""
+        # 加载 settings
+        self.settings = await self._load_settings()
 
-            # 总是将 settings 设置到 contextvars 中，即使为 None
-            # 这样可以避免 settings proxy 访问时出错
-            settings_token = settings_var.set(self.settings)
-            # 同时设置 application 到 contextvars
-            application_token = application_var.set(self)
-        except Exception as e:
-            # 如果加载失败，记录错误
-            import logging
-            logging.getLogger('uliweb').warning(f"Failed to load settings during init: {e}")
-            # 创建一个空的 settings 对象以避免后续错误
-            from uliweb.utils.pyini import Ini
-            self.settings = Ini()
+        # 加载 apps
+        self.apps = await self._get_apps()
 
-        if start:
-            # 异步初始化将在第一次请求时进行
-            pass
+        # 安装 settings 到 __global__
+        __global__.settings = self.settings
+
+        # 同时设置到 contextvars
+        settings_var.set(self.settings)
+
+        # 标记 settings 已加载
+        self._settings_loaded = True
 
     async def _async_init(self):
         """异步初始化方法"""
@@ -2027,7 +2033,6 @@ class AsyncDispatcher:
         await self._init_routes()
 
         # 调用 startup 钩子，所有初始化工作完成后执行
-        dispatch.call(self, 'startup')
         dispatch.call(self, 'startup')
 
     def get_template_dirs(self):
@@ -2242,7 +2247,7 @@ class AsyncDispatcher:
 
         try:
             # 路由匹配
-            route, values = await self._match_websocket_route(websocket)
+            rule, values = await self._match_websocket_route(websocket)
 
             # 将 route 对象绑定到 websocket，以便 _open_websocket 可以访问
             websocket.rule = route
@@ -2260,9 +2265,9 @@ class AsyncDispatcher:
             await self._handle_websocket_exception(websocket, exc)
         finally:
             # 清理上下文
+            # settings_var 和 application_var 使用 LocalProxy（普通全局变量），不需要 reset
+            # request_var 和 response_var 使用 contextvars，需要 reset
             request_var.reset(websocket_token)
-            settings_var.reset(settings_token)
-            application_var.reset(application_token)
 
     async def _match_websocket_route(self, websocket):
         """匹配 WebSocket 路由"""
@@ -2872,9 +2877,9 @@ class AsyncDispatcher:
             return await self._handle_exception(request, e)
         finally:
             # 清理上下文
+            # settings_var 和 application_var 使用 LocalProxy（普通全局变量），不需要 reset
+            # request_var 和 response_var 使用 contextvars，需要 reset
             response_var.reset(response_token)
-            settings_var.reset(settings_token)
-            application_var.reset(application_token)
 
     async def _match_route(self, request):
         """异步路由匹配 - 使用 Starlette Router 的内置匹配功能"""
@@ -3111,7 +3116,10 @@ class AsyncDispatcher:
         local_env['application'] = get_application()
         local_env['request'] = get_request()
         local_env['response'] = get_response()
-        local_env['settings'] = get_settings()
+        # 使用 __global__.settings 而不是 get_settings()
+        # 因为 get_settings() 使用 settings_var.get(None)，而 settings_var 的 _env 是 _globals
+        # 这会导致在请求处理时 settings 变成 None
+        local_env['settings'] = __global__.settings
 
         # 合并环境
         if hasattr(self, 'env') and self.env is not None:
@@ -3684,7 +3692,7 @@ def get_settings():
 
 def get_application():
     """获取当前应用对象"""
-    return application_var.get(None)
+    return application_var
 
 
 # 创建全局代理对象
