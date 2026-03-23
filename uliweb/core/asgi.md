@@ -516,6 +516,122 @@ url_map = UliwebRouter()
 - `_merge_rules()` - 合并路由规则
 - `POST(rule, **kw)` / `GET(rule, **kw)` - HTTP 方法装饰器
 
+**路由参数转换函数（实际实现位于 `uliweb/core/SimpleFrame.py`）：**
+
+```python
+def _convert_route_param(rule):
+    """正确转换路由参数，处理 <type:name> 格式
+
+    返回: (转换后的规则, 参数类型字典)
+    例如: '/api/users/<int:user_id>' -> ('/api/users/{user_id}', {'user_id': 'int'})
+    """
+    param_types = {}
+
+    def replacer(m):
+        param = m.group(1)
+        if ':' in param:
+            param_type, param_name = param.split(':', 1)
+            param_types[param_name] = param_type
+            return '{' + param_name + '}'
+        else:
+            return '{' + param + '}'
+
+    converted_rule = re.sub(r'<([^>]+)>', replacer, rule)
+    return converted_rule, param_types
+```
+
+这个函数将 Werkzeug 风格的路由参数 `<type:name>` 转换为 Starlette 风格的 `{name}`，同时提取参数类型信息供后续使用。
+
+**合并路由规则函数：**
+
+```python
+def _merge_rules():
+    """合并路由规则，类似 SimpleFrame.py 中的 merge_rules 函数"""
+    from itertools import chain
+
+    s = []
+    index = {}
+    # 同时遍历 __no_need_exposed__ 和 __exposes__
+    all_rules = __no_need_exposed__ + list(chain(*__exposes__.values()))
+    for v in sorted(all_rules, key=lambda x: x[4]):  # 按时间戳排序
+        appname, endpoint, url, kw, timestamp = v
+        if 'name' in kw:
+            url_name = kw.pop('name')
+        else:
+            url_name = endpoint
+        __url_names__[url_name] = endpoint
+        methods = [y.upper() for y in kw.get('methods', [])]
+        methods.sort()
+
+        key = url, tuple(methods), kw.get('subdomain')
+        i = index.get(key, None)
+        if i is not None:
+            s[i] = (appname, endpoint, url, kw)
+        else:
+            s.append((appname, endpoint, url, kw))
+            index[key] = len(s) - 1
+
+    return s
+```
+
+这个函数负责收集和合并所有应用的路由规则，包括：
+- 按时间戳排序确保顺序一致
+- 处理 URL 名称映射
+- 合并重复的路由规则
+- 支持 HTTP 方法过滤
+
+**URL 生成函数：**
+
+```python
+def url_for(endpoint, **values):
+    """根据 endpoint 名称和参数构建 URL"""
+    urljoin = import_('urllib.parse', 'urljoin')
+
+    point = rules.get_endpoint(endpoint)
+
+    #if the endpoint is string format, then find and replace
+    #the module prefix with app alias which matched
+    for k, v in __app_alias__.items():
+        if point.startswith(k):
+            point = v + point[len(k):]
+            break
+
+    if point in rules.__url_names__:
+        point = rules.__url_names__[point]
+
+    _domain_name = values.pop('_domain_name', 'default')
+    _external = values.pop('_external', False)
+    domain = application.domains.get(_domain_name, {})
+    if not _external:
+        _external = domain.get('display', False)
+    adapter = get_url_adapter(_domain_name)
+
+    #process format
+    #it'll replace <argu> to {argu} so that you can use format
+    #to create url
+    _format = values.pop('_format', None)
+    if _format:
+        #then replace argument with {name} format
+        _rules = url_map._rules_by_endpoint.get(point)
+        if _rules:
+            rule = _rules[0]
+            url = re.sub(r'<.*?>', _sub, rule.rule)
+            if _external:
+                url = urljoin(domain.get('domain', ''), url)
+            return url
+        else:
+            raise ValueError("Can't found rule of endpoint %s" % point)
+
+    return adapter.build(point, values, force_external=_external)
+```
+
+这个函数支持：
+- 根据 endpoint 生成 URL
+- 支持域名配置（`_domain_name`）
+- 支持外部 URL 生成（`_external`）
+- 支持 URL 格式化（`_format`）
+- 支持应用别名映射
+
 ### 4.4 全局状态管理迁移
 
 **旧的实现基于线程局部存储：**
@@ -586,19 +702,29 @@ class LocalProxy:
 
 #### 4.4.2 ASGI 环境下的设计
 
-在 ASGI 环境下：
-- **request/response**：不再需要，因为是异步的，可以通过参数直接传递
-- **settings**：使用普通全局变量（整个应用生命周期内保持一致，不需要协程隔离）
-- **application**：使用普通全局变量（整个应用生命周期内保持一致，不需要协程隔离）
+在 ASGI 环境下，Uliweb 使用 LocalProxy 进行全局状态管理：
+- **request/response**：使用 LocalProxy + use_contextvars=True（每个协程独立）
+- **settings**：使用 LocalProxy + use_contextvars=False（全局一致）
+- **application**：使用 LocalProxy + use_contextvars=False（全局一致）
 
-**在 uliweb/__init__.py 中定义：**
+**在 uliweb/core/SimpleFrame.py 中定义：**
 
 ```python
-from uliweb.utils.localproxy import LocalProxy
+from uliweb.utils.localproxy import LocalProxy, Global
 
-# settings 和 application 使用普通全局变量（默认 use_contextvars=False）
-settings = LocalProxy('settings', None, use_contextvars=False)
-application = LocalProxy('application', None, use_contextvars=False)
+# 使用 LocalProxy 替代 contextvars
+# request 和 response 使用 LocalProxy + use_contextvars=True（每个协程独立）
+# settings 和 application 使用 LocalProxy + use_contextvars=False（全局一致）
+request = LocalProxy('request', use_contextvars=True)
+response = LocalProxy('response', use_contextvars=True)
+settings = LocalProxy('settings', use_contextvars=False)
+application = LocalProxy('application', use_contextvars=False)
+
+# 使用 Global 存储 settings 初始值
+__global__ = Global()
+__global__.settings = pyini.Ini(lazy=True)
+# 同步设置到 LocalProxy
+settings.set(__global__.settings)
 ```
 
 **在 AsyncDispatcher 中初始化：**
@@ -611,30 +737,58 @@ class AsyncDispatcher:
 
         # ... 其他初始化代码
 
-        # 加载 settings 并设置到 LocalProxy
-        try:
-            import asyncio
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            self.settings = loop.run_until_complete(self._load_settings())
+        # 预先设置 application 到 __global__ 和 LocalProxy
+        __global__.application = self
+        application.set(self)
 
-            # 关键：设置到 LocalProxy（使用普通全局变量）
-            settings.set(self.settings)
-            application.set(self)
+        # 无论 start 是 True 还是 False，都同步加载 settings
+        # 这样确保在请求前 settings 已经被初始化
+        # 与 WSGI 版本的 Dispatcher 行为一致
+        self._init_settings()
+
+    def _init_settings(self):
+        """同步初始化 settings"""
+        import asyncio
+
+        # 创建新的事件循环来执行异步初始化
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            # 执行异步初始化
+            loop.run_until_complete(self._load_settings_and_apps())
+        finally:
             loop.close()
-        except Exception as e:
-            # 错误处理
-            pass
+```
+
+**辅助函数：**
+
+```python
+# 全局辅助函数
+def get_request():
+    """获取当前请求对象"""
+    return request.get_value()
+
+def get_response():
+    """获取当前响应对象"""
+    return response.get_value()
+
+def get_settings():
+    """获取当前设置对象"""
+    return settings.get_value()
+
+def get_application():
+    """获取当前应用对象"""
+    return application
 ```
 
 #### 4.4.3 与 WSGI 版本的对比
 
 | 方面 | WSGI 版本 | ASGI 版本 |
 |------|-----------|-----------|
-| settings | LocalProxy (threading.local) | LocalProxy (普通全局变量) |
-| application | LocalProxy (threading.local) | LocalProxy (普通全局变量) |
-| request | LocalProxy (threading.local) | 不需要（通过参数传递） |
-| response | LocalProxy (threading.local) | 不需要（通过参数传递） |
+| settings | LocalProxy (threading.local) | LocalProxy (普通全局变量, use_contextvars=False) |
+| application | LocalProxy (threading.local) | LocalProxy (普通全局变量, use_contextvars=False) |
+| request | LocalProxy (threading.local) | LocalProxy (contextvars, use_contextvars=True) |
+| response | LocalProxy (threading.local) | LocalProxy (contextvars, use_contextvars=True) |
 
 #### 4.4.4 设计优势
 
