@@ -220,47 +220,13 @@ except:
 
 __global__ = Global()
 
-# 使用 contextvars 替代 werkzeug.local
-from .context import settings_var, application_var, request_var, response_var
-
-# 创建用于 local 的 contextvars 兼容层（保持兼容性）
-_local_request = contextvars.ContextVar('local_request', default=None)
-_local_response = contextvars.ContextVar('local_response', default=None)
-
-# 定义 local 对象以保持兼容性
-class _LocalCompat:
-    """兼容性 local 对象"""
-    @property
-    def request(self):
-        return _local_request.get() or request_var.get(None)
-
-    @request.setter
-    def request(self, value):
-        _local_request.set(value)
-
-    @property
-    def response(self):
-        return _local_response.get() or response_var.get(None)
-
-    @response.setter
-    def response(self, value):
-        _local_response.set(value)
-
-    def __getattr__(self, name):
-        # 提供 local_cache 和 in_web 属性
-        if name == 'local_cache':
-            return {}
-        elif name == 'in_web':
-            return False
-        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
-
-    def __setattr__(self, name, value):
-        if name in ('local_cache', 'in_web'):
-            pass  # 忽略这些属性的设置
-        else:
-            object.__setattr__(self, name, value)
-
-local = _LocalCompat()
+# 使用 LocalProxy 替代 contextvars
+# request 和 response 使用 LocalProxy + use_contextvars=True（每个协程独立）
+# settings 和 application 使用 LocalProxy + use_contextvars=False（全局一致）
+request = LocalProxy('request', use_contextvars=True)
+response = LocalProxy('response', use_contextvars=True)
+settings = LocalProxy('settings', use_contextvars=False)
+application = LocalProxy('application', use_contextvars=False)
 
 # 使用 Starlette 路由替代 werkzeug.routing.Map
 # 创建 UliwebRouter 实例
@@ -367,8 +333,8 @@ pyini.set_env({
     'convertors':i18n_ini_convertor,
 })
 __global__.settings = pyini.Ini(lazy=True)
-# 同步设置到 contextvars
-settings_var.set(__global__.settings)
+# 同步设置到 LocalProxy
+settings.set(__global__.settings)
 
 #User can defined decorator functions in settings DECORATORS
 #and user can user @decorators.function_name in views
@@ -592,7 +558,7 @@ def get_url_adapter(_domain_name):
     from .context import get_application
     _app = get_application()
 
-    # 如果 application_var 中的 application 为 None，尝试使用 __global__.application
+    # 如果 application 中的 application 为 None，尝试使用 __global__.application
     if _app is None:
         # 尝试从 __global__ 获取
         _app = getattr(__global__, 'application', None)
@@ -759,11 +725,19 @@ def get_var(key, default=None):
     return settings.get_var(key, default)
 
 def get_local_cache(key, creator=None):
-    global local
+    # 使用 request.scope['state'] 来存储本地缓存
+    req = request.get_value()
+    if req and hasattr(req, 'scope'):
+        if 'local_cache' not in req.scope:
+            req.scope['local_cache'] = {}
+        cache = req.scope['local_cache']
+    else:
+        # 如果没有请求对象，使用全局字典
+        if not hasattr(get_local_cache, '_cache'):
+            get_local_cache._cache = {}
+        cache = get_local_cache._cache
 
-    if not hasattr(local, 'local_cache'):
-        local.local_cache = {}
-    value = local.local_cache.get(key)
+    value = cache.get(key)
     if value:
         return value
     if callable(creator):
@@ -771,7 +745,7 @@ def get_local_cache(key, creator=None):
     else:
         value = creator
     if value:
-        local.local_cache[key] = value
+        cache[key] = value
     return value
 
 def get_apps(apps_dir, include_apps=None, settings_file='settings.ini', local_settings_file='local_settings.ini'):
@@ -849,7 +823,8 @@ def get_settings(project_dir, include_apps=None, settings_file='settings.ini',
     return x
 
 def is_in_web():
-    return getattr(local, 'in_web', False)
+    # 使用 request.get_value() 来判断是否在 web 环境中
+    return request.get_value() is not None
 
 class DispatcherHandler(object):
     def __init__(self, application):
@@ -1731,17 +1706,14 @@ class Dispatcher(object):
             process_request_classes, process_response_classes, process_exception_classes = self._get_middlewares_classes(m)
 
         with self.lock:
-            local.request = req = Request(environ)
-            local.response = res = Response(content_type='text/html')
+            # 设置请求和响应到 LocalProxy
+            request.set(Request(environ))
+            res = Response(content_type='text/html')
+            response.set(res)
 
             # add DEFAULT_CORS support
             if settings.GLOBAL.DEFAULT_CORS and req.method == 'OPTIONS':
                 return CORS()
-
-            #add local cached
-            local.local_cache = {}
-            #add in web flag
-            local.in_web = True
 
         url_adapter = get_url_adapter('default')
         try:
@@ -1820,8 +1792,8 @@ class Dispatcher(object):
 #                log.exception(e)
                 raise
         finally:
-            local.local_cache = {}
-            local.in_web = False
+            # 清理上下文
+            pass
         if settings.GLOBAL.DEFAULT_CORS:
             return CORS(None, response)
         else:
@@ -1831,57 +1803,34 @@ class Dispatcher(object):
         return DispatcherHandler(self)
 
 
-# 使用统一的 contextvars 代理
-from .context import settings_proxy, request_proxy, response_proxy, application_proxy, request_var
-
-# 为了保持兼容性，提供别名
-# 参考 WSGI 版本，使用 __global__ 作为 settings 的环境
-# 这样可以确保 settings_var.set() 设置的值能够被正确获取
-settings = LocalProxy('settings', pyini.Ini(lazy=True), env=__global__)
-request = request_proxy
-response = response_proxy
-application = application_proxy
+# # 不再从 context.py 导入，使用模块顶部定义的 LocalProxy
+# 这些已经在模块顶部定义了：
+# request = LocalProxy('request', use_contextvars=True)
+# response = LocalProxy('response', use_contextvars=True)
+# settings = LocalProxy('settings', use_contextvars=False)
+# application = LocalProxy('application', use_contextvars=False)
 
 
 # ==================== Context Middleware ====================
-async def context_middleware(app):
-    """管理请求上下文的中间件"""
-    async def middleware(scope, receive, send):
-        if scope["type"] == "http":
-            request = Request(scope, receive, send)
-            token = request_var.set(request)
-            try:
-                response = await app(scope, receive, send)
-                return response
-            finally:
-                request_var.reset(token)
-        else:
-            return await app(scope, receive, send)
-    return middleware
-
-
 # 全局辅助函数
 def get_request():
     """获取当前请求对象"""
-    return request_var.get(None)
+    return request.get_value()
 
 
 def get_response():
     """获取当前响应对象"""
-    from .context import response_var
-    return response_var.get(None)
+    return response.get_value()
 
 
 def get_settings():
     """获取当前设置对象"""
-    from .context import settings_var
-    return settings_var.get(None)
+    return settings.get_value()
 
 
 def get_application():
     """获取当前应用对象"""
-    from .context import application_var
-    return application_var
+    return application
 class AsyncDispatcher:
     """支持 ASGI 3.0 接口的异步 Dispatcher
 
@@ -1922,9 +1871,9 @@ class AsyncDispatcher:
         # 存储路由的参数类型信息：{route_path: {param_name: param_type}}
         self.route_param_types = {}
 
-        # 预先设置 application 到 __global__ 和 contextvars
+        # 预先设置 application 到 __global__ 和 LocalProxy
         __global__.application = self
-        application_var.set(self)
+        application.set(self)
 
         # 无论 start 是 True 还是 False，都同步加载 settings
         # 这样确保在请求前 settings 已经被初始化
@@ -1955,8 +1904,8 @@ class AsyncDispatcher:
         # 安装 settings 到 __global__
         __global__.settings = self.settings
 
-        # 同时设置到 contextvars
-        settings_var.set(self.settings)
+        # 同时设置到 LocalProxy
+        settings.set(self.settings)
 
         # 标记 settings 已加载
         self._settings_loaded = True
@@ -1974,10 +1923,10 @@ class AsyncDispatcher:
         # 加载设置
         self.settings = await self._load_settings()
 
-        # 将 settings 重新设置到 contextvars 中
+        # 将 settings 重新设置到 LocalProxy 中
         # 因为在 __init__ 中可能设置为 None，现在需要更新为实际加载的值
-        settings_var.set(self.settings)
-        application_var.set(self)
+        settings.set(self.settings)
+        application.set(self)
         # 同时设置到 __global__，用于线程池等场景
         # 参考 WSGI 中 settings 和 application 使用 Global 的设计
         __global__.settings = self.settings
@@ -2205,26 +2154,27 @@ class AsyncDispatcher:
         if scope["type"] == "websocket":
             return await self._handle_websocket_request(scope, receive, send)
 
-        request = Request(scope, receive, send)
+        # 使用 req 作为局部变量名，避免遮蔽全局的 request (LocalProxy)
+        req = Request(scope, receive, send)
 
         # 设置请求上下文
-        request_token = request_var.set(request)
+        request_token = request.set(req)
 
         try:
             # 路由匹配
-            rule, values = await self._match_route(request)
-            mod, handler_cls, handler = self.prepare_request(request, rule)
+            rule, values = await self._match_route(req)
+            mod, handler_cls, handler = self.prepare_request(req, rule)
 
             # 处理请求
-            response = await self._open(request)
-            await response(scope, receive, send)
+            res = await self._open(req)
+            await res(scope, receive, send)
         except (HTTPException, RuntimeError) as exc:
             # 处理 HTTP 异常（如 404）
-            response = await self._handle_exception(request, exc)
-            await response(scope, receive, send)
+            res = await self._handle_exception(req, exc)
+            await res(scope, receive, send)
         finally:
             # 清理上下文
-            request_var.reset(request_token)
+            request.reset(request_token)
 
     async def _handle_websocket_request(self, scope, receive, send):
         """处理 WebSocket 请求的核心逻辑"""
@@ -2238,12 +2188,12 @@ class AsyncDispatcher:
         websocket = StarletteWebSocket(scope, receive, send)
 
         # 设置 WebSocket 上下文
-        websocket_token = request_var.set(websocket)
+        websocket_token = request.set(websocket)
 
         # 设置 settings 和 application 上下文（与 _open 方法一致）
         # 重要：使用初始化后的 self.settings
-        settings_token = settings_var.set(self.settings)
-        application_token = application_var.set(self)
+        settings_token = settings.set(self.settings)
+        application_token = application.set(self)
 
         try:
             # 路由匹配
@@ -2265,9 +2215,9 @@ class AsyncDispatcher:
             await self._handle_websocket_exception(websocket, exc)
         finally:
             # 清理上下文
-            # settings_var 和 application_var 使用 LocalProxy（普通全局变量），不需要 reset
-            # request_var 和 response_var 使用 contextvars，需要 reset
-            request_var.reset(websocket_token)
+            # settings 和 application 使用 LocalProxy（普通全局变量），不需要 reset
+            # request 和 response 使用 contextvars，需要 reset
+            request.reset(websocket_token)
 
     async def _match_websocket_route(self, websocket):
         """匹配 WebSocket 路由"""
@@ -2801,7 +2751,7 @@ class AsyncDispatcher:
         request = Request(scope, receive, send)
 
         # 设置请求上下文
-        request_token = request_var.set(request)
+        request_token = request.set(request)
 
         try:
             # 处理请求
@@ -2809,7 +2759,7 @@ class AsyncDispatcher:
             await response(scope, receive, send)
         finally:
             # 清理上下文
-            request_var.reset(request_token)
+            request.reset(request_token)
 
     async def handle_websocket(self, scope, receive, send):
         """处理 WebSocket 请求"""
@@ -2817,7 +2767,7 @@ class AsyncDispatcher:
         websocket = WebSocket(scope, receive, send)
 
         # 设置 WebSocket 上下文
-        websocket_token = request_var.set(websocket)
+        websocket_token = request.set(websocket)
 
         try:
             await websocket.accept()
@@ -2829,7 +2779,7 @@ class AsyncDispatcher:
                 # 处理消息
                 await self._handle_websocket_message(websocket, message)
         finally:
-            request_var.reset(websocket_token)
+            request.reset(websocket_token)
 
     async def _handle_websocket_message(self, websocket, message):
         """处理 WebSocket 消息"""
@@ -2837,55 +2787,54 @@ class AsyncDispatcher:
         if message["type"] == "websocket.receive":
             await websocket.send_text(f"Echo: {message.get('text', '')}")
 
-    async def _open(self, request):
+    async def _open(self, req):
         """处理请求的核心方法 - 异步版本"""
-        # 设置响应上下文
-        response = Response()
-        response_token = response_var.set(response)
+        # 使用 res 作为局部变量名，避免遮蔽全局的 response (LocalProxy)
+        res = Response()
+        response_token = response.set(res)
 
         # 设置设置上下文
-        settings_token = settings_var.set(self.settings)
+        settings_token = settings.set(self.settings)
 
         # 设置应用上下文
-        application_token = application_var.set(self)
+        application_token = application.set(self)
 
         try:
             # 处理 CORS 预检请求
-            if self.settings.GLOBAL.DEFAULT_CORS and request.method == "OPTIONS":
-                return await self._handle_cors_preflight(request)
+            if self.settings.GLOBAL.DEFAULT_CORS and req.method == "OPTIONS":
+                return await self._handle_cors_preflight(req)
 
             # 路由匹配
-            rule, values = await self._match_route(request)
+            rule, values = await self._match_route(req)
 
             # 准备请求处理
-            mod, handler_cls, handler = self.prepare_request(request, rule)
+            mod, handler_cls, handler = self.prepare_request(req, rule)
 
             # 处理静态视图
             if rule.endpoint in self.static_views:
-                response = await self.call_view(mod, handler_cls, handler, request, response, kwargs=values)
+                res = await self.call_view(mod, handler_cls, handler, req, res, kwargs=values)
             else:
                 # 处理中间件
-                response = await self._process_middleware(request, response, mod, handler_cls, handler, values)
+                res = await self._process_middleware(req, res, mod, handler_cls, handler, values)
 
             # 处理 CORS 响应头
             if self.settings.GLOBAL.DEFAULT_CORS:
-                response = await self._add_cors_headers(request, response)
+                res = await self._add_cors_headers(req, res)
 
-            return response
+            return res
 
         except Exception as e:
-            return await self._handle_exception(request, e)
+            return await self._handle_exception(req, e)
         finally:
             # 清理上下文
-            # settings_var 和 application_var 使用 LocalProxy（普通全局变量），不需要 reset
-            # request_var 和 response_var 使用 contextvars，需要 reset
-            response_var.reset(response_token)
+            # settings 和 application 使用 LocalProxy（普通全局变量），不需要 reset
+            # request 和 response 使用 contextvars，需要 reset
+            response.reset(response_token)
 
     async def _match_route(self, request):
         """异步路由匹配 - 使用 Starlette Router 的内置匹配功能"""
         from starlette.exceptions import HTTPException
         from starlette.routing import Match
-        from .context import settings_var
 
         # 获取请求的 scope
         scope = request.scope
@@ -3117,7 +3066,7 @@ class AsyncDispatcher:
         local_env['request'] = get_request()
         local_env['response'] = get_response()
         # 使用 __global__.settings 而不是 get_settings()
-        # 因为 get_settings() 使用 settings_var.get(None)，而 settings_var 的 _env 是 _globals
+        # 因为 get_settings() 使用 settings.get(None)，而 settings 的 _env 是 _globals
         # 这会导致在请求处理时 settings 变成 None
         local_env['settings'] = __global__.settings
 
@@ -3666,50 +3615,37 @@ async def context_middleware(app):
     async def middleware(scope, receive, send):
         if scope["type"] == "http":
             request = Request(scope, receive, send)
-            token = request_var.set(request)
+            token = request.set(request)
             try:
                 response = await app(scope, receive, send)
                 return response
             finally:
-                request_var.reset(token)
+                request.reset(token)
         else:
             return await app(scope, receive, send)
     return middleware
 
 
-# 全局代理对象，保持与现有代码的兼容性
+# 全局辅助函数
 def get_request():
     """获取当前请求对象"""
-    return request_var.get(None)
+    return request.get_value()
 
 def get_response():
     """获取当前响应对象"""
-    return response_var.get(None)
+    return response.get_value()
 
 def get_settings():
     """获取当前设置对象"""
-    return settings_var.get_value()
+    return settings.get_value()
 
 def get_application():
     """获取当前应用对象"""
-    return application_var
+    return application
 
 
-# 创建全局代理对象
-# 使用与 SimpleFrame.py 相同的 LocalProxy 格式
-# 直接使用 context.py 中的代理，避免额外的 LocalProxy 层
-from .context import settings_proxy, request_proxy, response_proxy, application_proxy
-
-request = request_proxy
-response = response_proxy
-settings = settings_proxy
-application = application_proxy
-
-# 为了兼容性，保留 get_request 等函数（可选）
-_get_request = get_request
-_get_response = get_response
-_get_settings = get_settings
-_get_application = get_application
+# 不再需要从 context.py 导入，因为已经在模块顶部定义了
+# request, response, settings, application
 
 
 # 兼容性函数

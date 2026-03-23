@@ -115,11 +115,20 @@ class LocalProxy(object):
         return getattr(self.__get_instance__(), 'values', lambda: [])()
 
     def set(self, value):
-        """设置值"""
+        """设置值，返回 token（用于 contextvars 场景）"""
         if self._use_contextvars:
-            self._var.set(value)
+            return self._var.set(value)
         else:
             setattr(self._env, self._obj_name, value)
+            return None
+
+    def reset(self, token):
+        """重置值（用于 contextvars 场景）"""
+        if self._use_contextvars:
+            self._var.reset(token)
+        else:
+            # 非 contextvars 模式下不支持 reset
+            pass
 
     #
     # factories
