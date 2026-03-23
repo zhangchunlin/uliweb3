@@ -3688,7 +3688,7 @@ def get_response():
 
 def get_settings():
     """获取当前设置对象"""
-    return settings_var.get(None)
+    return settings_var.get_value()
 
 def get_application():
     """获取当前应用对象"""
