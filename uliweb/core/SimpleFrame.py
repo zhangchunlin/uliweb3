@@ -781,7 +781,7 @@ def get_apps(apps_dir, include_apps=None, settings_file='settings.ini', local_se
     return apps
 
 def collect_settings(project_dir, include_apps=None, settings_file='settings.ini',
-    local_settings_file='local_settings.ini'):
+local_settings_file='local_settings.ini'):
 
     apps_dir = os.path.join(project_dir, 'apps')
     apps = get_apps(apps_dir, include_apps=include_apps, settings_file=settings_file, local_settings_file=local_settings_file)
@@ -789,19 +789,22 @@ def collect_settings(project_dir, include_apps=None, settings_file='settings.ini
     local_settings_file = os.path.join(apps_dir, local_settings_file)
     settings = []
     inifile = pkg.resource_filename('uliweb.core', 'default_settings.ini')
-    settings.insert(0, inifile)
+    # default_settings.ini 不需要 appname
+    settings.append((None, inifile))
     for p in apps:
         path = get_app_dir(p)
         #deal with settings
-        inifile =os.path.join(get_app_dir(p), 'settings.ini')
+        inifile = os.path.join(get_app_dir(p), 'settings.ini')
         if os.path.exists(inifile):
-            settings.append(inifile)
+            # 返回 (appname, filepath) 元组
+            settings.append((p, inifile))
 
     if os.path.exists(settings_file):
-        settings.append(settings_file)
+        # 项目级 settings.ini 也不需要 appname
+        settings.append((None, settings_file))
 
     if os.path.exists(local_settings_file):
-        settings.append(local_settings_file)
+        settings.append((None, local_settings_file))
     return settings
 
 def get_settings(project_dir, include_apps=None, settings_file='settings.ini',
@@ -812,8 +815,25 @@ def get_settings(project_dir, include_apps=None, settings_file='settings.ini',
         local_settings_file)
 
     x = pyini.Ini(lazy=True, basepath=os.path.join(project_dir, 'apps'))
-    for v in settings:
-        x.read(v)
+    for item in settings:
+        # 新格式: (appname, filepath)
+        # 旧格式: filepath (字符串)
+        if isinstance(item, tuple):
+            appname, filepath = item
+        else:
+            # 兼容旧格式（字符串路径）
+            appname = None
+            filepath = item
+
+        if 'default_settings.ini' in filepath:
+            x.read(filepath)
+        else:
+            # 使用 collect_settings 返回的 appname
+            # 如果 appname 为 None，则从路径中提取
+            if appname is None:
+                appname = os.path.basename(os.path.dirname(filepath))
+            x.set_pre_variables({'appname': appname})
+            x.read(filepath)
     d = dict([(k, repr(v)) for k, v in default_settings.items()])
     x.update(d or {})
     x.freeze()
@@ -1062,13 +1082,25 @@ class AsyncDispatcher:
                 self.local_settings_file
             )
             x = pyini.Ini(lazy=True, basepath=os.path.join(project_dir, 'apps'))
-            for v in settings:
-                if 'default_settings.ini' in v:
-                    x.read(v)
+            for item in settings:
+                # 新格式: (appname, filepath)
+                # 旧格式: filepath (字符串)
+                if isinstance(item, tuple):
+                    appname, filepath = item
                 else:
-                    appname = os.path.basename(os.path.dirname(v))
+                    # 兼容旧格式（字符串路径）
+                    appname = None
+                    filepath = item
+
+                if 'default_settings.ini' in filepath:
+                    x.read(filepath)
+                else:
+                    # 使用 collect_settings 返回的 appname
+                    # 如果 appname 为 None，则从路径中提取
+                    if appname is None:
+                        appname = os.path.basename(os.path.dirname(filepath))
                     x.set_pre_variables({'appname': appname})
-                    x.read(v)
+                    x.read(filepath)
             d = dict([(k, repr(v)) for k, v in self.default_settings.items()])
             x.update(d or {})
             x.freeze()
@@ -1872,16 +1904,26 @@ class AsyncDispatcher:
                 self.local_settings_file
             )
             x = pyini.Ini(lazy=True, basepath=os.path.join(project_dir, 'apps'))
-            for v in settings:
-                # 判断是否是默认设置文件
-                if 'default_settings.ini' in v:
-                    x.read(v)
+            for item in settings:
+                # 新格式: (appname, filepath)
+                # 旧格式: filepath (字符串)
+                if isinstance(item, tuple):
+                    appname, filepath = item
                 else:
-                    # 从路径中提取 app 名称
-                    # 例如: /path/to/project/apps/uliweb_comui/settings.ini -> uliweb_comui
-                    appname = os.path.basename(os.path.dirname(v))
+                    # 兼容旧格式（字符串路径）
+                    appname = None
+                    filepath = item
+
+                # 判断是否是默认设置文件
+                if 'default_settings.ini' in filepath:
+                    x.read(filepath)
+                else:
+                    # 使用 collect_settings 返回的 appname
+                    # 如果 appname 为 None，则从路径中提取
+                    if appname is None:
+                        appname = os.path.basename(os.path.dirname(filepath))
                     x.set_pre_variables({'appname': appname})
-                    x.read(v)
+                    x.read(filepath)
             d = dict([(k, repr(v)) for k, v in self.default_settings.items()])
             x.update(d or {})
             x.freeze()
