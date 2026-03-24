@@ -7,16 +7,34 @@
 {{end}}
 
 {{block content_main}}
-<p>This page will display all available objects which can be used in a view function.</p>
-<table border="1">
+<h2>Global Objects</h2>
+<div class="info-box">
+    <p>These objects can be used directly in view functions:</p>
+    <ul>
+        <li><code>request</code> - Current HTTP request object</li>
+        <li><code>response</code> - Current HTTP response object</li>
+        <li><code>settings</code> - Application settings</li>
+        <li><code>application</code> - Application instance</li>
+        <li><code>functions</code> - User-defined functions</li>
+    </ul>
+</div>
+<table>
+    <thead>
+        <tr>
+            <th>Global</th>
+            <th>Type</th>
+            <th>Value</th>
+        </tr>
+    </thead>
     <tbody>
-        <tr><th>Global</th><th> Value</th></tr>
-        {{for key,value in glo.items():}}
-        <tr><th>{{=key}}</th>
-        <td>
-        {{from uliweb.utils.textconvert import text2html}}
-        {{<<text2html(str(value))}}
-        </td>
+        {{for key, value in glo.items():}}
+        <tr>
+            <td><code>{{=key}}</code></td>
+            <td><code>{{=type(value).__name__}}</code></td>
+            <td>
+            {{from uliweb.utils.textconvert import text2html}}
+            {{<<text2html(str(value))}}
+            </td>
         </tr>
         {{pass}}
     </tbody>

@@ -14,6 +14,130 @@
     {{block pagecss}}{{end}}
 
     <title>{{block title}}Uliweb develop{{end}}</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        .header {
+            background-color: #357abd;
+            color: white;
+            padding: 15px 20px;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 20px;
+            font-weight: 500;
+        }
+        .nav {
+            background-color: #f8f9fa;
+            padding: 0;
+            margin: 0;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        .nav ul {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+            display: flex;
+        }
+        .nav li {
+            margin: 0;
+        }
+        .nav a {
+            display: block;
+            padding: 12px 20px;
+            color: #333;
+            text-decoration: none;
+            border-bottom: 3px solid transparent;
+            transition: all 0.2s;
+        }
+        .nav a:hover {
+            background-color: #e8e8e8;
+        }
+        .nav li.active a {
+            border-bottom-color: #5ba3f5;
+            background-color: #5ba3f5;
+            color: white;
+            cursor: default;
+        }
+        .nav li.active a:hover {
+            background-color: #5ba3f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .content {
+            background: white;
+            border-radius: 4px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            padding: 20px;
+        }
+        h2 {
+            margin-top: 0;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #eee;
+            color: #2c3e50;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+        table th {
+            background-color: #f8f9fa;
+            text-align: left;
+            padding: 12px;
+            border-bottom: 2px solid #dee2e6;
+            font-weight: 600;
+            color: #495057;
+        }
+        table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #eee;
+        }
+        table tr:hover {
+            background-color: #f8f9fa;
+        }
+        table a {
+            color: #3498db;
+            text-decoration: none;
+        }
+        table a:hover {
+            text-decoration: underline;
+        }
+        .info-box {
+            background-color: #e8f4f8;
+            border-left: 4px solid #3498db;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 0 4px 4px 0;
+        }
+        pre {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+        code {
+            background-color: #f1f3f5;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+            font-size: 13px;
+        }
+    </style>
+    {{block extra_css}}{{end}}
 </head>
 {{end}}
 
@@ -22,15 +146,23 @@
 
 {{block container}}
 {{block nav}}
+<div class="header">
+    <h1>Uliweb Develop Tools</h1>
+</div>
+<nav class="nav">
 {{block menu}}
   {{<<functions.dev_nav()}}
 {{end menu}}
-<hr>
+</nav>
 {{end nav}}
+<div class="container">
 {{block content}}
+<div class="content">
 {{block content_main}}
 {{end content_main}}
+</div>
 {{end content}}
+</div>
 {{end container}}
 
 </body>

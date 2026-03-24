@@ -7,11 +7,27 @@
 {{end}}
 
 {{block content_main}}
-<table border="1">
+<h2>URL Routes</h2>
+<div class="info-box">
+    Total: {{=len(urls)}} routes
+</div>
+<table>
+    <thead>
+        <tr>
+            <th>#</th>
+            <th>URL</th>
+            <th>Methods</th>
+            <th>View Function</th>
+        </tr>
+    </thead>
     <tbody>
-    <tr><th>URL</th><th>View Functions</th></tr>
-    {{for rule, methods, endpoint in urls:}}
-        <tr><td><a href="{{=rule}}">{{=rule}}</a> {{=methods}}</td><td>{{=endpoint}}</td></tr>
+    {{for i, (rule, methods, endpoint) in enumerate(urls):}}
+        <tr>
+            <td>{{=i+1}}</td>
+            <td><a href="{{=rule}}">{{=rule}}</a></td>
+            <td><code>{{=methods or 'GET'}}</code></td>
+            <td><code>{{=endpoint}}</code></td>
+        </tr>
     {{pass}}
     </tbody>
 </table>

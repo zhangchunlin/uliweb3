@@ -15,18 +15,19 @@ async def develop_appsinfo():
 
 @expose('/develop/urls')
 async def develop_urls():
-    from uliweb.core.SimpleFrame import url_map
+    from uliweb import application
 
     u = []
-    for r in url_map.iter_rules():
-        if r.methods:
-            methods = ' '.join(list(r.methods))
-        else:
-            methods = ''
-        u.append((r.rule, methods, r.endpoint))
+    # 使用 application.router 而不是全局 url_map
+    router = application.router
+    for r in router.routes:
+        rule = r.path if hasattr(r, 'path') else str(r)
+        methods = ', '.join(r.methods) if hasattr(r, 'methods') and r.methods else 'GET'
+        endpoint = r.name if hasattr(r, 'name') and r.name else ''
+        u.append((rule, methods, endpoint))
     u.sort()
 
-    return {'urls':u}
+    return {'urls': u}
 
 @expose("/develop/global")
 async def develop_globals():
