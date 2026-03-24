@@ -1871,6 +1871,8 @@ class AsyncDispatcher:
         self._middleware_stack = None
         # 存储路由的参数类型信息：{route_path: {param_name: param_type}}
         self.route_param_types = {}
+        # 存储静态视图列表
+        self.static_views = []
 
         # 预先设置 application 到 __global__ 和 LocalProxy
         __global__.application = self
