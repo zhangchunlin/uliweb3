@@ -910,7 +910,8 @@ class RunserverCommand(Command):
         env.update({
             'SETTINGS': global_options.settings,
             'LOCAL_SETTINGS': global_options.local_settings,
-            'PROJECT_DIR': global_options.project or os.getcwd()
+            'PROJECT_DIR': global_options.project or os.getcwd(),
+            'INCLUDE_APPS': ','.join(include_apps) if include_apps else ''
         })
 
         # 运行 ASGI 服务器

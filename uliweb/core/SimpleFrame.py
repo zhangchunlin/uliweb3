@@ -961,6 +961,41 @@ class AsyncDispatcher:
             self.set_log()
             self._log_initialized = True
 
+        # 导入视图模块，触发 expose 装饰器执行
+        # 这会注册所有路由
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+            # 如果有事件循环在运行，使用 run_in_executor
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(asyncio.run, self._import_views())
+                future.result()
+        except RuntimeError:
+            # 没有事件循环在运行
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(self._import_views())
+            finally:
+                loop.close()
+
+        # 导入视图模块后再初始化路由
+        # 使用 _init_routes() 方法确保路由正确注册
+        try:
+            loop = asyncio.get_running_loop()
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(asyncio.run, self._init_routes())
+                future.result()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(self._init_routes())
+            finally:
+                loop.close()
+
         return self
 
     def _init_settings(self):
@@ -1046,7 +1081,11 @@ class AsyncDispatcher:
 
         # 获取 apps 列表
         from uliweb.core.SimpleFrame import get_apps as get_sync_apps
-        apps_dir_full = os.path.join(self.project_dir, self.apps_dir) if self.project_dir else self.apps_dir
+        # 如果 apps_dir 是绝对路径，直接使用；否则拼接 project_dir
+        if os.path.isabs(self.apps_dir):
+            apps_dir_full = self.apps_dir
+        else:
+            apps_dir_full = os.path.join(self.project_dir, self.apps_dir) if self.project_dir else self.apps_dir
         apps = get_sync_apps(apps_dir_full, self.include_apps, self.settings_file, self.local_settings_file)
 
         return settings, apps
@@ -2764,8 +2803,9 @@ class ASGIApplication:
             cls._instance_project_dir = project_dir
         return cls._instance
 
-    def __init__(self, project_dir=None):
+    def __init__(self, project_dir=None, include_apps=None):
         self.project_dir = project_dir
+        self.include_apps = include_apps or []
         # 不在这里初始化，延迟到 __call__ 时初始化
 
     def _initialize(self):
@@ -2773,19 +2813,27 @@ class ASGIApplication:
         if not self._initialized:
             # 处理 project_dir 为 None 的情况
             if self.project_dir is None:
-                # 尝试获取当前工作目录作为默认项目目录
-                self.project_dir = os.getcwd()
+                # 尝试从环境变量获取项目目录
+                self.project_dir = os.environ.get('PROJECT_DIR', os.getcwd())
+
+            # 从环境变量获取 include_apps
+            include_apps_env = os.environ.get('INCLUDE_APPS', '')
+            if include_apps_env:
+                include_apps = [app.strip() for app in include_apps_env.split(',') if app.strip()]
+            else:
+                include_apps = self.include_apps
 
             # 创建 ASGI Dispatcher
             # 注意：apps_dir 只需要传递 'apps'，而不是完整路径
             # 因为 AsyncDispatcher 会将 project_dir 和 apps_dir 拼接
             asgi_app = AsyncDispatcher(
                 apps_dir='apps',
-                project_dir=self.project_dir
+                project_dir=self.project_dir,
+                include_apps=include_apps
             )
 
-            # 直接调用 _init_routes_sync，确保路由正确初始化
-            asgi_app._init_routes_sync()
+            # 调用 prepare() 方法确保视图模块被导入，路由被正确注册
+            asgi_app.prepare()
 
             # 保存实例
             ASGIApplication._instance_asgi_app = asgi_app
