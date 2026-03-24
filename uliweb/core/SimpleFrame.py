@@ -938,6 +938,31 @@ class AsyncDispatcher:
         # 与 WSGI 版本的 Dispatcher 行为一致
         self._init_settings()
 
+    def prepare(self):
+        """手动初始化应用（用于命令行工具等场景）
+
+        当 start=False 时，需要手动调用此方法来完成初始化
+        """
+        # 确保 settings 已加载
+        if not self._settings_loaded:
+            self._init_settings()
+
+        # 设置 debug 模式（如果未设置）
+        if not hasattr(self, 'debug'):
+            self.debug = self.settings.GLOBAL.get('DEBUG', False)
+
+        # 确保模板加载器已初始化
+        if not hasattr(self, 'template_loader') or self.template_loader is None:
+            self.get_template_dirs()
+            self.install_template_loader()
+
+        # 确保日志已设置
+        if not hasattr(self, '_log_initialized') or not self._log_initialized:
+            self.set_log()
+            self._log_initialized = True
+
+        return self
+
     def _init_settings(self):
         """同步初始化 settings"""
         import asyncio
