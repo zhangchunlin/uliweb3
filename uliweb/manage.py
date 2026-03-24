@@ -1142,7 +1142,7 @@ class ShellCommand(Command):
 
     def make_shell_env(self, global_options):
         from uliweb import functions, settings
-        from uliweb.core.SimpleFrame import Dispatcher
+        from uliweb.core.SimpleFrame import AsyncDispatcher as Dispatcher
 
         application = self.get_application(global_options)
 

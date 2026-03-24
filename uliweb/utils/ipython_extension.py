@@ -2,7 +2,7 @@ def make_shell_env(**kwargs):
     import os
     import sys
     from uliweb import functions, settings
-    from uliweb.core.SimpleFrame import Dispatcher
+    from uliweb.core.SimpleFrame import AsyncDispatcher as Dispatcher
     from uliweb.manage import make_simple_application
 
     project_dir = '.'
