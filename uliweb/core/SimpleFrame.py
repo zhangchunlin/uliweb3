@@ -2624,9 +2624,9 @@ class AsyncDispatcher:
 
                 if has_asgi_call:
                     # ASGI 中间件：直接包装
-                    # 需要传递 self 作为 app 参数，因为 ASGI 中间件通常只需要一个 app 参数
+                    # 需要传递 self 作为 app 参数，以及 settings
                     if isinstance(middleware, type):
-                        middleware_instance = middleware(self)
+                        middleware_instance = middleware(self, self.settings)
                     else:
                         middleware_instance = middleware
                     app = self._wrap_asgi_middleware(middleware_instance, app)
