@@ -1006,7 +1006,8 @@ class AsyncDispatcher:
                 loop.close()
 
         # 导入视图模块后再初始化路由
-        # 使用 _init_routes() 方法确保路由正确注册
+        # 必须在 startup_installed 之前调用，因为 timezone 模块的 startup_installed
+        # 会修改 now() 函数的行为，导致 timezone-aware 和 naive datetime 无法比较
         try:
             loop = asyncio.get_running_loop()
             import concurrent.futures
@@ -1020,6 +1021,9 @@ class AsyncDispatcher:
                 loop.run_until_complete(self._init_routes())
             finally:
                 loop.close()
+
+        # 调用 startup_installed 钩子
+        dispatch.call(self, 'startup_installed')
 
         return self
 
@@ -1052,12 +1056,9 @@ class AsyncDispatcher:
             # 初始化 dispatch 绑定（必须在调用 startup_installed 之前）
             self.install_binds()
 
-            # 调用 startup_installed 钩子
-            # 注意：sender 是 self，所以 sender.settings 应该是 self.settings
-            dispatch.call(self, 'startup_installed')
-
-            # 同步初始化路由（调用 init_urls）
-            self._init_routes_sync()
+            # 注意：不要在这里调用 _init_routes_sync() 和 startup_installed
+            # 因为视图还没导入，路由还没注册
+            # 这些操作会在 prepare() 方法中完成
 
             return
         except RuntimeError:
@@ -1198,8 +1199,7 @@ class AsyncDispatcher:
         """异步初始化方法"""
         if not self._initialized:
             await self.init()
-            # 初始化路由
-            await self._init_routes()
+            # 注意：init() 方法已经调用了 _init_routes()，不需要重复调用
             self._initialized = True
 
     async def init(self):
@@ -1245,6 +1245,11 @@ class AsyncDispatcher:
         self.install_binds()
         self.set_log()
 
+        # 初始化 URL
+        # 必须在 startup_installed 之前调用，因为 timezone 模块的 startup_installed
+        # 会修改 now() 函数的行为，导致 timezone-aware 和 naive datetime 无法比较
+        await self._init_routes()
+
         # 调用 startup_installed 钩子，这会触发 uliweb.contrib.template 的初始化
         # 并将 _tag_use 等函数添加到 template.default_namespace
         dispatch.call(self, 'startup_installed')
@@ -1261,9 +1266,6 @@ class AsyncDispatcher:
 
         # 保存 env 到 self.env，以便后续 get_view_env() 可以访问
         self.env = env
-
-        # 初始化 URL
-        await self._init_routes()
 
         # 调用 startup 钩子，所有初始化工作完成后执行
         dispatch.call(self, 'startup')
@@ -2764,8 +2766,8 @@ class AsyncDispatcher:
 
     def _wrap_asgi_middleware(self, middleware, next_app):
         """包装底层 ASGI 中间件"""
-        # 设置中间件的 app 属性指向下一个应用
-        middleware.app = next_app
+        # 设置中间件的 application 属性指向下一个应用
+        middleware.application = next_app
 
         async def app(scope, receive, send):
             # 调用中间件

@@ -20,7 +20,7 @@ class ASGIStaticFilesMiddleware:
         else:
             self.dispatcher = app
 
-        self.app = app
+        self.application = app
         self.url_suffix = settings.DOMAINS.static.get('url_prefix', '') + STATIC_URL.rstrip('/') + '/'
         self.cache = cache
         self.cache_timeout = cache_timeout
@@ -46,9 +46,9 @@ class ASGIStaticFilesMiddleware:
 
     def find_static_file(self, filename, apps=None):
         """Find static file in app directories"""
-        # 优先使用传入的 apps 参数，否则从 self.app (AsyncDispatcher) 获取
+        # 优先使用传入的 apps 参数，否则从 self.application (AsyncDispatcher) 获取
         if apps is None:
-            apps = getattr(self.app, 'apps', None)
+            apps = getattr(self.application, 'apps', None)
             if apps is None:
                 # 尝试从 application proxy 获取
                 from uliweb import application
@@ -120,7 +120,7 @@ class ASGIStaticFilesMiddleware:
     async def __call__(self, scope, receive, send):
         # 只处理 HTTP 请求
         if scope["type"] != "http":
-            await self.app(scope, receive, send)
+            await self.application(scope, receive, send)
             return
 
         # 获取请求路径
@@ -217,4 +217,4 @@ class ASGIStaticFilesMiddleware:
                 return
 
         # 不是静态文件请求，传递给下一个应用
-        await self.app(scope, receive, send)
+        await self.application(scope, receive, send)
