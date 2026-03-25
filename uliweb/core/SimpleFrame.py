@@ -241,8 +241,9 @@ class UliwebRouter:
 
     def add_route(self, rule, endpoint, **kwargs):
         """转换 Werkzeug 风格路由到 Starlette 风格"""
-        # 转换参数格式: <name> -> {name}
-        starlette_rule = re.sub(r'<([^:>]+)(?::[^>]+)?>', r'{\1}', rule)
+        # 使用 _convert_route_param 正确转换参数格式
+        # 例如: '/static/<path:filename>' -> ('/static/{filename}', {'filename': 'path'})
+        starlette_rule, param_types = _convert_route_param(rule)
 
         methods = kwargs.get('methods', ['GET'])
         name = kwargs.get('name')
@@ -953,6 +954,10 @@ class AsyncDispatcher:
         __global__.application = self
         application.set(self)
 
+        # 重置 dispatch 绑定，确保每次创建新的 Dispatcher 时清理之前的绑定
+        # 这对于测试环境非常重要，因为同一个进程中可能创建多个 Dispatcher 实例
+        dispatch.reset()
+
         # 无论 start 是 True 还是 False，都同步加载 settings
         # 这样确保在请求前 settings 已经被初始化
         # 与 WSGI 版本的 Dispatcher 行为一致
@@ -1035,12 +1040,19 @@ class AsyncDispatcher:
                 future = executor.submit(load_settings_sync)
                 settings, apps = future.result()
 
-            # 设置结果
+            # 设置结果 - 必须在调用 dispatch.call 之前完成
             self.settings = settings
             self.apps = apps
             __global__.settings = settings
             settings.set(settings)
             self._settings_loaded = True
+
+            # 初始化 dispatch 绑定（必须在调用 startup_installed 之前）
+            self.install_binds()
+
+            # 调用 startup_installed 钩子
+            # 注意：sender 是 self，所以 sender.settings 应该是 self.settings
+            dispatch.call(self, 'startup_installed')
 
             # 同步初始化路由（调用 init_urls）
             self._init_routes_sync()
@@ -1056,6 +1068,12 @@ class AsyncDispatcher:
         try:
             # 执行异步初始化
             loop.run_until_complete(self._load_settings_and_apps())
+
+            # 初始化 dispatch 绑定（必须在调用 startup_installed 之前）
+            self.install_binds()
+
+            # 调用 startup_installed 钩子
+            dispatch.call(self, 'startup_installed')
 
             # 同步初始化路由（调用 init_urls）
             self._init_routes_sync()
@@ -1690,37 +1708,39 @@ class AsyncDispatcher:
         # 检查是否已经有路由，如果有则跳过重复注册
         # 因为 _init_routes_sync 已经正确注册了路由
         existing_route_paths = set(r.path for r in self.router.routes)
-        if existing_route_paths:
-            return
 
-        # 注册路由到路由器
-        for rule_info in merged_rules:
-            appname, endpoint, url, kw = rule_info
+        # 注册路由到路由器（仅当没有路由时）
+        if not existing_route_paths:
+            for rule_info in merged_rules:
+                appname, endpoint, url, kw = rule_info
 
-            # 转换 Werkzeug 风格路由到 Starlette 风格，返回 (转换后的规则, 参数类型字典)
-            starlette_rule, param_types = _convert_route_param(url)
+                # 转换 Werkzeug 风格路由到 Starlette 风格，返回 (转换后的规则, 参数类型字典)
+                starlette_rule, param_types = _convert_route_param(url)
 
-            # 存储参数类型信息
-            if param_types:
-                self.route_param_types[starlette_rule] = param_types
+                # 存储参数类型信息
+                if param_types:
+                    self.route_param_types[starlette_rule] = param_types
 
-            # 处理静态视图
-            static = kw.pop('static', None)
-            if static:
-                self.static_views.append(endpoint)
+                # 处理静态视图
+                static = kw.pop('static', None)
+                if static:
+                    self.static_views.append(endpoint)
 
-            # 处理 WebSocket 路由
-            websocket = kw.pop('websocket', False)
-            if websocket:
-                # 注册 WebSocket 路由
-                self.router.add_websocket_route(starlette_rule, endpoint, **kw)
-            else:
-                # 注册普通 HTTP 路由
-                self.router.add_route(starlette_rule, endpoint, **kw)
+                # 处理 WebSocket 路由
+                websocket = kw.pop('websocket', False)
+                if websocket:
+                    # 注册 WebSocket 路由
+                    self.router.add_websocket_route(starlette_rule, endpoint, **kw)
+                else:
+                    # 注册普通 HTTP 路由
+                    self.router.add_route(starlette_rule, endpoint, **kw)
 
         # 处理每个应用的 EXPOSES 路由（来自 settings.ini 的路由定义）
+        # 这个处理不应该被跳过，因为 _init_routes_sync 可能没有处理 EXPOSES
         for app_name in self.apps:
-            app_settings = self.settings.get(app_name.upper(), {})
+            # 使用应用的简短名称（如 'UPLOAD'）而不是完整路径（如 'ULIWEB.CONTRIB.UPLOAD'）
+            app_short_name = app_name.split('.')[-1].upper()
+            app_settings = self.settings.get(app_short_name, {})
             if hasattr(app_settings, 'EXPOSES') and app_settings.EXPOSES:
                 for name, route_info in app_settings.EXPOSES.items():
                     if isinstance(route_info, (list, tuple)) and len(route_info) >= 2:
