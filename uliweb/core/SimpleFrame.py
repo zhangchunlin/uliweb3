@@ -1038,13 +1038,15 @@ class AsyncDispatcher:
             # 使用线程池执行同步加载
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 future = executor.submit(load_settings_sync)
-                settings, apps = future.result()
+                loaded_settings, apps = future.result()
 
             # 设置结果 - 必须在调用 dispatch.call 之前完成
-            self.settings = settings
+            self.settings = loaded_settings
             self.apps = apps
-            __global__.settings = settings
-            settings.set(settings)
+            __global__.settings = loaded_settings
+            # 修复：设置 LocalProxy 的值为实际的 pyini.Ini 对象
+            # 注意：这里使用模块级的 settings (LocalProxy)，而不是局部变量 loaded_settings
+            settings.set(self.settings)
             self._settings_loaded = True
 
             # 初始化 dispatch 绑定（必须在调用 startup_installed 之前）
@@ -1151,7 +1153,7 @@ class AsyncDispatcher:
         # 安装 settings 到 __global__
         __global__.settings = self.settings
 
-        # 同时设置到 LocalProxy
+        # 同时设置到 LocalProxy - 修复：使用 self.settings 而不是 settings
         settings.set(self.settings)
 
         # 标记 settings 已加载
