@@ -1005,9 +1005,13 @@ class AsyncDispatcher:
             finally:
                 loop.close()
 
+        # 调用 startup_installed 钩子
+        # 必须在 _init_routes() 之前调用，因为 startup_installed 会注册路由到 __exposes__
+        # 然后 _init_routes() 会根据 __exposes__ 注册路由
+        # 这与 WSGI 版本的调用顺序一致：startup_installed -> init_urls
+        dispatch.call(self, 'startup_installed')
+
         # 导入视图模块后再初始化路由
-        # 必须在 startup_installed 之前调用，因为 timezone 模块的 startup_installed
-        # 会修改 now() 函数的行为，导致 timezone-aware 和 naive datetime 无法比较
         try:
             loop = asyncio.get_running_loop()
             import concurrent.futures
@@ -1021,9 +1025,6 @@ class AsyncDispatcher:
                 loop.run_until_complete(self._init_routes())
             finally:
                 loop.close()
-
-        # 调用 startup_installed 钩子
-        dispatch.call(self, 'startup_installed')
 
         return self
 
@@ -1075,11 +1076,9 @@ class AsyncDispatcher:
             # 初始化 dispatch 绑定（必须在调用 startup_installed 之前）
             self.install_binds()
 
-            # 调用 startup_installed 钩子
-            dispatch.call(self, 'startup_installed')
-
-            # 同步初始化路由（调用 init_urls）
-            self._init_routes_sync()
+            # 注意：不要在这里调用 _init_routes_sync() 和 startup_installed
+            # 因为视图还没导入，路由还没注册
+            # 这些操作会在 prepare() 方法中完成
         finally:
             loop.close()
 
@@ -1702,6 +1701,10 @@ class AsyncDispatcher:
 
     async def _init_routes(self):
         """初始化路由，处理收集到的路由信息"""
+        # 首先处理域名配置
+        # 这与 _init_routes_sync 方法保持一致
+        self.process_domains(self.settings)
+
         # 首先导入视图模块，这样 expose 装饰器才能被调用
         await self._import_views()
 
