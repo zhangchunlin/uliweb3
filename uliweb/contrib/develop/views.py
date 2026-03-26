@@ -23,11 +23,35 @@ async def develop_urls():
     for r in router.routes:
         rule = r.path if hasattr(r, 'path') else str(r)
         methods = ', '.join(r.methods) if hasattr(r, 'methods') and r.methods else 'GET'
-        endpoint = r.name if hasattr(r, 'name') and r.name else ''
+        # 获取 endpoint 的完整路径
+        endpoint = _get_endpoint(r)
         u.append((rule, methods, endpoint))
     u.sort()
 
     return {'urls': u}
+
+
+def _get_endpoint(route):
+    """获取 endpoint 的完整路径"""
+    # 获取 endpoint 属性（优先）
+    endpoint = getattr(route, 'endpoint', None)
+    if endpoint:
+        # 如果 endpoint 是字符串，直接返回
+        if isinstance(endpoint, str):
+            return endpoint
+        # 如果 endpoint 是函数，获取其完整路径
+        if callable(endpoint):
+            if hasattr(endpoint, '__module__') and hasattr(endpoint, '__qualname__'):
+                return endpoint.__module__ + '.' + endpoint.__qualname__
+            elif hasattr(endpoint, '__name__'):
+                return endpoint.__name__
+        return str(endpoint)
+
+    # 备用：获取 name
+    if hasattr(route, 'name') and route.name:
+        return route.name
+
+    return ''
 
 @expose("/develop/global")
 async def develop_globals():
