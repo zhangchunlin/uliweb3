@@ -12,7 +12,25 @@ version: 1.0.0
 
 此技能提供创建 Uliweb3 ASGI Web 应用的完整指导。Uliweb3 是一个基于 Starlette 的 ASGI 框架，支持异步处理、WebSocket、模板渲染等功能。
 
-## 核心组件
+## 核心特性
+
+Uliweb3 具有以下独特的设计理念：
+
+### 自动加载机制
+
+Uliweb3 的一大特点是**自动加载**：只要在 `INSTALLED_APPS` 中添加一个 app，该 app 的以下文件会自动被框架加载和处理，**无需额外注册**：
+
+- `settings.ini` - 应用配置，自动合并到全局 settings
+- `views.py` - 视图文件，使用 `@expose` 装饰器定义的路由自动注册
+- `commands.py` - 命令文件，自动注册为 uliweb 命令
+- `models.py` - 数据模型（需要 orm 支持）
+- `templates/` - 模板目录，自动添加到模板搜索路径
+- `static/` - 静态文件目录，自动提供静态文件服务
+- `info.ini` - 应用信息，用于应用管理界面
+
+这种设计让开发者可以专注于业务逻辑，无需手动配置路由、命令等。
+
+### 核心组件
 
 Uliweb3 的核心实现位于 `uliweb/core/SimpleFrame.py`，包含以下主要组件：
 
