@@ -166,7 +166,97 @@ async def websocket_endpoint(websocket):
 
 ## 迁移指南
 
-1. **更新 Request 访问方式**：将同步属性改为异步方法
-2. **更新视图函数**：考虑使用 async def
-3. **更新中间件**：使用异步接口
-4. **更新 ASGI 服务器**：使用 uvicorn 或 hypercorn 替代 WSGI 服务器
+### WSGI App 改造成 ASGI App 事项清单
+
+将一个现有的 WSGI Uliweb 项目迁移到 ASGI（Uliweb3）时，需要检查和修改以下事项：
+
+#### 1. 依赖检查
+
+- [ ] 移除对 Werkzeug 的直接依赖（Uliweb3 已使用 Starlette）
+- [ ] 检查并更新其他可能依赖 WSGI 的库
+- [ ] 确保使用兼容 ASGI 的第三方库
+
+#### 2. Request/Response 变更
+
+- [ ] `request.POST` → `await request.get_POST()`
+- [ ] `request.FILES` → `await request.get_FILES()`
+- [ ] `request.json` → `await request.get_json()`
+- [ ] `request.params` → `request.query_params`（GET 参数）
+- [ ] `request.values` → `await request.get_params()`（GET + POST 合并）
+- [ ] 检查是否有同步访问 POST/FILES/JSON 的代码，改为异步调用
+
+#### 3. 视图函数
+
+- [ ] 考虑将关键视图改为 `async def`
+- [ ] 同步视图仍可使用，但会在协程池中执行
+- [ ] 检查是否有长时间运行的同步操作，考虑异步化
+
+#### 4. 中间件
+
+- [ ] 传统中间件（process_request/process_response/process_exception）仍然支持
+- [ ] ASGI 中间件需要实现 `async def __call__(self, scope, receive, send)`
+- [ ] 检查自定义中间件是否需要更新
+
+#### 5. 全局对象
+
+- [ ] `from uliweb import request, response, settings, application` 仍然可用
+- [ ] 注意 `settings` 和 `application` 使用 `Global()` 而非 contextvars
+- [ ] `request` 和 `response` 使用 contextvars
+
+#### 6. URL 路由
+
+- [ ] `@expose` 装饰器仍然工作
+- [ ] URL 参数格式保持不变：`/user/<id>`
+- [ ] 检查是否有自定义路由适配器
+
+#### 7. 静态文件
+
+- [ ] 确保 `uliweb.contrib.staticfiles` 在 `INSTALLED_APPS` 中
+- [ ] 检查 `settings.GLOBAL.STATIC_URL` 配置
+
+#### 8. Session 和认证
+
+- [ ] `uliweb.contrib.session` 已更新为 ASGI 兼容版本
+- [ ] 检查自定义 session 存储是否兼容异步
+
+#### 9. 数据库和 ORM
+
+- [ ] `uliweb.contrib.orm` 已更新
+- [ ] 检查 `from uliweb import models` 是否仍然可用（注意：目前可能不完全兼容）
+- [ ] 异步模型操作使用 `await`
+
+#### 10. 模板
+
+- [ ] 模板语法保持不变
+- [ ] 确保模板加载器配置正确
+
+#### 11. 命令行工具
+
+- [ ] 使用 `uliweb runserver` 替代旧的 WSGI 服务器
+- [ ] 测试所有自定义命令是否正常工作
+
+#### 12. 部署
+
+- [ ] 使用 ASGI 服务器（uvicorn、hypercorn、daphne）
+- [ ] 更新部署配置（nginx、gunicorn 等）
+- [ ] 注意 ASGI 和 WSGI 服务器的差异
+
+### 快速迁移步骤
+
+1. **创建 ASGI 启动文件**：
+```python
+# asgi_handler.py
+from uliweb.manage import make_application
+application = make_application(project_dir=path)
+```
+
+2. **测试运行**：
+```bash
+uvicorn asgi_handler:application --reload
+```
+
+3. **逐项检查上述清单**
+
+4. **更新代码**：根据检查结果修改代码
+
+5. **全面测试**：确保所有功能正常工作
