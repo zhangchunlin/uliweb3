@@ -101,7 +101,11 @@ def set_urlroute_rules(rules=None):
 def get_endpoint(f):
     if ismethod(f):
         _class = get_class(f)
-        endpoint = '.'.join([_class.__module__, _class.__name__, f.__name__])
+        if _class is not None:
+            endpoint = '.'.join([_class.__module__, _class.__name__, f.__name__])
+        else:
+            # 如果无法获取类，尝试使用 __qualname__ 或其他方式
+            endpoint = get_function_path(f)
     elif inspect.isfunction(f):
         endpoint = '.'.join([f.__module__, f.__name__])
     else:

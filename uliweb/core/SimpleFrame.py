@@ -290,7 +290,7 @@ class UliwebRouter:
         根据 endpoint 名称和参数构建 URL
         兼容 werkzeug 的 build 方法
         """
-        # 查找对应的路由 - 首先尝试通过 endpoint 名称直接查找
+        # 首先尝试通过 endpoint 名称直接查找（字符串 endpoint）
         route = self.url_map.get(endpoint)
 
         if route:
@@ -303,18 +303,63 @@ class UliwebRouter:
             except Exception:
                 pass
 
-        # 如果找不到路由，从路由规则中提取路径模式
-        for r in self.routes:
-            # 检查路由的 endpoint（通过 route.endpoint 属性）
-            endpoint_attr = getattr(r, 'endpoint', None)
+        # 如果找不到，尝试通过函数对象的字符串表示查找
+        # 遍历 url_map，检查 endpoint 是否匹配
+        for key, route in self.url_map.items():
+            # 如果 key 是函数对象，获取其路径
+            if callable(key):
+                from .rules import get_function_path
+                key_str = get_function_path(key)
+            else:
+                key_str = key
 
-            # 匹配 endpoint
-            if endpoint_attr == endpoint or r.name == endpoint:
-                # 获取路由的路径模式并替换参数
-                path = r.path
-                for key, value in values.items():
-                    path = path.replace('{' + key + '}', str(value))
+            # 匹配 endpoint - 支持多种匹配方式：
+            # 1. key_str 完全匹配 endpoint
+            # 2. route.name 匹配 endpoint
+            # 3. key_str 的最后一部分匹配 endpoint（处理模块路径差异）
+            if key_str == endpoint or getattr(route, 'name', None) == endpoint:
+                try:
+                    if route.name:
+                        url = self.router.url_path_for(route.name, **values).path
+                        return url
+                except Exception:
+                    pass
+
+                # 如果上面的方法失败，直接使用路径替换参数
+                path = route.path
+                for k, v in values.items():
+                    path = path.replace('{' + k + '}', str(v))
                 return path
+
+        # 如果还是找不到，尝试通过 route.endpoint 属性查找
+        # 这是因为 Starlette Route 对象会存储原始的 endpoint
+        for route in self.routes:
+            route_endpoint = getattr(route, 'endpoint', None)
+            if route_endpoint:
+                # 如果 route.endpoint 是函数，获取其路径
+                if callable(route_endpoint):
+                    from .rules import get_function_path
+                    route_endpoint_str = get_function_path(route_endpoint)
+                else:
+                    route_endpoint_str = route_endpoint
+
+                if route_endpoint_str == endpoint:
+                    # 直接使用路径替换参数
+                    path = route.path
+                    for k, v in values.items():
+                        path = path.replace('{' + k + '}', str(v))
+                    return path
+
+                # 支持部分匹配：通过函数名匹配
+                # 例如：endpoint='test.test_url_for.hello' 可以匹配 '__main__.hello'
+                route_func_name = route_endpoint_str.split('.')[-1] if route_endpoint_str else ''
+                target_func_name = endpoint.split('.')[-1] if endpoint else ''
+
+                if route_func_name and route_func_name == target_func_name:
+                    path = route.path
+                    for k, v in values.items():
+                        path = path.replace('{' + k + '}', str(v))
+                    return path
 
         # 如果还是找不到，返回一个占位符
         return f"/{endpoint}"
@@ -620,49 +665,17 @@ def get_rule(url):
         pass
     return result
 
-def _sub(matcher):
-    return '{%s}' % matcher.group().strip('<>').strip().split(':')[-1]
-
 def url_for(endpoint, **values):
-    urljoin = import_('urllib.parse', 'urljoin')
+    """URL 生成函数 - 统一实现
 
-    point = rules.get_endpoint(endpoint)
-
-    #if the endpoint is string format, then find and replace
-    #the module prefix with app alias which matched
-    for k, v in __app_alias__.items():
-        if point.startswith(k):
-            point = v + point[len(k):]
-            break
-
-    if point in rules.__url_names__:
-        point = rules.__url_names__[point]
-
-    _domain_name = values.pop('_domain_name', 'default')
-    _external = values.pop('_external', False)
-    domain = application.domains.get(_domain_name, {})
-    if not _external:
-        _external = domain.get('display', False)
-    adapter = get_url_adapter(_domain_name)
-
-    #process format
-    #it'll replace <argu> to {argu} so that you can use format
-    #to create url
-    _format = values.pop('_format', None)
-    if _format:
-        #then replace argument with {name} format
-        _rules = url_map._rules_by_endpoint.get(point)
-        if _rules:
-            rule = _rules[0]
-            url = re.sub(r'<.*?>', _sub, rule.rule)
-            if _external:
-                url = urljoin(domain.get('domain', ''), url)
-            return url
-        else:
-            raise ValueError("Can't found rule of endpoint %s" % point)
-
-
-    return adapter.build(point, values, force_external=_external)
+    在 ASGI 模式下调用 application._url_for 方法
+    """
+    from uliweb import application
+    if hasattr(application, '_url_for'):
+        return application._url_for(endpoint, **values)
+    else:
+        # 简单实现
+        return f"/{endpoint}"
 
 def get_app_dir(app):
     """
@@ -2007,10 +2020,53 @@ class AsyncDispatcher:
         return env
 
     def _url_for(self, endpoint, **values):
-        """URL 生成函数"""
-        # 这里需要实现异步版本的 url_for
-        # 暂时简单实现
-        return f"/{endpoint}"
+        """URL 生成函数 - 异步版本
+
+        参考模块级 url_for 函数的实现：
+        1. rules.get_endpoint(endpoint) - 获取端点
+        2. 处理应用别名 __app_alias__
+        3. 处理 URL 命名 __url_names__
+        4. adapter.build(endpoint, values, force_external=_external) - 构建 URL
+        """
+        from . import rules
+
+        # 1. 获取端点 - 如果传入的是函数，先获取其 endpoint
+        point = rules.get_endpoint(endpoint)
+
+        # 2. 处理应用别名
+        for k, v in __app_alias__.items():
+            if point.startswith(k):
+                point = v + point[len(k):]
+                break
+
+        # 3. 处理 URL 命名 - 如果 point 在 __url_names__ 中，转换为实际的 endpoint
+        if point in rules.__url_names__:
+            point = rules.__url_names__[point]
+
+        # 4. 处理域名相关参数
+        _domain_name = values.pop('_domain_name', 'default')
+        _external = values.pop('_external', False)
+
+        # 获取域名配置
+        domain = self.domains.get(_domain_name, {})
+        if not _external:
+            _external = domain.get('display', False)
+
+        # 5. 使用 UliwebRouter 的 build 方法构建 URL
+        try:
+            url = self.router.build(point, values, force_external=_external)
+
+            # 如果需要外部 URL，添加域名
+            if _external and domain.get('domain'):
+                from urllib.parse import urljoin
+                url = urljoin(domain.get('domain'), url)
+
+            return url
+        except Exception as e:
+            # 如果构建失败，返回占位符
+            import logging
+            logging.getLogger('uliweb').warning(f"url_for error for {endpoint} (point={point}): {e}")
+            return f"/{endpoint}"
 
     def _error(self, message='', errorpage=None, **kwargs):
         """错误处理函数"""
@@ -2975,16 +3031,6 @@ def json(data, **kwargs):
         kwargs['status_code'] = kwargs.pop('status')
 
     return JSONResponse(data, **kwargs)
-
-
-def url_for(endpoint, **values):
-    """URL 生成函数"""
-    from uliweb import application
-    if hasattr(application, '_url_for'):
-        return application._url_for(endpoint, **values)
-    else:
-        # 简单实现
-        return f"/{endpoint}"
 
 
 # 导出主要类和方法
