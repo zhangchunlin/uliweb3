@@ -98,6 +98,11 @@ except ImportError:
         "Uliweb3 需要 Starlette。请运行: pip install starlette"
     )
 
+# 向后兼容：导出 models 对象（来自 uliweb.contrib.orm）
+# 旧版代码使用：from uliweb import models; model = models.xxx
+# 新版代码使用：from uliweb import get_model; model = get_model('xxx')
+from .contrib.orm import models
+
 # 兼容性导出
 __all__ = [
     'Request', 'Response', 'Dispatcher', 'expose', 'POST', 'GET',
@@ -107,5 +112,5 @@ __all__ = [
     'common', 'date', 'files', 'storage', 'sorteddict',
     'form', 'orm', 'i18n', 'mail', 'ASGI_AVAILABLE',
     'get_apps', 'get_app_dir', 'functions', 'Finder', 'decorators', 'url_for', 'json_dumps',
-    'is_in_web', 'error'
+    'is_in_web', 'error', 'models'
 ]
