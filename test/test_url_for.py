@@ -8,13 +8,25 @@ from uliweb.core.SimpleFrame import UliwebRouter
 def test_url_for_function():
     """测试模块级 url_for 函数"""
     from uliweb import application
-
-    # 这个测试验证 url_for 函数存在且可调用
     from uliweb.core.SimpleFrame import url_for
 
-    # 如果 application 还没有 _url_for 方法，应该返回占位符
-    result = url_for('test.endpoint')
-    assert result.startswith('/')
+    # 这个测试验证 url_for 函数存在且可调用
+    # 当 application 有 _url_for 方法时，应该能正常调用
+    # 当 application 没有 _url_for 方法时，应该抛出异常
+    if hasattr(application, '_url_for'):
+        # 如果 application 已初始化，应该能调用（可能会抛出 endpoint not found）
+        try:
+            url_for('test.endpoint')
+        except ValueError as e:
+            # 应该抛出 endpoint not found 异常，而不是 "application to be initialized"
+            assert "Could not build URL for endpoint" in str(e) or "url_for error" in str(e)
+    else:
+        # 如果 application 未初始化，应该抛出初始化异常
+        try:
+            url_for('test.endpoint')
+            assert False, "Expected ValueError to be raised"
+        except ValueError as e:
+            assert "url_for requires application to be initialized" in str(e)
 
 
 def test_url_router_basic():
@@ -340,6 +352,42 @@ def test_async_dispatcher_multiple_apps_url_for():
     # 测试带参数的 url_for
     url = dispatcher._url_for('apps.blog.views.detail', post_id=42)
     assert '42' in url, f"Expected '42' in url, got '{url}'"
+
+
+def test_url_for_matching_different_endpoints_same_function_name():
+    """测试不同 endpoint 有相同函数名的情况
+
+    这是核心测试场景：
+    - app1.views.MyClass.list -> /app1
+    - app2.views.MyClass.list -> /app2
+
+    如果部分匹配逻辑过于宽松，可能会导致错误的 URL 生成。
+    """
+    router = UliwebRouter()
+
+    # 注册两个不同应用的 list 视图
+    router.add_route('/app1', 'app1.views.MyClass.list', name='app1_list')
+    router.add_route('/app2', 'app2.views.MyClass.list', name='app2_list')
+
+    url1 = router.build('app1.views.MyClass.list', {})
+    assert url1 == '/app1', f"Expected '/app1' but got '{url1}'"
+
+    url2 = router.build('app2.views.MyClass.list', {})
+    assert url2 == '/app2', f"Expected '/app2' but got '{url2}'"
+
+    # 验证两个 URL 不同
+    assert url1 != url2, "Different endpoints should generate different URLs"
+
+
+def test_url_for_not_found_raises_exception():
+    """测试找不到路由时应该抛出异常"""
+    router = UliwebRouter()
+
+    try:
+        router.build('nonexistent.endpoint', {})
+        assert False, "Expected ValueError to be raised"
+    except ValueError as e:
+        assert "Could not build URL for endpoint" in str(e)
 
 
 if __name__ == '__main__':
