@@ -117,6 +117,27 @@ class Request(StarletteRequest):
         """兼容 params 属性，返回 GET 参数"""
         return self.query_params
 
+    @property
+    def user(self):
+        """获取当前用户
+
+        优先从 scope['auth'] 获取用户信息（由 AuthMiddle 设置）
+        如果没有，则返回 None（与 Starlette 的 AuthenticationMiddleware 兼容）
+        """
+        # 首先检查 scope 中是否有 auth（由 AuthMiddle 设置）
+        if 'auth' in self.scope:
+            return self.scope['auth']
+
+        # 如果没有 auth，返回 None
+        # 注意：Starlette 的 AuthenticationMiddleware 会检查 'user' 在 scope 中
+        # 如果不存在会抛出 AssertionError
+        return None
+
+    @user.setter
+    def user(self, value):
+        """设置当前用户"""
+        self.scope['auth'] = value
+
 
 # ==================== Response 类 ====================
 # 基于 Starlette 的 Response
