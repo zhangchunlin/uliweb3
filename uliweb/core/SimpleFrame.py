@@ -138,6 +138,11 @@ class Request(StarletteRequest):
         """设置当前用户"""
         self.scope['auth'] = value
 
+    @property
+    def query_string(self):
+        """获取查询字符串（兼容旧版）"""
+        return self.scope.get('query_string', b'')
+
 
 # ==================== Response 类 ====================
 # 基于 Starlette 的 Response
@@ -1757,12 +1762,31 @@ class AsyncDispatcher:
                         # 存储参数类型信息
                         if param_types:
                             self.route_param_types[starlette_rule] = param_types
+
+                        # 处理额外参数（methods, websocket 等）
+                        # 根据 EXPOSES 文档，默认支持所有 HTTP 方法
+                        kwargs = {}
+                        if len(route_info) >= 3:
+                            extra = route_info[2]
+                            if isinstance(extra, dict):
+                                # 第三参数是字典，包含 methods, websocket 等
+                                kwargs['methods'] = extra.get('methods')
+                                kwargs['websocket'] = extra.get('websocket')
+                            elif isinstance(extra, str):
+                                # 第三参数是字符串，可能是 "GET,POST" 格式
+                                kwargs['methods'] = [m.strip().upper() for m in extra.split(',')]
+
+                        # 如果没有指定 methods，默认支持所有 HTTP 方法
+                        # 根据 EXPOSES 文档，这与 WSGI 行为一致
+                        if not kwargs.get('methods'):
+                            kwargs['methods'] = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']
+
                         # 处理 WebSocket 路由
-                        websocket = len(route_info) >= 3 and route_info[2] is True
+                        websocket = kwargs.get('websocket')
                         if websocket:
                             self.router.add_websocket_route(starlette_rule, endpoint, name=name)
                         else:
-                            self.router.add_route(starlette_rule, endpoint, name=name)
+                            self.router.add_route(starlette_rule, endpoint, name=name, methods=kwargs['methods'])
                     elif isinstance(route_info, str):
                         # 如果只有 URL，使用 name 作为 endpoint，同时作为 name 参数
                         url = route_info
@@ -1771,7 +1795,9 @@ class AsyncDispatcher:
                         if param_types:
                             self.route_param_types[starlette_rule] = param_types
                         # 注册路由，使用 name 同时作为 endpoint 和路由名称
-                        self.router.add_route(starlette_rule, name, name=name)
+                        # 根据 EXPOSES 文档，默认支持所有 HTTP 方法
+                        self.router.add_route(starlette_rule, name, name=name,
+                            methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'])
                         # 同步更新 url_map，确保 build 方法能找到正确的路由
                         self.router.url_map[name] = self.router.routes[-1]
 
@@ -1785,12 +1811,27 @@ class AsyncDispatcher:
                     # 存储参数类型信息
                     if param_types:
                         self.route_param_types[starlette_rule] = param_types
+
+                    # 处理额外参数（methods, websocket 等）
+                    kwargs = {}
+                    if len(route_info) >= 3:
+                        extra = route_info[2]
+                        if isinstance(extra, dict):
+                            kwargs['methods'] = extra.get('methods')
+                            kwargs['websocket'] = extra.get('websocket')
+                        elif isinstance(extra, str):
+                            kwargs['methods'] = [m.strip().upper() for m in extra.split(',')]
+
+                    # 如果没有指定 methods，默认支持所有 HTTP 方法
+                    if not kwargs.get('methods'):
+                        kwargs['methods'] = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']
+
                     # 处理 WebSocket 路由
-                    websocket = len(route_info) >= 3 and route_info[2] is True
+                    websocket = kwargs.get('websocket')
                     if websocket:
                         self.router.add_websocket_route(starlette_rule, endpoint, name=name)
                     else:
-                        self.router.add_route(starlette_rule, endpoint, name=name)
+                        self.router.add_route(starlette_rule, endpoint, name=name, methods=kwargs['methods'])
                 elif isinstance(route_info, str):
                     # 如果只有 URL，使用 name 作为 endpoint
                     url = route_info
@@ -1799,7 +1840,9 @@ class AsyncDispatcher:
                     if param_types:
                         self.route_param_types[starlette_rule] = param_types
                     # 注册路由
-                    self.router.add_route(starlette_rule, name, name=name)
+                    # 根据 EXPOSES 文档，默认支持所有 HTTP 方法
+                    self.router.add_route(starlette_rule, name, name=name,
+                        methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'])
 
     async def _import_views(self):
         """导入视图模块，触发 expose 装饰器的执行"""
@@ -2182,9 +2225,13 @@ class AsyncDispatcher:
                 path_params = child_scope.get('path_params', {})
                 return route, path_params
             elif match == Match.PARTIAL:
-                # 部分匹配（方法不匹配），记录下来以便后续处理
-                # 这里暂时不处理，后续可以考虑返回 405
-                continue
+                # 部分匹配（方法不匹配），可能是 GET/POST 等方法不匹配
+                # 对于这种情况，我们应该返回 405 Method Not Allowed
+                # 而不是 404 Not Found
+                logger.debug("_match_route: partial match for route path=%s, methods=%s, request method=%s",
+                           route.path, getattr(route, 'methods', None), scope.get('method'))
+                # 返回 405 错误
+                raise HTTPException(status_code=405, detail=f"Method {scope.get('method')} not allowed for {scope.get('path')}")
 
         # 如果没有匹配到路由，抛出 404 异常
         raise HTTPException(status_code=404)

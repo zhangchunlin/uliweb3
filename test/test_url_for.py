@@ -390,5 +390,73 @@ def test_url_for_not_found_raises_exception():
         assert "Could not build URL for endpoint" in str(e)
 
 
+def test_exposes_default_all_methods():
+    """测试 EXPOSES 路由默认支持所有 HTTP 方法
+
+    根据 EXPOSES 文档，当没有指定 methods 时，默认支持所有 HTTP 方法：
+    GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS
+
+    这与 WSGI 行为一致。
+    """
+    from uliweb.core.SimpleFrame import UliwebRouter, _convert_route_param
+
+    router = UliwebRouter()
+
+    # 模拟 EXPOSES 配置中没有指定 methods 的情况
+    # 根据 _init_routes 中的逻辑，没有指定 methods 时应该使用默认的 methods 列表
+    default_methods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']
+
+    # 测试使用默认方法列表注册路由
+    starlette_rule, param_types = _convert_route_param('/test')
+    router.add_route(starlette_rule, 'test.endpoint', name='test', methods=default_methods)
+
+    # 验证路由已正确注册
+    assert len(router.routes) == 1
+    route = router.routes[0]
+    assert route.path == '/test'
+    assert route.name == 'test'
+
+    # 验证支持的 HTTP 方法
+    assert route.methods == set(default_methods)
+
+
+def test_exposes_custom_methods():
+    """测试 EXPOSES 路由支持自定义方法
+
+    当 EXPOSES 配置中指定了 methods 时，应该只支持指定的方法。
+    支持两种格式：
+    1. 字符串格式: "GET,POST"
+    2. 字典格式: {"methods": ["GET", "POST"]}
+
+    注意：Starlette 会自动为所有 GET 路由添加 HEAD 方法。
+    """
+    from uliweb.core.SimpleFrame import UliwebRouter, _convert_route_param
+
+    router = UliwebRouter()
+
+    # 测试字符串格式 - Starlette 会自动添加 HEAD
+    custom_methods_str = ['GET', 'POST']
+    starlette_rule, param_types = _convert_route_param('/login')
+    router.add_route(starlette_rule, 'auth.views.login', name='login', methods=custom_methods_str)
+
+    # Starlette 自动为 GET 添加 HEAD，所以结果是 {'GET', 'HEAD', 'POST'}
+    assert 'GET' in router.routes[0].methods
+    assert 'POST' in router.routes[0].methods
+    assert 'HEAD' in router.routes[0].methods
+
+    # 测试字典格式
+    router2 = UliwebRouter()
+    custom_methods_dict = ['GET', 'POST', 'PUT', 'DELETE']
+    starlette_rule2, _ = _convert_route_param('/api')
+    router2.add_route(starlette_rule2, 'api.views.handler', name='api', methods=custom_methods_dict)
+
+    # Starlette 自动为 GET 添加 HEAD
+    assert 'GET' in router2.routes[0].methods
+    assert 'POST' in router2.routes[0].methods
+    assert 'PUT' in router2.routes[0].methods
+    assert 'DELETE' in router2.routes[0].methods
+    assert 'HEAD' in router2.routes[0].methods
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

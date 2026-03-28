@@ -285,3 +285,143 @@ def test_state_property():
     req3.state['new_key'] = 'new_value'
     assert req3.state['new_key'] == 'new_value'
     assert req3.state['existing_key'] == 'existing_value'
+
+
+def test_query_string_property():
+    """
+    Test the query_string property
+
+    Starlette's Request class doesn't have query_string property directly,
+    so we need to add it for compatibility with Uliweb's old code.
+    """
+    from uliweb.core.SimpleFrame import Request
+
+    # Test 1: query_string property exists
+    scope = {
+        'type': 'http',
+        'method': 'GET',
+        'path': '/test',
+        'query_string': b'test=1&foo=bar',
+    }
+
+    async def receive():
+        return {'type': 'http.request', 'body': b'', 'more_body': False}
+
+    async def send(message):
+        pass
+
+    req = Request(scope, receive, send)
+
+    # Verify that the query_string property exists
+    assert hasattr(req, 'query_string')
+
+    # Test 2: query_string returns the correct value from scope
+    assert req.query_string == b'test=1&foo=bar'
+
+    # Test 3: query_string returns empty bytes when not in scope
+    scope_without_qs = {
+        'type': 'http',
+        'method': 'GET',
+        'path': '/test',
+        'query_string': b'',
+    }
+
+    req2 = Request(scope_without_qs, receive, send)
+    assert req2.query_string == b''
+
+    # Test 4: query_string returns default when not present
+    scope_no_qs = {
+        'type': 'http',
+        'method': 'GET',
+        'path': '/test',
+    }
+
+    req3 = Request(scope_no_qs, receive, send)
+    assert req3.query_string == b''
+
+
+def test_user_property():
+    """
+    Test the user property for authentication
+
+    The user property provides compatibility with both:
+    1. Uliweb's AuthMiddle which sets request.user (stored in scope['auth'])
+    2. Starlette's AuthenticationMiddleware which uses scope['user']
+    """
+    from uliweb.core.SimpleFrame import Request
+
+    # Test 1: user property exists
+    scope = {
+        'type': 'http',
+        'method': 'GET',
+        'path': '/test',
+        'query_string': b'',
+    }
+
+    async def receive():
+        return {'type': 'http.request', 'body': b'', 'more_body': False}
+
+    async def send(message):
+        pass
+
+    req = Request(scope, receive, send)
+
+    # Verify that the user property exists
+    assert hasattr(req, 'user')
+
+    # Test 2: user returns None when not set
+    assert req.user is None
+
+    # Test 3: user can be set via the setter (stored in scope['auth'])
+    class MockUser:
+        def __init__(self):
+            self.id = 1
+            self.username = 'test_user'
+
+    mock_user = MockUser()
+    req.user = mock_user
+
+    # Verify user is stored in scope['auth']
+    assert req.scope['auth'] is mock_user
+    assert req.user is mock_user
+    assert req.user.id == 1
+    assert req.user.username == 'test_user'
+
+    # Test 4: user returns value from scope['auth'] if set directly
+    scope_with_auth = {
+        'type': 'http',
+        'method': 'GET',
+        'path': '/test',
+        'query_string': b'',
+        'auth': MockUser()
+    }
+
+    req2 = Request(scope_with_auth, receive, send)
+    assert req2.user is not None
+    assert req2.user.id == 1
+    assert req2.user.username == 'test_user'
+
+    # Test 5: scope['auth'] takes precedence over scope['user']
+    class AuthUser:
+        def __init__(self):
+            self.id = 100
+            self.username = 'auth_user'
+
+    class StarletteUser:
+        def __init__(self):
+            self.id = 200
+            self.username = 'starlette_user'
+
+    scope_both = {
+        'type': 'http',
+        'method': 'GET',
+        'path': '/test',
+        'query_string': b'',
+        'auth': AuthUser(),
+        'user': StarletteUser()
+    }
+
+    req3 = Request(scope_both, receive, send)
+    # Our implementation prioritizes 'auth' (Uliweb's AuthMiddle)
+    assert req3.user.id == 100
+    assert req3.user.username == 'auth_user'
