@@ -1,7 +1,7 @@
 from uliweb import Middleware, settings
 from uliweb.utils.common import import_attr, application_path
 from uliweb.core.SimpleFrame import RedirectException
-from weto.session import Session, SessionCookie
+from uliweb.lib.weto.session import Session, SessionCookie
 
 class SessionMiddle(Middleware):
     def __init__(self, application, settings):
@@ -44,7 +44,11 @@ class SessionMiddle(Middleware):
             serial_cls = None
         session = Session(key, storage_type=self.session_storage_type,
             options=self.options, expiry_time=self.timeout, serial_cls=serial_cls)
+
+        # 设置 session 到 request（Uliweb 兼容）
         request.session = session
+        # 同时设置到 scope（Starlette 兼容）
+        request.scope['session'] = session
 
         # 调用下一个中间件或视图函数
         try:

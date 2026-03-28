@@ -425,3 +425,62 @@ def test_user_property():
     # Our implementation prioritizes 'auth' (Uliweb's AuthMiddle)
     assert req3.user.id == 100
     assert req3.user.username == 'auth_user'
+
+
+def test_session_property():
+    """
+    Test the session property for session management
+
+    The session property provides compatibility with both:
+    1. Uliweb's SessionMiddle which sets request.session (stored in scope['session'])
+    2. Starlette's SessionMiddleware which uses scope['session']
+    """
+    from uliweb.core.SimpleFrame import Request
+
+    # Test 1: session property exists
+    scope = {
+        'type': 'http',
+        'method': 'GET',
+        'path': '/test',
+        'query_string': b'',
+    }
+
+    async def receive():
+        return {'type': 'http.request', 'body': b'', 'more_body': False}
+
+    async def send(message):
+        pass
+
+    req = Request(scope, receive, send)
+
+    # Verify that the session property exists
+    assert hasattr(req, 'session')
+
+    # Test 2: session returns None when not set
+    assert req.session is None
+
+    # Test 3: session can be set via the setter (stored in scope['session'])
+    class MockSession:
+        def __init__(self):
+            self.key = 'test_session_key'
+            self.remember = False
+
+    mock_session = MockSession()
+    req.session = mock_session
+
+    # Verify session is stored in scope['session']
+    assert req.scope['session'] is mock_session
+    assert req.session is mock_session
+
+    # Test 4: session returns value from scope['session'] if set directly
+    scope_with_session = {
+        'type': 'http',
+        'method': 'GET',
+        'path': '/test',
+        'query_string': b'',
+        'session': MockSession()
+    }
+
+    req2 = Request(scope_with_session, receive, send)
+    assert req2.session is not None
+    assert req2.session.key == 'test_session_key'

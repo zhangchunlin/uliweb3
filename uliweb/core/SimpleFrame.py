@@ -143,6 +143,22 @@ class Request(StarletteRequest):
         """获取查询字符串（兼容旧版）"""
         return self.scope.get('query_string', b'')
 
+    @property
+    def session(self):
+        """获取 session 对象
+
+        优先从 scope['session'] 获取（Starlette 兼容）
+        如果没有，则返回 None
+        """
+        if 'session' in self.scope:
+            return self.scope['session']
+        return None
+
+    @session.setter
+    def session(self, value):
+        """设置 session 对象"""
+        self.scope['session'] = value
+
 
 # ==================== Response 类 ====================
 # 基于 Starlette 的 Response
@@ -1695,8 +1711,10 @@ class AsyncDispatcher:
                 if order is None:
                     order = getattr(cls, 'ORDER', 500)
                 m.append((order, cls))
-            except Exception:
+            except Exception as e:
                 # 如果中间件导入失败，跳过
+                import logging
+                logging.getLogger('uliweb').warning(f"Failed to import middleware {middleware_path}: {e}")
                 continue
 
         # 按顺序排序
@@ -2228,13 +2246,46 @@ class AsyncDispatcher:
                 # 部分匹配（方法不匹配），可能是 GET/POST 等方法不匹配
                 # 对于这种情况，我们应该返回 405 Method Not Allowed
                 # 而不是 404 Not Found
-                logger.debug("_match_route: partial match for route path=%s, methods=%s, request method=%s",
-                           route.path, getattr(route, 'methods', None), scope.get('method'))
                 # 返回 405 错误
                 raise HTTPException(status_code=405, detail=f"Method {scope.get('method')} not allowed for {scope.get('path')}")
 
         # 如果没有匹配到路由，抛出 404 异常
         raise HTTPException(status_code=404)
+
+    def _sort_middlewares(self, middlewares):
+        """对中间件进行排序"""
+        m = []
+        for v in middlewares:
+            if not v:
+                continue
+
+            order = None
+            if isinstance(v, (list, tuple)):
+                if len(v) > 2:
+                    # 跳过格式不正确的中间件配置
+                    continue
+                middleware_path = v[0]
+                if len(v) == 2:
+                    order = v[1]
+            else:
+                middleware_path = v
+
+            try:
+                cls = import_attr(middleware_path)
+
+                if order is None:
+                    order = getattr(cls, 'ORDER', 500)
+                m.append((order, cls))
+            except Exception as e:
+                # 如果中间件导入失败，跳过
+                import logging
+                logging.getLogger('uliweb').warning(f"Failed to import middleware {middleware_path}: {e}")
+                continue
+
+        # 按顺序排序
+        m.sort(key=lambda x: x[0])
+
+        return [x[1] for x in m]
 
     def _path_matches(self, route_path, request_path):
         """检查路径是否匹配"""
@@ -2736,6 +2787,12 @@ class AsyncDispatcher:
                     hasattr(middleware_cls, 'process_exception')
                 )
 
+                # 如果同时有 dispatch 和 __call__，优先使用 dispatch（高级中间件）
+                # 因为 SessionMiddle 等需要使用 dispatch 方法来访问 request 对象
+                if has_dispatch and has_asgi_call:
+                    # 优先使用 dispatch，忽略 __call__
+                    has_asgi_call = False
+
                 if has_asgi_call:
                     # ASGI 中间件：直接包装
                     # 需要传递 self 作为 app 参数，以及 settings
@@ -2782,11 +2839,15 @@ class AsyncDispatcher:
                 await next_app(scope, receive, send)
                 return
 
-            # 创建请求对象
-            request = Request(scope, receive, send)
+            # 创建请求对象，使用 req 避免与全局 request 冲突
+            req = Request(scope, receive, send)
+
+            # 设置全局 request LocalProxy
+            # 这样中间件中的 functions.get_auth_user() 等函数可以访问 request.session
+            request_token = request.set(req)
 
             # 创建 call_next 函数
-            async def call_next(request):
+            async def call_next(req):
                 # 创建一个缓冲区来捕获响应
                 response_body = b""
                 response_status = None
@@ -2839,7 +2900,7 @@ class AsyncDispatcher:
 
             # 调用中间件
             try:
-                response = await middleware.dispatch(request, call_next)
+                response = await middleware.dispatch(req, call_next)
                 # 发送响应
                 if response is not None:
                     await response(scope, receive, send)
@@ -2851,6 +2912,9 @@ class AsyncDispatcher:
             except Exception as e:
                 # 如果中间件抛出异常，重新抛出
                 raise e
+            finally:
+                # 清理 request 上下文
+                request.reset(request_token)
 
         return app
 
