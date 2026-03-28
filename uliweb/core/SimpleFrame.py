@@ -303,21 +303,16 @@ class UliwebRouter:
             except Exception:
                 pass
 
-        # 如果找不到，尝试通过函数对象的字符串表示查找
-        # 遍历 url_map，检查 endpoint 是否匹配
-        for key, route in self.url_map.items():
-            # 如果 key 是函数对象，获取其路径
-            if callable(key):
-                from .rules import get_function_path
-                key_str = get_function_path(key)
-            else:
-                key_str = key
+            # 如果上面的方法失败，直接使用路径替换参数
+            path = route.path
+            for k, v in values.items():
+                path = path.replace('{' + k + '}', str(v))
+            return path
 
-            # 匹配 endpoint - 支持多种匹配方式：
-            # 1. key_str 完全匹配 endpoint
-            # 2. route.name 匹配 endpoint
-            # 3. key_str 的最后一部分匹配 endpoint（处理模块路径差异）
-            if key_str == endpoint or getattr(route, 'name', None) == endpoint:
+        # 如果找不到，尝试通过 route.name 查找
+        for key, route in self.url_map.items():
+            route_name = getattr(route, 'name', None)
+            if route_name and route_name == endpoint:
                 try:
                     if route.name:
                         url = self.router.url_path_for(route.name, **values).path
@@ -325,44 +320,13 @@ class UliwebRouter:
                 except Exception:
                     pass
 
-                # 如果上面的方法失败，直接使用路径替换参数
                 path = route.path
                 for k, v in values.items():
                     path = path.replace('{' + k + '}', str(v))
                 return path
 
-        # 如果还是找不到，尝试通过 route.endpoint 属性查找
-        # 这是因为 Starlette Route 对象会存储原始的 endpoint
-        for route in self.routes:
-            route_endpoint = getattr(route, 'endpoint', None)
-            if route_endpoint:
-                # 如果 route.endpoint 是函数，获取其路径
-                if callable(route_endpoint):
-                    from .rules import get_function_path
-                    route_endpoint_str = get_function_path(route_endpoint)
-                else:
-                    route_endpoint_str = route_endpoint
-
-                if route_endpoint_str == endpoint:
-                    # 直接使用路径替换参数
-                    path = route.path
-                    for k, v in values.items():
-                        path = path.replace('{' + k + '}', str(v))
-                    return path
-
-                # 支持部分匹配：通过函数名匹配
-                # 例如：endpoint='test.test_url_for.hello' 可以匹配 '__main__.hello'
-                route_func_name = route_endpoint_str.split('.')[-1] if route_endpoint_str else ''
-                target_func_name = endpoint.split('.')[-1] if endpoint else ''
-
-                if route_func_name and route_func_name == target_func_name:
-                    path = route.path
-                    for k, v in values.items():
-                        path = path.replace('{' + k + '}', str(v))
-                    return path
-
-        # 如果还是找不到，返回一个占位符
-        return f"/{endpoint}"
+        # 如果找不到，抛出异常
+        raise ValueError(f"Could not build URL for endpoint '{endpoint}'. Endpoint not found in url_map.")
 
 
 url_map = UliwebRouter()
@@ -671,11 +635,11 @@ def url_for(endpoint, **values):
     在 ASGI 模式下调用 application._url_for 方法
     """
     from uliweb import application
+
     if hasattr(application, '_url_for'):
         return application._url_for(endpoint, **values)
     else:
-        # 简单实现
-        return f"/{endpoint}"
+        raise ValueError("url_for requires application to be initialized")
 
 def get_app_dir(app):
     """
@@ -937,11 +901,13 @@ class AsyncDispatcher:
                  local_settings_file='local_settings.ini', **kwargs):
 
         # 将项目目录和 apps 目录添加到 sys.path
-        # 这样 pkg_resources 能找到本地的应用模块
+        # 当 apps 目录在 sys.path 中时，导入的模块 __module__ 是没有 apps. 前缀的
+        # 例如：from home.views import index -> index.__module__ = 'home.views'
+        # 这样 endpoint 就是 'home.views.index' 而不是 'apps.home.views.index'
         if project_dir:
             if project_dir not in sys.path:
                 sys.path.insert(0, project_dir)
-            # 将 apps 目录添加到 sys.path，以便 apps.home 这样的模块可以被找到
+            # 将 apps 目录添加到 sys.path，以便模块可以被正确导入
             apps_path = os.path.join(project_dir, apps_dir)
             if apps_path not in sys.path:
                 sys.path.insert(0, apps_path)
@@ -1820,13 +1786,16 @@ class AsyncDispatcher:
         import importlib
         import sys
 
-        # 添加项目目录到 Python 路径
-        if self.project_dir and self.project_dir not in sys.path:
-            sys.path.insert(0, self.project_dir)
-        # 添加 apps 目录到 Python 路径
-        apps_path = os.path.join(self.project_dir, 'apps') if self.project_dir else None
-        if apps_path and apps_path not in sys.path:
-            sys.path.insert(0, apps_path)
+        # 添加项目目录和 apps 目录到 Python 路径
+        # 当 apps 目录在 sys.path 中时，导入的模块 __module__ 是没有 apps. 前缀的
+        # 例如：from home.views import index -> index.__module__ = 'home.views'
+        # 这样 endpoint 就是 'home.views.index' 而不是 'apps.home.views.index'
+        if self.project_dir:
+            if self.project_dir not in sys.path:
+                sys.path.insert(0, self.project_dir)
+            apps_path = os.path.join(self.project_dir, self.apps_dir)
+            if apps_path not in sys.path:
+                sys.path.insert(0, apps_path)
 
         # 收集所有应用的视图模块
         views_modules = []
@@ -1836,11 +1805,10 @@ class AsyncDispatcher:
 
             # 尝试导入 views.py
             try:
-                # 根据是否有 apps 目录来确定模块路径
-                if has_apps_dir and not app.startswith('uliweb.contrib.'):
-                    views_module = f"apps.{app}.views"
-                else:
-                    views_module = f"{app}.views"
+                # 始终使用不带 apps. 前缀的模块路径
+                # 这样 __module__ 属性就不会包含 apps. 前缀
+                # endpoint 应该是 'kado.views.Kado.list' 而不是 'apps.kado.views.Kado.list'
+                views_module = f"{app}.views"
 
                 # 尝试直接导入模块
                 try:
@@ -1865,11 +1833,8 @@ class AsyncDispatcher:
                         for filename in os.listdir(views_dir):
                             if filename.endswith('.py') and not filename.startswith('_'):
                                 module_name = filename[:-3]  # 去掉 .py 后缀
-                                # 根据是否有 apps 目录来确定模块路径
-                                if has_apps_dir and not app.startswith('uliweb.contrib.'):
-                                    full_module = f"apps.{app}.views.{module_name}"
-                                else:
-                                    full_module = f"{app}.views.{module_name}"
+                                # 始终使用不带 apps. 前缀的模块路径
+                                full_module = f"{app}.views.{module_name}"
                                 try:
                                     myimport(full_module)
                                     views_modules.append(full_module)
@@ -2063,10 +2028,8 @@ class AsyncDispatcher:
 
             return url
         except Exception as e:
-            # 如果构建失败，返回占位符
-            import logging
-            logging.getLogger('uliweb').warning(f"url_for error for {endpoint} (point={point}): {e}")
-            return f"/{endpoint}"
+            # 如果构建失败，抛出异常
+            raise ValueError(f"url_for error for {endpoint} (point={point}): {e}")
 
     def _error(self, message='', errorpage=None, **kwargs):
         """错误处理函数"""
