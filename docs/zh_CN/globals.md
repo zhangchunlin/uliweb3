@@ -23,9 +23,8 @@ from uliweb import (application, request, response,
 
 ### application
 
-它是用来记录整个Uliweb项目的运行实例，全局唯一。application是 `uliweb.core.SimpleFrame.Dispatcher`
+它是用来记录整个Uliweb项目的运行实例，全局唯一。application是 `uliweb.core.SimpleFrame.AsyncDispatcher`
 的实例，它有一些属性和方法可以让你使用，例如：
-
 
 apps --
     将列举出当前application实例所有有效的App名称。它是一个list，比如： `['Hello', 'uliweb.contrib.staticfiles']`
@@ -36,18 +35,21 @@ apps_dir --
 template_dirs --
     缺省为当前application所有有效的App的template搜索目录的集合。
 
+router --
+    路由管理器（UliwebRouter 实例），用于URL路由匹配和反向生成URL。
+
+settings --
+    配置对象，包含了所有settings.ini中的配置项。
+
+domains --
+    域名配置字典。
+
 get_file(filename, dir='static') --
     从所有App下的相应的目录，缺省是从static目录下查找一个文件。并且会先在当前请求对应
     的App下先进行查找，如果没找到，则去其它的App下的相应目录进行查找。
 
 get_config(config_filename) --
     从所有App下的相应的目录,查找指定的ini文件,最后合成一个Ini对象并返回.
-
-parse_tag(xml) (0.5) --
-    解析tag的XML文本.输出生成的结果.
-
-parse_tag_xml(xml) (0.5) --
-    解析tag的XML文本,输出解析后的字典结构.
 
 template(filename, vars=None, env=None, layout=None) --
     渲染一个模板，会先从当前请求对应的App下先进行查找模板文件。vars是一个dict对象。env
