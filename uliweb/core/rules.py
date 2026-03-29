@@ -153,6 +153,11 @@ class Expose(object):
         self.template = template
         self.layout = layout
         self.websocket = websocket  # 新增：WebSocket 路由标志
+
+        # 如果没有指定 methods，默认支持主要 HTTP 方法
+        if 'methods' not in kwargs:
+            kwargs['methods'] = ['GET', 'POST', 'PUT']
+
         if inspect.isfunction(rule) or inspect.isclass(rule):
             self.parse_level = 1
             self.rule = None

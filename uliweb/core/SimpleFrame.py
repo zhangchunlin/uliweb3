@@ -287,7 +287,8 @@ class UliwebRouter:
         # 例如: '/static/<path:filename>' -> ('/static/{filename}', {'filename': 'path'})
         starlette_rule, param_types = _convert_route_param(rule)
 
-        methods = kwargs.get('methods', ['GET'])
+        # 如果没有指定 methods，默认支持主要 HTTP 方法（与 Expose 类的默认值一致）
+        methods = kwargs.get('methods', ['GET', 'POST', 'PUT'])
         name = kwargs.get('name')
 
         # 创建 Starlette 路由
