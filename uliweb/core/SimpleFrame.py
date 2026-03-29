@@ -266,10 +266,11 @@ __global__ = Global()
 # 使用 LocalProxy 替代 contextvars
 # request 和 response 使用 LocalProxy + use_contextvars=True（每个协程独立）
 # settings 和 application 使用 LocalProxy + use_contextvars=False（全局一致）
+# 重要：必须使用 __global__ 作为 env，确保与 get_application() 返回的对象一致
 request = LocalProxy('request', use_contextvars=True)
 response = LocalProxy('response', use_contextvars=True)
-settings = LocalProxy('settings', use_contextvars=False)
-application = LocalProxy('application', use_contextvars=False)
+settings = LocalProxy('settings', use_contextvars=False, env=__global__)
+application = LocalProxy('application', use_contextvars=False, env=__global__)
 
 # 使用 Starlette 路由替代 werkzeug.routing.Map
 # 创建 UliwebRouter 实例

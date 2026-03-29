@@ -39,7 +39,9 @@ def get_settings():
 
 def get_application():
     """获取当前应用对象"""
-    return application_var.get_value()
+    # 直接从 SimpleFrame 导入 application，确保使用同一个 Global 对象
+    from uliweb.core.SimpleFrame import application
+    return application.get_value()
 
 
 # 创建全局代理对象

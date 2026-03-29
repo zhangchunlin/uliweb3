@@ -15,15 +15,18 @@ def prepare_default_env(sender, env):
 
 def url_for_static(filename=None, **kwargs):
     from uliweb import settings
-    from uliweb.core.SimpleFrame import get_url_adapter, __global__
+    from uliweb.core.SimpleFrame import get_url_adapter, __global__, application as sf_application
     from uliweb.core.context import get_application
     from uliweb.utils._compat import import_
 
     urlparse, urlunparse, urljoin, urlencode = import_('urllib.parse',
         ['urlparse', 'urlunparse', 'urljoin', 'urlencode'])
 
-    # 使用 get_application() 来获取 application，如果为 None 则使用 __global__.application
+    # 优先使用 get_application()，如果返回 None 则使用 SimpleFrame 中的 application
     application = get_application()
+    if application is None:
+        application = sf_application.get_value()
+    # 最后尝试 __global__.application
     if application is None:
         application = __global__.application
 

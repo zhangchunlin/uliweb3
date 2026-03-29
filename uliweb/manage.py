@@ -126,6 +126,10 @@ def make_application(debug=None, apps_dir='apps', project_dir=None,
         default_settings=default_settings,
         **dispatcher_kwargs)
 
+    # 调用 prepare() 方法确保视图和路由正确初始化
+    # 这对于 uvicorn 等 ASGI 服务器启动时非常重要
+    app.prepare()
+
     if verbose:
         log.info(' * settings file is "%s"' % settings_file)
         log.info(' * local settings file is "%s"' % local_settings_file)
