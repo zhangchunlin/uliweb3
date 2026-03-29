@@ -192,6 +192,10 @@ Ver0.5 增加对content_type的默认处理.当请求头中的 `Accept` 为 `'*/
 
 详见 [URL映射](url_mapping.html)
 
+{% alert class=info %}
+Uliweb3 中 `@expose` 装饰器默认支持 GET、POST、PUT 方法。如需限制特定方法，请使用 `methods` 参数，例如：`@expose('/api', methods=['GET'])`
+{% endalert %}
+
 
 ### POST
 

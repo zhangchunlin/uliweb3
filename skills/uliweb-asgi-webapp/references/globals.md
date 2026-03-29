@@ -30,6 +30,7 @@ from uliweb import (application, request, response,
 - `request.FILES` 已弃用，请使用 `await request.get_FILES()`
 - `request.json` 已弃用，请使用 `await request.get_json()`
 - `request.params` 仅返回GET参数，请使用 `await request.get_params()` 获取合并参数
+- `@expose` 装饰器默认支持 GET、POST、PUT 方法，如需限制请使用 `methods` 参数
 
 ### response
 
