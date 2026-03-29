@@ -2971,6 +2971,7 @@ class AsyncDispatcher:
         """异步处理异常"""
         from starlette.exceptions import HTTPException
         from starlette.responses import JSONResponse
+        import traceback
 
         if isinstance(exception, HTTPException):
             if exception.status_code == 404:
@@ -2984,6 +2985,9 @@ class AsyncDispatcher:
         elif isinstance(exception, RuntimeError) and "File at path" in str(exception):
             return JSONResponse({"error": str(exception)}, status_code=404)
         else:
+            # 始终记录错误日志（包括 500 错误），即使 DEBUG=False
+            logger.error("Request error: %s\n%s", exception, traceback.format_exc())
+
             if not self.settings.get_var('GLOBAL/DEBUG'):
                 return await self._internal_error(exception)
             else:
