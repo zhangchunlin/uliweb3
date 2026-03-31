@@ -405,5 +405,5 @@ class Todo:
 - `references/globals.md` - 全局环境对象
 - `references/views.md` - 视图开发指南
 - `references/template.md` - 模板系统
-- `references/asgi.md` - ASGI 迁移指南
+- `references/asgi.md` - ASGI 迁移指南，包括 middleware 的迁移
 - `references/db.md` - 数据库使用指南
