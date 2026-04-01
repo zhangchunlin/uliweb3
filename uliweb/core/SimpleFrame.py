@@ -1034,6 +1034,13 @@ class AsyncDispatcher:
         # 这与 WSGI 版本的调用顺序一致：startup_installed -> init_urls
         dispatch.call(self, 'startup_installed')
 
+        # 调用 after_init_settings 钩子
+        dispatch.call(self, 'after_init_settings')
+
+        # 调用 after_init_apps 钩子，在所有 App 安装完成后调用
+        # 这会触发 uliweb.contrib.orm.after_init_apps 来初始化数据库引擎
+        dispatch.call(self, 'after_init_apps')
+
         # 导入视图模块后再初始化路由
         try:
             loop = asyncio.get_running_loop()
