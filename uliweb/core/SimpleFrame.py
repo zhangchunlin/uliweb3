@@ -1837,11 +1837,17 @@ class AsyncDispatcher:
 
         # 处理全局 EXPOSES 路由（来自 settings.ini 的路由定义）
         if hasattr(self.settings, 'EXPOSES') and self.settings.EXPOSES:
+            # 获取 url_prefix
+            default_domain = self.domains.get('default', {})
+            url_prefix = default_domain.get('url_prefix', '')
+
             for name, route_info in self.settings.EXPOSES.items():
                 if isinstance(route_info, (list, tuple)) and len(route_info) >= 2:
                     url, endpoint = route_info[:2]
+                    # 添加 url_prefix
+                    full_url = url_prefix + url
                     # 转换 Werkzeug 风格路由到 Starlette 风格
-                    starlette_rule, param_types = _convert_route_param(url)
+                    starlette_rule, param_types = _convert_route_param(full_url)
                     # 存储参数类型信息
                     if param_types:
                         self.route_param_types[starlette_rule] = param_types
