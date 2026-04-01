@@ -1746,15 +1746,29 @@ class AsyncDispatcher:
             for rule_info in merged_rules:
                 appname, endpoint, url, kw = rule_info
 
+                # 处理静态视图标记
+                static = kw.get('static', False)
+
+                # 获取域名配置，静态路由使用 'static' 域名，其他使用 'default' 域名
+                # 这与 WSGI 版本的 init_urls 方法保持一致
+                if static:
+                    domain_name = 'static'
+                else:
+                    domain_name = 'default'
+                domain = self.domains.get(domain_name, {})
+                url_prefix = domain.get('url_prefix', '')
+
+                # 拼接 url_prefix
+                _url = url_prefix + url
+
                 # 转换 Werkzeug 风格路由到 Starlette 风格，返回 (转换后的规则, 参数类型字典)
-                starlette_rule, param_types = _convert_route_param(url)
+                starlette_rule, param_types = _convert_route_param(_url)
 
                 # 存储参数类型信息
                 if param_types:
                     self.route_param_types[starlette_rule] = param_types
 
-                # 处理静态视图
-                static = kw.pop('static', None)
+                # 处理静态视图 - 已经从 kw 中获取了 static，不需要再 pop
                 if static:
                     self.static_views.append(endpoint)
 
@@ -2243,7 +2257,23 @@ class AsyncDispatcher:
             if match == Match.FULL:
                 # 完全匹配，提取路径参数
                 path_params = child_scope.get('path_params', {})
-                return route, path_params
+
+                # 根据 route_param_types 进行类型转换
+                # Starlette 返回的是字符串，需要转换为正确的类型
+                route_path = route.path
+                param_types = self.route_param_types.get(route_path, {})
+
+                converted_params = {}
+                for name, value in path_params.items():
+                    param_type = param_types.get(name)
+                    if param_type == 'int':
+                        converted_params[name] = int(value)
+                    elif param_type == 'float':
+                        converted_params[name] = float(value)
+                    else:
+                        converted_params[name] = value
+
+                return route, converted_params
             elif match == Match.PARTIAL:
                 # 部分匹配（方法不匹配），可能是 GET/POST 等方法不匹配
                 # 对于这种情况，我们应该返回 405 Method Not Allowed

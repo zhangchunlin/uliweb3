@@ -161,7 +161,8 @@ class Expose(object):
         if inspect.isfunction(rule) or inspect.isclass(rule):
             self.parse_level = 1
             self.rule = None
-            self.kwargs = {}
+            # 保留 kwargs 中的 methods 字段
+            self.kwargs = kwargs
             self.parse(rule)
         else:
             self.parse_level = 2
@@ -310,7 +311,7 @@ class Expose(object):
                     endpoint = '.'.join([f.__module__, clsname, func.__name__])
                     #process inherit kwargs from class
                     #add subdomain process
-                    kw = {}
+                    kw = self.kwargs.copy()
                     self._fix_kwargs(appname, kw)
                     x = appname, endpoint, rule, kw, now()
                     __no_need_exposed__.append(x)
