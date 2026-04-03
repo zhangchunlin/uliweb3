@@ -4,8 +4,8 @@ from __future__ import print_function, absolute_import, unicode_literals, genera
 
 
 __all__ = ['Field', 'get_connection', 'Model', 'do_',
-    'set_debug_query', 'set_auto_create', 'set_auto_set_model', 
-    'get_model', 'set_model', 'engine_manager', 
+    'set_debug_query', 'set_auto_create', 'set_auto_set_model',
+    'get_model', 'set_model', 'engine_manager',
     'set_auto_transaction_in_web', 'set_auto_transaction_in_notweb',
     'set_tablename_converter', 'set_check_max_length', 'set_post_do',
     'rawsql', 'Lazy', 'set_echo', 'Session', 'get_session', 'set_session',
@@ -21,7 +21,7 @@ __all__ = ['Field', 'get_connection', 'Model', 'do_',
     'PickleProperty', 'BigIntegerProperty', 'FileProperty', 'JsonProperty',
     'UUIDBinaryProperty', 'UUIDProperty', 'TimestampProperty',
     'SelfReference', 'SelfReferenceProperty', 'OneToOne', 'ManyToMany',
-    'ReservedWordError', 'BadValueError', 'DuplicatePropertyError', 
+    'ReservedWordError', 'BadValueError', 'DuplicatePropertyError',
     'ModelInstanceError', 'KindError', 'ConfigurationError', 'SaveError',
     'BadPropertyTypeError', 'set_lazy_model_init',
     'begin_sql_monitor', 'close_sql_monitor', 'set_model_config', 'text',
@@ -99,7 +99,7 @@ class NotFound(Error):
         self.message = message
         self.model = model
         self.key = key
-        
+
     def __str__(self):
         return "{0}({1}) instance can't be found".format(self.model.__name__, str(self.key))
 class ModelNotFound(Error):pass
@@ -132,7 +132,7 @@ class SQLStorage(dict):
 def set_auto_create(flag):
     global __auto_create__
     __auto_create__ = flag
-    
+
 def set_auto_transaction_in_notweb(flag):
     global __auto_transaction_in_notweb__
     __auto_transaction_in_notweb__ = flag
@@ -148,15 +148,15 @@ def set_auto_set_model(flag):
 def set_debug_query(flag):
     global __debug_query__
     __debug_query__ = flag
-    
+
 def set_check_max_length(flag):
     global __check_max_length__
     __check_max_length__ = flag
-    
+
 def set_post_do(func):
     global __default_post_do__
     __default_post_do__ = func
-    
+
 def set_nullable(flag):
     global __nullable__
     __nullable__ = flag
@@ -172,15 +172,15 @@ def set_manytomany_index_reverse(flag):
 def set_encoding(encoding):
     global __default_encoding__
     __default_encoding__ = encoding
-    
+
 def set_dispatch_send(flag):
     global Local
     Local.dispatch_send = flag
-    
+
 def set_tablename_converter(converter=None):
     global __default_tablename_converter__
     __default_tablename_converter__ = converter
-    
+
 def set_lazy_model_init(flag):
     global __lazy_model_init__
     __lazy_model_init__ = flag
@@ -188,7 +188,7 @@ def set_lazy_model_init(flag):
 def set_timezone_support(func):
     global __timezone_support__
     __timezone_support__ = func
-    
+
 def set_now(func):
     global __now__
     __now__ = func
@@ -207,12 +207,12 @@ def set_to_ltimezone(func):
 
 def get_tablename(tablename):
     global __default_tablename_converter__
-    
+
     c = __default_tablename_converter__
     if not c:
         c = lambda x:x.lower()
     return c(tablename)
-    
+
 def get_dispatch_send(default=True):
     global Local
     if not hasattr(Local, 'dispatch_send'):
@@ -221,32 +221,32 @@ def get_dispatch_send(default=True):
 
 def set_echo(flag, time=None, explain=False, caller=True, session=None):
     global Local
-    
+
     Local.echo = flag
-    Local.echo_args = {'time':time, 'explain':explain, 'caller':caller, 
+    Local.echo_args = {'time':time, 'explain':explain, 'caller':caller,
         'session':None}
-    
+
 def set_pk_type(name):
     global __pk_type__
-    
+
     __pk_type__ = name
-    
+
 def PKTYPE():
     if __pk_type__ == 'int':
         return int
     else:
         return BIGINT
-    
+
 def PKCLASS():
     if __pk_type__ == 'int':
         return Integer
     else:
         return BigInteger
-    
+
 class NamedEngine(object):
     def __init__(self, name, options):
         self.name = name
-        
+
         d = SQLStorage({
             'engine_name':name,
             'connection_args':{},
@@ -268,7 +268,7 @@ class NamedEngine(object):
         self.metadata = MetaData()
         self._models = {}
         self.local = threading.local() #used to save thread vars
-        
+
         self._create()
 
     def _get_models(self):
@@ -281,7 +281,7 @@ class NamedEngine(object):
 
     def _create(self, new=False):
         c = self.options
-        
+
         db = self.engine_instance
         if not self.engine_instance or new:
             args = c.get('connection_args', {})
@@ -289,9 +289,9 @@ class NamedEngine(object):
         self.engine_instance.echo = c['debug_log']
         self.engine_instance.metadata = self.metadata
         self.metadata.bind = self.engine_instance
-            
+
         return self.engine_instance
-        
+
     def session(self, create=True):
         """
         Used to created default session
@@ -310,39 +310,39 @@ class NamedEngine(object):
     @property
     def engine(self):
         return self.engine_instance
-    
+
     def print_pool_status(self):
         if self.engine.pool:
             print(self.engine.pool.status())
-    
+
 class EngineManager(object):
     def __init__(self):
         self.engines = {}
-        
+
     def add(self, name, connection_args):
         self.engines[name] = engine = NamedEngine(name, connection_args)
         return engine
-        
+
     def get(self, name=None):
         name = name or __default_engine__
-        
+
         engine = self.engines.get(name)
         if not engine:
             raise Error('Engine %s is not exists yet' % name)
         return engine
-    
+
     def __getitem__(self, name=None):
         return self.get(name)
-    
+
     def __setitem__(self, name, connection_args):
         return self.add(name, connection_args)
-    
+
     def __contains__(self, name):
         return name in self.engines
-    
+
     def items(self):
         return self.engines.items()
-    
+
 engine_manager = EngineManager()
 
 class Session(object):
@@ -376,7 +376,7 @@ class Session(object):
         from uliweb import is_in_web
 
         global __auto_transaction_in_notweb__, __auto_transaction_in_web__
-        
+
         if self.auto_transaction is not None:
             return self.auto_transaction
         else:
@@ -385,7 +385,7 @@ class Session(object):
                 return __auto_transaction_in_web__
             else:
                 return __auto_transaction_in_notweb__
-            
+
     @property
     def connection(self):
         if self._conn:
@@ -393,7 +393,7 @@ class Session(object):
         else:
             self._conn = self.engine.engine.connect()
             return self._conn
-        
+
     def execute(self, query, *args):
         t = self.need_transaction
         try:
@@ -404,23 +404,23 @@ class Session(object):
             if t:
                 self.rollback()
             raise
-    
+
     def set_echo(self, flag, time=None, explain=False, caller=True):
         global set_echo
-        
+
         set_echo(flag, time, explain, caller, self)
-        
+
     def do_(self, query, args=None):
         global do_
-        
+
         return do_(query, self, args)
-    
+
     def begin(self):
         if not self._trans:
             self.connection
             self._trans = self._conn.begin()
         return self._trans
-    
+
     def commit(self):
         if self._trans and self._conn.in_transaction():
             self._trans.commit()
@@ -449,27 +449,27 @@ class Session(object):
         if not self._conn:
             return False
         return self._conn.in_transaction()
-    
+
     def rollback(self):
         if self._trans and self._conn.in_transaction():
             self._trans.rollback()
         self._trans = None
         if self.auto_close:
             self._close()
-            
+
     def _close(self):
         if self._conn:
             self._conn.close()
             self._conn = None
             self.local_cache = {}
-            
+
         if self.engine.options.connection_type == 'short':
             self.engine.engine.dispose()
-        
+
     def close(self):
         self.rollback()
         self._close()
-        
+
     def get_local_cache(self, key, creator=None):
         value = self.local_cache.get(key)
         if value:
@@ -481,7 +481,7 @@ class Session(object):
         if value:
             self.local_cache[key] = value
         return value
-        
+
 def get_connection(connection='', engine_name=None, connection_type='long', **args):
     """
     Creating an NamedEngine or just return existed engine instance
@@ -496,7 +496,7 @@ def get_connection(connection='', engine_name=None, connection_type='long', **ar
             'connection_args':args,
             'connection_type':connection_type,
             }
-        
+
         return engine_manager.add(engine_name, d).engine
     else:
         connection = connection or __default_engine__
@@ -504,7 +504,7 @@ def get_connection(connection='', engine_name=None, connection_type='long', **ar
             return engine_manager[connection].engine
         else:
             raise Error("Can't find engine {}".format(connection))
-        
+
 def get_metadata(engine_name=None):
     """
     get metadata according used for alembic
@@ -513,7 +513,7 @@ def get_metadata(engine_name=None):
     dispatch.get(None, 'load_models')
 
     engine = engine_manager[engine_name]
-    
+
     for tablename, m in engine.models.items():
         get_model(tablename, engine_name, signal=False)
         if hasattr(m, '__dynamic__') and getattr(m, '__dynamic__'):
@@ -524,7 +524,7 @@ def get_session(ec=None, create=True):
     """
     ec - engine_name or connection
     """
-    
+
     ec = ec or __default_engine__
     if isinstance(ec, string_types):
         session = engine_manager[ec].session(create=True)
@@ -544,13 +544,13 @@ def Reset(ec=None):
     session = get_session(ec, False)
     if session:
         session.close()
-    
+
 def ResetAll():
     for k, v in engine_manager.items():
         session = v.session(create=False)
         if session:
             session.close()
-    
+
 @dispatch.bind('post_do', kind=dispatch.LOW)
 def default_post_do(sender, query, conn, usetime):
     if __default_post_do__:
@@ -674,7 +674,7 @@ def do_(query, ec=None, args=None, found_rows=False, **kwargs):
         result.total = conn.execute('select found_rows() as count').scalar()
     t = time() - b
     dispatch.call(ec, 'post_do', query, conn, t)
-    
+
     flag = False
     sql = ''
     if hasattr(Local, 'echo') and Local.echo:
@@ -684,17 +684,17 @@ def do_(query, ec=None, args=None, found_rows=False, **kwargs):
             _ec = None
         engine_name = get_engine_name(ec)
         _e = get_engine_name(_ec)
-        
+
         if not _ec or _ec and _ec == _e:
             if hasattr(Local, 'echo_args') and Local.echo_args['time']:
                 if t >= Local.echo_args['time']:
                     sql = rawsql(query)
-                    
+
                     flag = True
             else:
                 sql = rawsql(query)
                 flag = True
-        
+
         if flag:
             print('\n===>>>>> [%s]' % engine_name, end='')
             if hasattr(Local, 'echo_args') and Local.echo_args['caller']:
@@ -707,7 +707,7 @@ def do_(query, ec=None, args=None, found_rows=False, **kwargs):
                 r = conn.execute('explain '+sql).fetchone()
                 print('\n----\nExplain: %s' % ''.join(["%s=%r, " % (k, v) for k, v in r.items()]))
             print('===<<<<< time used {}s\n'.format(t))
-                
+
     return result
 
 class Writer(object):
@@ -777,22 +777,22 @@ def save_file(result, filename, encoding='utf8', headers=None,
     visitor function should be defined as:
         def visitor(keys, values, encoding):
             #return new values []
-    
+
     convertors is used to convert single column value, for example:
-        
+
         convertors = {'field1':convert_func1, 'fields2':convert_func2}
-        
+
         def convert_func1(value, data):
             value is value of field1
             data is the record
-            
+
     if visitor and convertors all provided, only visitor is available.
-    
+
     headers used to convert column to a provided value
     """
     import os
     from uliweb.utils.common import simple_value
-    
+
     convertors = convertors or {}
     headers = headers or []
     writer_class = Writer
@@ -837,7 +837,7 @@ def save_file(result, filename, encoding='utf8', headers=None,
 
     writer = writer_class(filename, header=_header, data=_data(), **kwargs)
     writer.save()
-    
+
 def Begin(ec=None):
     session = get_session(ec)
     return session.begin()
@@ -846,11 +846,11 @@ def Commit(ec=None, close=None):
     if close:
         warnings.simplefilter('default')
         warnings.warn("close parameter will not need at all.", DeprecationWarning)
-        
+
     session = get_session(ec, False)
     if session:
         return session.commit()
-    
+
 def CommitAll(close=None):
     """
     Commit all transactions according Local.conn
@@ -858,12 +858,12 @@ def CommitAll(close=None):
     if close:
         warnings.simplefilter('default')
         warnings.warn("close parameter will not need at all.", DeprecationWarning)
-    
+
     for k, v in engine_manager.items():
         session = v.session(create=False)
         if session:
             session.commit()
-    
+
 def Rollback(ec=None, close=None):
     if close:
         warnings.simplefilter('default')
@@ -872,7 +872,7 @@ def Rollback(ec=None, close=None):
     session = get_session(ec, False)
     if session:
         return session.rollback()
-    
+
 def RollbackAll(close=None):
     """
     Rollback all transactions, according Local.conn
@@ -885,7 +885,7 @@ def RollbackAll(close=None):
         session = v.session(create=False)
         if session:
             session.rollback()
-    
+
 def check_reserved_word(f):
     if f in ['put', 'save', 'table', 'tablename', 'c', 'columns', 'manytomany'] or f in dir(Model):
         raise ReservedWordError(
@@ -917,7 +917,7 @@ def set_model(model, tablename=None, created=None, appname=None, model_path=None
     if isinstance(engines, string_types):
         engines = [engines]
     d['engines'] = engines
-    
+
     item = {}
     if created is not None:
         item['created'] = created
@@ -940,7 +940,7 @@ def set_model(model, tablename=None, created=None, appname=None, model_path=None
             model_path = ''
         #for example 'uliweb.contrib.auth.models'
         model.__engines__ = engines
-        
+
     item['model'] = model
     item['model_path'] = model_path
     item['appname'] = appname
@@ -950,9 +950,9 @@ def set_model(model, tablename=None, created=None, appname=None, model_path=None
     for name in engines:
         if not isinstance(name, string_types):
             raise BadValueError('Engine name should be string type, but %r found' % name)
-    
+
         engine_manager[name].models[tablename] = item.copy()
-    
+
 def set_model_config(model_name, config, replace=False):
     """
     This function should be only used in initialization phrase
@@ -963,7 +963,7 @@ def set_model_config(model_name, config, replace=False):
     """
     assert isinstance(model_name, str)
     assert isinstance(config, dict)
-    
+
     d = __models__.setdefault(model_name, {})
     if replace:
         d['config'] = config
@@ -1070,7 +1070,7 @@ def valid_model(model, engine_name=None):
         return model in engine.models
     else:
         return True
-    
+
 def check_model_class(model_cls):
 #    """
 #    :param model: Model instance
@@ -1088,7 +1088,7 @@ def check_model_class(model_cls):
     if _path and model_path != _path:
         return False
     return True
-    
+
 def find_metadata(model):
     """
     :param model: Model instance
@@ -1096,7 +1096,7 @@ def find_metadata(model):
     engine_name = model.get_engine_name()
     engine = engine_manager[engine_name]
     return engine.metadata
-    
+
 def get_model(model, engine_name=None, signal=True, reload=False):
     """
     Return a real model object, so if the model is already a Model class, then
@@ -1111,7 +1111,7 @@ def get_model(model, engine_name=None, signal=True, reload=False):
         return model
     if not isinstance(model, string_types):
         raise Error("Model {!r} should be string type".format(model))
-    
+
     #make model name is lower case
     model = model.lower()
     model_item = __models__.get(model)
@@ -1196,24 +1196,24 @@ def get_model(model, engine_name=None, signal=True, reload=False):
                 dispatch.call(None, 'post_get_model', model_name=model, model_inst=model_inst,
                                       model_info=item, model_config=m_config)
             return model_inst
-            
+
     raise ModelNotFound("Can't found the model %s in engine %s" % (model, engine_name))
-    
+
 def get_object_id(engine_name, tablename, id):
     return 'OC:%s:%s:%s' % (engine_name, tablename, safe_str(id))
 
 def get_object(table, id=None, condition=None, cache=False, fields=None, use_local=False,
                engine_name=None, session=None):
     """
-    Get obj in Local.object_caches first and also use get(cache=True) function if 
+    Get obj in Local.object_caches first and also use get(cache=True) function if
     not found in object_caches
     """
     model = get_model(table, engine_name)
-        
+
     #if id is an object of Model, so get the real id value
     if isinstance(id, Model):
         return id
-      
+
     if cache:
         if use_local:
             s = get_session(session)
@@ -1226,7 +1226,7 @@ def get_object(table, id=None, condition=None, cache=False, fields=None, use_loc
             value = s.get_local_cache(key, obj)
     else:
         obj = model.get(id, condition=condition, fields=fields)
-    
+
     return obj
 
 def get_cached_object(table, id=None, condition=None, cache=True, fields=None, use_local=True, session=None):
@@ -1239,7 +1239,7 @@ class SQLMointor(object):
         self.key_length = key_length
         self.details = []
         self.record_details = record_details
-    
+
         def post_do(sender, query, conn, usetime, self=self):
             sql = str(query)
             c = self.count.setdefault(sql, {'count':0, 'time':0})
@@ -1248,11 +1248,11 @@ class SQLMointor(object):
             self.total += 1
             if self.record_details:
                 self.details.append(rawsql(query))
-                
+
         self.post_do = post_do
-        
+
     def print_(self, message=''):
-        print() 
+        print()
         print('====== sql execution count {} <{}> ======='.format((self.total, message)))
         for k, v in sorted(self.count.items(), key=lambda x:x[1]):
             k = k.replace('\r', '')
@@ -1269,18 +1269,18 @@ class SQLMointor(object):
             for line in self.details:
                 print('.', line)
         print()
-        
+
     def close(self):
         self.count = {}
         self.total = 0
         self.details = []
-        
+
 def begin_sql_monitor(key_length=70, record_details=False):
     sql_monitor = SQLMointor(key_length, record_details)
-    
+
     dispatch.bind('post_do')(sql_monitor.post_do)
     return sql_monitor
-    
+
 def close_sql_monitor(monitor):
     dispatch.unbind('post_do', monitor.post_do)
     monitor.close()
@@ -1553,7 +1553,7 @@ class ModelMetaclass(type):
             attr = dct[attr_name]
             if isinstance(attr, Property):
                 cls.add_property(attr_name, attr, set_property=False, config=not __lazy_model_init__)
-                
+
                 if isinstance(attr, ManyToMany):
                     cls._manytomany[attr_name] = attr
 
@@ -1566,18 +1566,18 @@ class ModelMetaclass(type):
                 elif cls._primary_field and cls._primary_field == attr_name:
                     _primary_keys.append(attr_name)
 
-         
+
         #if there is already defined primary_key, the id will not be primary_key
         #enable multi primary
         #has_primary_key = bool([v for v in cls.properties.itervalues() if 'primary_key' in v.kwargs])
-        
+
         #add __without_id__ attribute to model, if set it, uliorm will not
         #create 'id' field for the model
-        #if there is already has primary key, then id will not created 
+        #if there is already has primary key, then id will not created
         #change in 0.2.6 version
         without_id = getattr(cls, '__without_id__', False)
         if 'id' not in cls.properties and not without_id and len(_primary_keys)==0:
-            cls.properties['id'] = f = Field(PKTYPE(), autoincrement=True, 
+            cls.properties['id'] = f = Field(PKTYPE(), autoincrement=True,
                 primary_key=True, default=None, nullable=False, server_default=None)
             if not __lazy_model_init__:
                 f.__property_config__(cls, 'id')
@@ -1598,31 +1598,31 @@ class ModelMetaclass(type):
         fields_list = [(k, v) for k, v in cls.properties.items()]
         fields_list.sort(key=lambda x: x[1].creation_counter)
         cls._fields_list = fields_list
-        
+
         #check if cls is matched with __models__ module_path
         if not check_model_class(cls):
             return
 
         if cls._bind and not __lazy_model_init__:
             cls.bind(auto_create=__auto_create__)
-        
+
 class LazyValue(object):
     def __init__(self, name, property):
         self.name = name
         self.property = property
-        
+
     def __get__(self, model_instance, model_class):
         if model_instance is None:
             return self
-        
+
         return self.property.get_lazy(model_instance, self.name, self.property.default)
 
     def __set__(self, model_instance, value):
         if model_instance is None:
             return
-        
+
         setattr(model_instance, self.name, value)
-        
+
 class Property(object):
     data_type = str
     field_class = String
@@ -1630,10 +1630,10 @@ class Property(object):
     creation_counter = 0
     property_type = 'column'   #Property type: 'column', 'compound', 'relation'
     server_default = None
-    
+
     def __init__(self, label=None, verbose_name=None, fieldname=None, default=None,
         required=False, validators=None, choices=None, max_length=None, choices_name=None,
-        hint='', auto=None, auto_add=None, type_class=None, type_attrs=None, 
+        hint='', auto=None, auto_add=None, type_class=None, type_attrs=None,
         placeholder='', extra=None,
         sequence=False, **kwargs):
         self.label = label or verbose_name
@@ -1661,7 +1661,7 @@ class Property(object):
         self.type_attrs = type_attrs or {}
         self.type_class = type_class or self.field_class
         Property.creation_counter += 1
-        
+
     def get_parameters(self):
         """
         Get common attributes and it'll used for Model.relationship clone process
@@ -1695,7 +1695,7 @@ class Property(object):
 
     def create(self, cls):
         global __nullable__
-        
+
         kwargs = self.kwargs.copy()
         kwargs['key'] = self.name
         self._get_column_info(kwargs)
@@ -1714,7 +1714,7 @@ class Property(object):
         else:
             f_type = self.type_class(**self.type_attrs)
         return f_type
-    
+
     def __property_config__(self, model_class, property_name):
         self.model_class = model_class
         self.property_name = property_name
@@ -1722,7 +1722,7 @@ class Property(object):
         if not self.fieldname:
             self.fieldname = property_name
         setattr(model_class, self._lazy_value(), LazyValue(self._attr_name(), self))
-        
+
     def get_attr(self, model_instance, name, default):
         v = None
         if hasattr(model_instance, name):
@@ -1733,17 +1733,35 @@ class Property(object):
             else:
                 v = default
         return v
-    
+
     def get_lazy(self, model_instance, name, default=None):
         v = self.get_attr(model_instance, name, default)
         if v is Lazy:
-            _key = getattr(model_instance, model_instance._primary_field)
-            if not _key:
-                raise BadValueError('Instance is not a validate object of Model %s, ID property is not found' % model_class.__name__)
+            # 判断是否是主键字段
+            is_primary_key = (name == '_STORED_' + model_instance._primary_field + '_')
+
+            if is_primary_key:
+                # 主键是 Lazy，说明实例未保存到数据库或延迟加载时未查询主键
+                # 直接返回默认值，不尝试刷新
+                return default
+
+            # 非主键字段，尝试刷新
+            # 获取主键字段名（如 'id'）
+            primary_key_name = model_instance._primary_field
+            # 获取主键值的属性名（如 '_STORED_id_'）
+            stored_key_name = '_STORED_' + primary_key_name + '_'
+            # 从 __dict__ 获取主键值，绕过描述符机制避免无限递归
+            _key = model_instance.__dict__.get(stored_key_name)
+
+            # 检查主键是否有有效值：不是 None 也不是 Lazy 类
+            if _key is None or _key is Lazy:
+                # 主键没有值，无法刷新，返回默认值
+                return default
+
             model_instance.refresh()
             v = self.get_attr(model_instance, name, default)
         return v
-        
+
     def __get__(self, model_instance, model_class):
         if model_instance is None:
             return self
@@ -1752,7 +1770,7 @@ class Property(object):
             return self.get_lazy(model_instance, self._attr_name(), self.default)
         except AttributeError:
             return None
-        
+
     def __set__(self, model_instance, value):
         if model_instance is None:
             return
@@ -1767,14 +1785,14 @@ class Property(object):
         else:
             d = self.default
         return d
-    
+
     def get_choices(self):
         if callable(self.choices):
             choices = self.choices()
         else:
             choices = self.choices
         return choices or []
-        
+
     def get_display_value(self, value):
         if value is None:
             return ''
@@ -1796,7 +1814,7 @@ class Property(object):
         #skip Lazy value
         if value is Lazy:
             return value
-        
+
         try:
             if from_dump:
                 value = self.convert_dump(value)
@@ -1806,14 +1824,14 @@ class Property(object):
             raise BadValueError('Property %s must be convertible to %s, but the value is (%s)' % (self.name, self.data_type, err))
         if hasattr(self, 'custom_validate'):
             value = self.custom_validate(value)
-                
+
         for v in self.validators:
             v(value)
         return value
 
     def validate(self, value):
         return self._validate(value)
-    
+
     def validate_dump(self, value):
         return self._validate(value, from_dump=True)
 
@@ -1825,23 +1843,23 @@ class Property(object):
 
     def make_value_from_datastore(self, value):
         return value
-    
+
     def convert(self, value):
         if self.data_type and not isinstance(value, self.data_type):
             return self.data_type(value)
         else:
             return value
-    
+
     def convert_dump(self, value):
         return self.convert(value)
-    
+
     def __repr__(self):
         return ("<%s 'type':%r, 'verbose_name':%r, 'name':%r, 'fieldname':%r, "
             "'default':%r, 'required':%r, 'validator':%r, "
             "'chocies':%r, 'max_length':%r, 'kwargs':%r>"
             % (
             self.__class__.__name__,
-            self.data_type, 
+            self.data_type,
             self.verbose_name,
             self.name,
             self.fieldname,
@@ -1852,13 +1870,13 @@ class Property(object):
             self.max_length,
             self.kwargs)
             )
-            
+
     def _attr_name(self):
         return '_STORED_' + self.name + '_'
-    
+
     def _lazy_value(self):
         return '_' + self.name + '_'
-    
+
     def to_str(self, v):
         if PY2 and isinstance(v, text_type):
             return v.encode(__default_encoding__)
@@ -1868,7 +1886,7 @@ class Property(object):
             if v is None:
                 return ''
             return str(v)
-        
+
     def to_unicode(self, v):
         if PY2 and isinstance(v, str):
             return text_type(v, __default_encoding__)
@@ -1901,13 +1919,13 @@ class CharProperty(Property):
     field_class = CHAR
     server_default=''
     type_name = 'CHAR'
-    
+
     def __init__(self, label=None, default=u'', max_length=None, **kwds):
         if __check_max_length__ and not max_length:
             raise BadPropertyTypeError("max_length parameter not passed for property %s" % self.__class__.__name__)
         max_length = max_length or 255
         super(CharProperty, self).__init__(label, default=default, max_length=max_length, **kwds)
-    
+
     def convert(self, value):
         if value is None:
             return u''
@@ -1915,14 +1933,14 @@ class CharProperty(Property):
             return text_type(value, __default_encoding__)
         else:
             return self.data_type(value)
-    
+
     def _create_type(self):
         if self.max_length:
             f_type = self.type_class(self.max_length, convert_unicode=True, **self.type_attrs)
         else:
             f_type = self.type_class(**self.type_attrs)
         return f_type
-    
+
     def to_str(self, v):
         return safe_str(v)
 
@@ -1995,10 +2013,10 @@ class FileProperty(StringProperty):
         super(FileProperty, self).__init__(label, max_length=max_length, **kwds)
         self.upload_to = upload_to
         self.upload_to_sub = upload_to_sub
-        
+
 class UnicodeProperty(StringProperty):
     pass
-    
+
 class TextProperty(Property):
     field_class = Text
     data_type = text_type
@@ -2006,7 +2024,7 @@ class TextProperty(Property):
 
     def __init__(self, label=None, default=u'', **kwds):
         super(TextProperty, self).__init__(label, default=default, max_length=None, **kwds)
-    
+
     def convert(self, value):
         if not value:
             return u('')
@@ -2014,37 +2032,37 @@ class TextProperty(Property):
             return text_type(value, __default_encoding__)
         else:
             return self.data_type(value)
-    
+
 class BlobProperty(Property):
     field_class = BLOB
     data_type = str
     type_name = 'BLOB'
-    
+
     def __init__(self, label=None, default='', **kwds):
         super(BlobProperty, self).__init__(label, default=default, max_length=None, **kwds)
-    
+
     def get_display_value(self, value):
         return repr(value)
-    
+
     def convert(self, value):
         if not value:
             return b''
         return b(value)
-    
+
 class PickleProperty(BlobProperty):
     field_class = PickleType
     data_type = None
     type_name = 'PICKLE'
-    
+
     def to_str(self, v):
         return pickle.dumps(v, pickle.HIGHEST_PROTOCOL)
-    
+
     def convert_dump(self, v):
         return pickle.loads(v)
 
     def convert(self, value):
         return value
-    
+
 class JsonProperty(TextProperty):
     field_class = TEXT
     data_type = None
@@ -2070,7 +2088,7 @@ class DateTimeProperty(Property):
     field_class = DateTime
     server_default = '0000-00-00 00:00:00'
     type_name = 'DATETIME'
-    
+
     def __init__(self, label=None, auto_now=False, auto_now_add=False,
             format=None, **kwds):
         super(DateTimeProperty, self).__init__(label, **kwds)
@@ -2083,7 +2101,7 @@ class DateTimeProperty(Property):
             raise BadValueError('Property %s must be a %s' %
                 (self.name, self.data_type.__name__))
         return value
-    
+
     @staticmethod
     def now():
         if __now__:
@@ -2110,7 +2128,7 @@ class DateTimeProperty(Property):
             return __to_datetime__(*args, **kwargs)
         else:
             return _date.to_datetime(*args, **kwargs)
-    
+
     def convert(self, value):
         if not value:
             return None
@@ -2118,7 +2136,7 @@ class DateTimeProperty(Property):
         if d:
             return d
         raise BadValueError('The datetime value is not a valid format')
-    
+
     def to_str(self, v):
         if isinstance(v, self.data_type):
             return _date.to_string(v, timezone=False)
@@ -2126,7 +2144,7 @@ class DateTimeProperty(Property):
             if not v:
                 return ''
             return str(v)
-    
+
     def to_unicode(self, v):
         if isinstance(v, self.data_type):
             return text_type(_date.to_string(v, timezone=False))
@@ -2146,29 +2164,29 @@ class DateProperty(DateTimeProperty):
     field_class = Date
     server_default = '0000-00-00'
     type_name = 'DATE'
-    
+
     @staticmethod
     def _convert_func(*args, **kwargs):
         return _date.to_date(*args, **kwargs)
-    
+
     @staticmethod
     def now():
         return _date.to_date(_date.now())
-    
+
 class TimeProperty(DateTimeProperty):
     data_type = datetime.time
     field_class = Time
     server_default = '00:00:00'
     type_name = 'TIME'
-    
+
     @staticmethod
     def _convert_func(*args, **kwargs):
         return _date.to_time(*args, **kwargs)
-    
+
     @staticmethod
     def now():
         return _date.to_time(_date.now())
-    
+
 class IntegerProperty(Property):
     """An integer property."""
 
@@ -2176,17 +2194,17 @@ class IntegerProperty(Property):
     field_class = Integer
     server_default=text('0')
     type_name = 'INTEGER'
-    
+
     def __init__(self, label=None, default=0, **kwds):
         super(IntegerProperty, self).__init__(label, default=default, **kwds)
-    
+
     def convert(self, value):
         if value == '':
             return 0
         if value is None:
             return value
         return self.data_type(value)
-        
+
     def custom_validate(self, value):
         if value and not isinstance(value, integer_types + (bool, )):
             raise BadValueError('Property %s must be an int, long or bool, not a %s'
@@ -2196,7 +2214,7 @@ class IntegerProperty(Property):
 class BigIntegerProperty(IntegerProperty):
     field_class = BigInteger
     type_name = 'BIGINT'
-    
+
 class SmallIntegerProperty(IntegerProperty):
     field_class = SmallInteger
     type_name = 'SMALLINT'
@@ -2208,15 +2226,15 @@ class FloatProperty(Property):
     field_class = Float
     server_default=text('0')
     type_name = 'FLOAT'
-    
+
     def __init__(self, label=None, default=0.0, precision=None, **kwds):
         super(FloatProperty, self).__init__(label, default=default, **kwds)
         self.precision = precision
-        
+
     def _create_type(self):
         f_type = self.type_class(precision=self.precision, **self.type_attrs)
         return f_type
-    
+
     def convert(self, value):
         if value == '' or value is None:
             return 0.0
@@ -2224,7 +2242,7 @@ class FloatProperty(Property):
 
     def custom_validate(self, value):
         if value and not isinstance(value, float):
-            raise BadValueError('Property %s must be a float, not a %s' 
+            raise BadValueError('Property %s must be a float, not a %s'
                 % (self.name, type(value).__name__))
         if abs(value) < __zero_float__:
             value = 0.0
@@ -2240,12 +2258,12 @@ class DecimalProperty(Property):
     field_class = Numeric
     server_default=text('0.00')
     type_name = 'DECIMAL'
-    
+
     def __init__(self, label=None, default='0.0', precision=10, scale=2, **kwds):
         super(DecimalProperty, self).__init__(label, default=default, **kwds)
         self.precision = precision
         self.scale = scale
-   
+
     def convert(self, value):
         if value == '' or value is None:
             return decimal.Decimal('0.0')
@@ -2254,7 +2272,7 @@ class DecimalProperty(Property):
     def _create_type(self):
         f_type = self.type_class(precision=self.precision, scale=self.scale, **self.type_attrs)
         return f_type
-    
+
     def get_display_value(self, value):
         if value is None:
             return ''
@@ -2276,13 +2294,13 @@ class BooleanProperty(Property):
     field_class = Boolean
     server_default=text('0')
     type_name = 'BOOL'
-    
+
     def __init__(self, label=None, default=False, **kwds):
         super(BooleanProperty, self).__init__(label, default=default, **kwds)
-    
+
     def custom_validate(self, value):
         if value is not None and not isinstance(value, bool):
-            raise BadValueError('Property %s must be a boolean, not a %s' 
+            raise BadValueError('Property %s must be a boolean, not a %s'
                 % (self.name, type(value).__name__))
         return value
 
@@ -2293,7 +2311,7 @@ class BooleanProperty(Property):
             return True
         else:
             return False
-        
+
 class ReferenceProperty(Property):
     """A property that represents a many-to-one reference to another model.
     """
@@ -2329,10 +2347,10 @@ class ReferenceProperty(Property):
             if inspect.isclass(self.reference_class) and issubclass(self.reference_class, Model):
                 warnings.simplefilter('default')
                 warnings.warn("Reference Model should be a string type, but [%s] model class found." % self.reference_class.__name__, DeprecationWarning)
-        
+
     def create(self, cls):
         global __nullable__
-        
+
         args = self.kwargs.copy()
         args['key'] = self.name
 #        if not callable(self.default):
@@ -2351,12 +2369,12 @@ class ReferenceProperty(Property):
                 v = self.reference_field.kwargs.get('server_default')
                 args['server_default'] = v
         return Column(self.fieldname, f_type, **args)
-    
+
     def _create_type(self):
         if not hasattr(self.reference_class, self.reference_fieldname):
             raise KindError('reference_fieldname is not existed')
         self.reference_field = getattr(self.reference_class, self.reference_fieldname)
-        
+
         #process data_type
         self.data_type = self.reference_field.data_type
 
@@ -2366,7 +2384,7 @@ class ReferenceProperty(Property):
         else:
             f_type = field_class
         return f_type
-    
+
     def __property_config__(self, model_class, property_name):
         """Loads all of the references that point to this model.
         """
@@ -2377,7 +2395,7 @@ class ReferenceProperty(Property):
                 self.reference_class is _SELF_REFERENCE or
                 valid_model(self.reference_class, self.engine_name)):
             raise KindError('reference_class %r must be Model or _SELF_REFERENCE or available table name' % self.reference_class)
-        
+
         if self.reference_class is _SELF_REFERENCE or self.reference_class is None:
             self.reference_class = model_class
         else:
@@ -2421,7 +2439,7 @@ class ReferenceProperty(Property):
                 return instance
         else:
             return None
-        
+
     def get_value_for_datastore(self, model_instance):
         if not model_instance:
             return None
@@ -2441,7 +2459,7 @@ class ReferenceProperty(Property):
         else:
             setattr(model_instance, self._attr_name(), None)
             setattr(model_instance, self._resolved_attr_name(), None)
-        
+
     def validate(self, value):
         """Validate reference.
 
@@ -2458,7 +2476,7 @@ class ReferenceProperty(Property):
                 value = None
             else:
                 value = 0
-            
+
         if not isinstance(value, Model):
             return super(ReferenceProperty, self).validate(value)
 
@@ -2473,7 +2491,7 @@ class ReferenceProperty(Property):
         return value
 
     validate_dump = validate
-        
+
     def _id_attr_name(self):
         """Get attribute of referenced id.
         """
@@ -2512,7 +2530,7 @@ class OneToOne(ReferenceProperty):
 
     def create(self, cls):
         global __nullable__
-        
+
         args = self.kwargs.copy()
         args['key'] = self.name
 #        if not callable(self.default):
@@ -2533,7 +2551,7 @@ class OneToOne(ReferenceProperty):
     def __property_config__(self, model_class, property_name):
         """Loads all of the references that point to this model.
         """
-        
+
         #Direct invoke super with ReferenceProperty in order to skip the
         #ReferenceProperty process, but instead of invode ReferenceProperty's
         #parent function
@@ -2543,7 +2561,7 @@ class OneToOne(ReferenceProperty):
                 self.reference_class is _SELF_REFERENCE or
                 valid_model(self.reference_class, self.engine_name)):
             raise KindError('reference_class %r must be Model or _SELF_REFERENCE or available table name' % self.reference_class)
-        
+
         if self.reference_class is _SELF_REFERENCE:
             self.reference_class = self.data_type = model_class
         else:
@@ -2576,7 +2594,7 @@ def get_objs_columns(objs, field=None, model=None):
             new_objs.extend(x)
         else:
             new_objs.append(x)
-            
+
     if model and field:
         prop = getattr(model, field)
     else:
@@ -2611,11 +2629,11 @@ class Result(object):
         self._limit = None
         self._offset = None
         self.connection = model.get_session()
-        
+
     def do_(self, query):
         global do_
         return do_(query, self.connection)
-    
+
     def get_column(self, model, fieldname):
         if isinstance(fieldname, string_types):
             if issubclass(model, Model):
@@ -2630,7 +2648,7 @@ class Result(object):
         else:
             field = fieldname
         return field
-    
+
     def get_columns(self, model=None, columns=None):
         columns = columns or self.columns
         model = model or self.model
@@ -2642,9 +2660,9 @@ class Result(object):
         for col in columns:
             if col is not field:
                 fields.append(col)
-        
+
         return fields
-    
+
     def get_fields(self):
         """
         get property instance according self.columns
@@ -2665,17 +2683,17 @@ class Result(object):
                                   signal=False).properties[col.name]
             else:
                 field = col
-            
+
             fields.append(field)
-        
+
         return fields
-        
+
     def connect(self, connection):
         if connection:
             self.connection = connection
         return self
     use = connect
-    
+
     def all(self):
         return self
 
@@ -2746,11 +2764,11 @@ class Result(object):
         else:
             self.condition = cond
         return self
-    
+
     def order_by(self, *args, **kwargs):
         self.funcs.append(('order_by', args, kwargs))
         return self
-    
+
     def group_by(self, *args):
         self._group_by = args
         return self
@@ -2768,12 +2786,12 @@ class Result(object):
                     args.append(self.model._primary_field)
                 self.funcs.append(('with_only_columns', ([self.get_column(self.model, x) for x in args],), kwargs))
         return self
-        
+
     def values(self, *args, **kwargs):
         self.funcs.append(('with_only_columns', ([self.get_column(self.model, x) for x in args],), kwargs))
         self._values_flag = True
         return self
-    
+
     def values_one(self, *args, **kwargs):
         self.funcs.append(('with_only_columns', ([self.get_column(self.model, x) for x in args],), kwargs))
         self.run(1)
@@ -2785,14 +2803,14 @@ class Result(object):
         If field is None, then it means that it'll create:
             select distinct *
         and if field is not None, for example: 'name', it'll create:
-            select distinc(name), 
+            select distinc(name),
         """
         if field is None:
             self.funcs.append(('distinct', (), {}))
         else:
             self.distinct_field = field
         return self
-    
+
     def limit(self, *args, **kwargs):
         self.funcs.append(('limit', args, kwargs))
         if args:
@@ -2805,7 +2823,7 @@ class Result(object):
         self._offset = True
         self.funcs.append(('offset', args, kwargs))
         return self
-    
+
     def update(self, **kwargs):
         """
         Execute update table set field = field+1 like statement
@@ -2815,12 +2833,12 @@ class Result(object):
         else:
             self.result = self.do_(self.model.table.update().values(**kwargs))
         return self.result
-    
+
     def without(self, flag='default_query'):
         if flag == 'default_query':
             self.default_query_flag = False
         return self
-    
+
     def run(self, limit=0):
         query = self.get_query()
         #add limit support
@@ -2828,7 +2846,7 @@ class Result(object):
             query = getattr(query, 'limit')(limit)
         self.result = self.do_(query)
         return self.result
-    
+
     def save_file(self, filename, encoding='utf8', headers=None,
                   convertors=None, display=True, **kwargs):
         """
@@ -2836,10 +2854,10 @@ class Result(object):
         display = True will convert value according choices value
         """
         global save_file
-        
+
         convertors = convertors or {}
         headers = headers or []
-        
+
         fields = self.get_fields()
         _header = []
         for i, column in enumerate(fields):
@@ -2867,12 +2885,12 @@ class Result(object):
 
         return save_file(self.run(), filename, encoding=encoding,
                          headers=_header, convertors=convertors, **kwargs)
-    
+
     def get_query(self, columns=None):
-        #user can define default_query, and default_query 
+        #user can define default_query, and default_query
         #should be class method
         columns = columns or self.get_columns()
-        
+
         if self.default_query_flag:
             _f = getattr(self.model, 'default_query', None)
             if _f:
@@ -2894,36 +2912,36 @@ class Result(object):
 
     def __str__(self):
         return rawsql(self.get_query())
-    
+
     def load(self, values):
         if self._values_flag:
             return values
         else:
             return self.model.load(values.items())
-        
+
     def for_update(self, flag=True):
         """
         please see http://docs.sqlalchemy.org/en/latest/core/expression_api.html search for update
         """
         self.kwargs['for_update'] = flag
         return self
-    
+
     def one(self):
         self.run(1)
         if not self.result:
             return
-        
+
         result = self.result.fetchone()
         if result:
             return self.load(result)
-        
+
     first = one
-    
+
     def clear(self):
         return do_(self.model.table.delete(self.condition), self.connection)
-    
+
     remove = clear
-            
+
     def __del__(self):
         if self.result:
             self.result.close()
@@ -2992,10 +3010,10 @@ class ReverseResult(Result):
         self.distinct_field = None
         self._values_flag = False
         self.connection = model.get_session()
-        
+
     def has(self, *objs):
         keys = get_objs_columns(objs)
-        
+
         if not keys:
             return False
 
@@ -3005,7 +3023,7 @@ class ReverseResult(Result):
         query = select([self.model.c['id']], self.condition)
         ids = [x[0] for x in self.do_(query)]
         return ids
-    
+
     def keys(self):
         query = select([self.model.c[self.model._primary_field]], self.condition)
         keys = [x[0] for x in self.do_(query)]
@@ -3020,11 +3038,11 @@ class ReverseResult(Result):
             self.do_(self.model.table.delete(self.condition & self.model.table.c[self.model._primary_field].in_(keys)))
         else:
             self.do_(self.model.table.delete(self.condition))
-    
+
     remove = clear
 
 class ManyResult(Result):
-    def __init__(self, modela, instance, property_name, modelb, 
+    def __init__(self, modela, instance, property_name, modelb,
         table, fielda, fieldb, realfielda, realfieldb, valuea,
                  before_save=None,
                  default_condition=None,
@@ -3061,7 +3079,7 @@ class ManyResult(Result):
         self.before_save = before_save
         self.default_condition = default_condition
         self.kwargs = {}
-        
+
     def all(self, cache=False):
         """
         can use cache to return objects
@@ -3086,7 +3104,7 @@ class ManyResult(Result):
                 new_objs.extend(x)
             else:
                 new_objs.append(x)
-        
+
         modified = False
         for o in new_objs:
             if not self.has(o):
@@ -3103,19 +3121,19 @@ class ManyResult(Result):
                 else:
                     self.do_(self.table.insert().values(**d))
                 modified = modified or True
-        
+
         #cache [] to _STORED_attr_name
         setattr(self.instance, self.store_key, Lazy)
-        
+
         return modified
-         
+
     @property
     def store_key(self):
         if self.property_name in self.instance.properties:
             return self.instance.properties[self.property_name]._attr_name()
         else:
             return '_CACHED_'+self.property_name
-    
+
     def ids(self, cache=False):
         key = self.store_key
         ids = getattr(self.instance, key, None)
@@ -3127,7 +3145,7 @@ class ManyResult(Result):
         if cache:
             setattr(self.instance, key, ids)
         return ids
-    
+
     def keys(self, cache=False):
         key = self.store_key
         keys = getattr(self.instance, key, None)
@@ -3172,16 +3190,16 @@ class ManyResult(Result):
                 else:
                     self.do_(self.table.insert().values(**d))
                 modified = True
-                
+
         if keys: #if there are still keys, so delete them
             self.clear(*keys)
             modified = True
-        
+
         #cache [] to _STORED_attr_name
         setattr(self.instance, self.store_key, new_keys)
-        
+
         return modified
-            
+
     def clear(self, *objs):
         """
         Clear the third relationship table, but not the ModelA or ModelB
@@ -3193,9 +3211,9 @@ class ManyResult(Result):
             self.do_(self.table.delete(self.get_default_condition()))
         #cache [] to _STORED_attr_name
         setattr(self.instance, self.store_key, Lazy)
-        
+
     remove = clear
-    
+
     def count(self):
         if self._group_by or self._join:
             return self.do_(self.get_query().alias().count()).scalar()
@@ -3203,7 +3221,7 @@ class ManyResult(Result):
             return self.do_(
                 self.get_query().with_only_columns([func.count()]).limit(None).order_by(None).offset(None)
                 ).scalar()
-    
+
     def any(self):
         row = self.do_(
             select([self.table.c[self.fieldb]],
@@ -3214,15 +3232,15 @@ class ManyResult(Result):
 
     def has(self, *objs):
         keys = get_objs_columns(objs, self.realfieldb)
-        
+
         if not keys:
             return False
-        
+
         row = self.do_(select([text('*')],
             self.get_default_condition() &
             (self.table.c[self.fieldb].in_(keys))).limit(1))
         return len(list(row)) > 0
-        
+
     def fields(self, *args, **kwargs):
         if args:
             args = flat_list(args)
@@ -3249,7 +3267,7 @@ class ManyResult(Result):
         if relation is not None, when fetch manytomany result, also
         fetch relation record and saved them to manytomany object,
         and named them as relation.
-        
+
         If relation_name is not given, then default value is 'relation'
         """
         if not relation_name:
@@ -3260,16 +3278,16 @@ class ManyResult(Result):
             raise Error("Only with through style in ManyToMany supports with_relation function of Model %s!" % self.modelb.__name__)
         self.with_relation_name = relation_name
         return self
-        
+
     def run(self, limit=0):
         query = self.get_query()
         if limit > 0:
             query = getattr(query, 'limit')(limit)
         self.result = self.do_(query)
         return self.result
-        
+
     def get_query(self):
-        #user can define default_query, and default_query 
+        #user can define default_query, and default_query
         #should be class method
         if self.default_query_flag:
             _f = getattr(self.modelb, 'default_query', None)
@@ -3288,7 +3306,7 @@ class ManyResult(Result):
         query = select(
             self.get_columns(self.modelb, columns),
             self.get_default_condition() &
-            (self.table.c[self.fieldb] == self.modelb.c[self.realfieldb]) & 
+            (self.table.c[self.fieldb] == self.modelb.c[self.realfieldb]) &
             condition,
             **self.kwargs)
         for func, args, kwargs in self.funcs:
@@ -3298,7 +3316,7 @@ class ManyResult(Result):
             if self._having:
                 query = query.having(*self._having)
         return query
-    
+
     def one(self):
         self.run(1)
         if not self.result:
@@ -3311,20 +3329,20 @@ class ManyResult(Result):
             offset = 0
             if self.with_relation_name:
                 offset = len(self.table.columns)
-                
+
             o = self.modelb.load(list(zip(list(result.keys())[offset:], list(result.values())[offset:])))
-            
+
             if self.with_relation_name:
                 r = self.through_model.load(list(zip(list(result.keys())[:offset], list(result.values())[:offset])))
                 setattr(o, self.with_relation_name, r)
-                
+
             return o
 
     def __del__(self):
         if self.result:
             self.result.close()
             self.result = None
-    
+
     def __iter__(self):
         self.run()
         if not self.result:
@@ -3333,7 +3351,7 @@ class ManyResult(Result):
         offset = 0
         if self.with_relation_name:
             offset = len(self.table.columns)
-        
+
         while 1:
             result = self.result.fetchone()
             if not result:
@@ -3343,18 +3361,18 @@ class ManyResult(Result):
                 continue
 
             o = self.modelb.load(list(zip(list(result.keys())[offset:], list(result.values())[offset:])))
-            
+
             if self.with_relation_name:
-                r = self.through_model.load(list(zip(result.keys()[:offset], result.values()[:offset])))
+                r = self.through_model.load(list(zip(list(result.keys())[:offset], list(result.values())[:offset])))
                 setattr(o, self.with_relation_name, r)
-                
+
             yield o
-        
+
 class ManyToMany(ReferenceProperty):
     type_name = 'ManyToMany'
 
     def __init__(self, reference_class=None, label=None, collection_name=None,
-        reference_fieldname=None, reversed_fieldname=None, required=False, through=None, 
+        reference_fieldname=None, reversed_fieldname=None, required=False, through=None,
         through_reference_fieldname=None, through_reversed_fieldname=None,
         before_save=None, default_condition=None,
         **attrs):
@@ -3367,11 +3385,11 @@ class ManyToMany(ReferenceProperty):
         :param through_reversed_fieldname: throught model relative to field of A
         :param index_reverse: create index reversed
         """
-            
+
         super(ManyToMany, self).__init__(reference_class=reference_class,
             label=label, collection_name=collection_name,
             reference_fieldname=reference_fieldname, required=required, **attrs)
-    
+
         self.reversed_fieldname = reversed_fieldname
         self.through = through
 
@@ -3414,10 +3432,10 @@ class ManyToMany(ReferenceProperty):
                 self.table.__mapping_only__ = True
             else:
                 self.table.__mapping_only__ = False
-    
+
     def get_real_property(self, model, field):
         return getattr(model, field).field_class
-    
+
     def get_type(self, model, field):
         field = getattr(model, field)
         field_class = field.field_class
@@ -3426,7 +3444,7 @@ class ManyToMany(ReferenceProperty):
         else:
             f_type = field_class
         return f_type
-    
+
     def create_table(self):
         _table = Table(self.tablename, self.model_class.metadata,
             Column(self.fielda, self.get_type(self.model_class, self.reversed_fieldname)),
@@ -3436,7 +3454,7 @@ class ManyToMany(ReferenceProperty):
             extend_existing=True
         )
         return _table
-    
+
     def init_through(self):
         def find_property(properties, model, skip=None):
             for k, v in properties.items():
@@ -3495,16 +3513,16 @@ class ManyToMany(ReferenceProperty):
             self.table.__appname__ = appname[:appname.rfind('.')]
             self.model_class.manytomany.append(self.table)
             Index('%s_mindx' % self.tablename, self.table.c[self.fielda], self.table.c[self.fieldb], unique=True)
-    
+
     def __property_config__(self, model_class, property_name):
         """Loads all of the references that point to this model.
         """
-        
+
         #Direct invoke super with ReferenceProperty in order to skip the
         #ReferenceProperty process, but instead of invode ReferenceProperty's
         #parent function
         super(ReferenceProperty, self).__property_config__(model_class, property_name)
-    
+
         if not (
                 (isinstance(self.reference_class, type) and issubclass(self.reference_class, Model)) or
                 self.reference_class is _SELF_REFERENCE or
@@ -3522,7 +3540,7 @@ class ManyToMany(ReferenceProperty):
         self.collection_name = self.reference_class.get_collection_name(model_class.tablename, self._collection_name, model_class.tablename)
         setattr(self.reference_class, self.collection_name,
             _ManyToManyReverseReferenceProperty(self, self.collection_name))
-    
+
     def get_lazy(self, model_instance, name, default=None):
         v = self.get_attr(model_instance, name, default)
         if v is Lazy:
@@ -3532,7 +3550,7 @@ class ManyToMany(ReferenceProperty):
             result = getattr(model_instance, self.name)
             v = result.keys(True)
             setattr(model_instance, name, v)
-            
+
             #2014/3/1 save value to Model_instance._old_values
             #this will cause manytomany need not to check when saving
             #or it'll compare the difference between old_value and database(use select)
@@ -3541,10 +3559,10 @@ class ManyToMany(ReferenceProperty):
 
     def __get__(self, model_instance, model_class):
         """Get reference object.
-    
+
         This method will fetch unresolved entities from the datastore if
         they are not already loaded.
-    
+
         Returns:
             ReferenceProperty to Model object if property is set, else None.
         """
@@ -3558,15 +3576,15 @@ class ManyToMany(ReferenceProperty):
             return x
         else:
             return self
-    
+
     def __set__(self, model_instance, value):
         if model_instance is None:
             return
-        
+
         if value and value is not Lazy:
             value = get_objs_columns(value, self.reference_fieldname, model=self.reference_class)
         setattr(model_instance, self._attr_name(), value)
-    
+
     def get_value_for_datastore(self, model_instance, cached=False):
         """Get key of reference rather than reference itself."""
         value = getattr(model_instance, self._attr_name(), None)
@@ -3574,13 +3592,13 @@ class ManyToMany(ReferenceProperty):
             value = getattr(model_instance, self.property_name).keys()
             setattr(model_instance, self._attr_name(), value)
         return value
-    
+
     def get_display_value(self, value):
         s = []
         for x in value:
             s.append(text_type(x))
         return ' '.join(s)
-    
+
     def in_(self, *objs):
         """
         Create a condition
@@ -3592,7 +3610,7 @@ class ManyToMany(ReferenceProperty):
             sub_query = select([self.table.c[self.fielda]], (self.table.c[self.fieldb] == self.reference_class.c[self.reference_fieldname]) & (self.table.c[self.fieldb].in_(keys)))
             condition = self.model_class.c[self.reversed_fieldname].in_(sub_query)
             return condition
-         
+
     def join_in(self, *objs):
         """
         Create a join condition, connect A and C
@@ -3602,7 +3620,7 @@ class ManyToMany(ReferenceProperty):
         else:
             keys = get_objs_columns(objs, self.reference_fieldname)
             return (self.table.c[self.fielda] == self.model_class.c[self.reversed_fieldname]) & (self.table.c[self.fieldb].in_(keys))
-   
+
     def join_right_in(self, *objs):
         """
         Create a join condition, connect B and C
@@ -3612,7 +3630,7 @@ class ManyToMany(ReferenceProperty):
         else:
             keys = get_objs_columns(objs, self.reference_fieldname)
             return (self.table.c[self.fieldb] == self.reference_class.c[self.reference_fieldname]) & (self.table.c[self.fielda].in_(keys))
-    
+
     def filter(self, *condition):
         cond = true()
         for c in condition:
@@ -3628,7 +3646,7 @@ class ManyToMany(ReferenceProperty):
             if c is not None:
                 cond = and_(c, cond)
         return (self.table.c[self.fielda] == self.model_class.c[self.reversed_fieldname]) & (self.table.c[self.fieldb] == self.reference_class.c[self.reference_fieldname]) & cond
-        
+
     def convert_dump(self, value):
         if not value:
             return []
@@ -3713,9 +3731,9 @@ class _ReverseReferenceProperty(Property):
 class _OneToOneReverseReferenceProperty(_ReverseReferenceProperty):
     def __init__(self, model, reference_id, reversed_id, collection_name):
         """Constructor for reverse reference.
-    
+
         Constructor does not take standard values of other property types.
-    
+
         """
         self._model = model
         self._reference_id = reference_id    #B Reference(A) this is B's id
@@ -3762,9 +3780,9 @@ class _OneToOneReverseReferenceProperty(_ReverseReferenceProperty):
 class _ManyToManyReverseReferenceProperty(_ReverseReferenceProperty):
     def __init__(self, reference_property, collection_name):
         """Constructor for reverse reference.
-    
+
         Constructor does not take standard values of other property types.
-    
+
         """
         self.reference_property = reference_property
         self._collection_name = collection_name
@@ -3778,9 +3796,9 @@ class _ManyToManyReverseReferenceProperty(_ReverseReferenceProperty):
             x = ManyResult(self.reference_property.reference_class, model_instance,
                 self._collection_name,
                 self.reference_property.model_class, self.reference_property.table,
-                self.reference_property.fieldb, self.reference_property.fielda, 
+                self.reference_property.fieldb, self.reference_property.fielda,
                 self.reference_property.reference_fieldname,
-                self.reference_property.reversed_fieldname, reference_id, 
+                self.reference_property.reversed_fieldname, reference_id,
                 through_model=self.reference_property.through,
                 before_save=self.reference_property.before_save,
                 default_condition=self.reference_property.default_condition)
@@ -3924,18 +3942,18 @@ class Model(with_metaclass(ModelMetaclass)):
     _base_class = None
     _primary_field = None
     _key = None #primary key property
-    
+
     _lock = threading.Lock()
     _c_lock = threading.Lock()
 
     #add support for IPython notebook display
     _ipython_display_ = ModelReprDescriptor()
-    
+
     def __init__(self, **kwargs):
         self._old_values = {}
         self._load(kwargs, from_='')
         self._saved = False
-        
+
     def set_saved(self):
         self._old_values = self.to_dict()
         for k, v in self.properties.items():
@@ -4000,7 +4018,7 @@ class Model(with_metaclass(ModelMetaclass)):
                 if manytomany:
                     d[k] = getattr(self, v._lazy_value(), [])
         return d
-    
+
     def field_str(self, v, strict=False):
         if v is None:
             if strict:
@@ -4020,7 +4038,7 @@ class Model(with_metaclass(ModelMetaclass)):
             if strict:
                 return str(v)
             return copy.deepcopy(v)
-           
+
     def _get_data(self, fields=None, compare=True):
         """
         Get the changed property, it'll be used to save the object
@@ -4069,12 +4087,12 @@ class Model(with_metaclass(ModelMetaclass)):
                 if not x is Lazy:
                     if (compare and t != self.field_str(x)) or not compare:
                         d[k] = x
-        
+
         return d
-            
+
     def is_saved(self):
         return self._saved
-    
+
     def update(self, **data):
         for k, v in data.items():
             if k in self.properties:
@@ -4085,23 +4103,23 @@ class Model(with_metaclass(ModelMetaclass)):
                 else:
                     setattr(self, k, v)
         return self
-            
+
     def save(self, insert=False, changed=None, saved=None,
-            send_dispatch=True, version=False, version_fieldname=None, 
+            send_dispatch=True, version=False, version_fieldname=None,
             version_exception=True):
         """
         If insert=True, then it'll use insert() indead of update()
-        
+
         changed will be callback function, only when the non manytomany properties
         are saved, the signature is:
-            
+
             def changed(obj, created, old_data, diff_data):
                 if flag is true, then it means the record is changed
                 you can change new_data, and the new_data will be saved to database
-                
+
         version = Optimistic Concurrency Control
         version_fieldname default is 'version'
-        if check_many, it'll auto check if manytomany value need to save, 
+        if check_many, it'll auto check if manytomany value need to save,
         only available in UPDATE
         """
         _saved = False
@@ -4114,10 +4132,10 @@ class Model(with_metaclass(ModelMetaclass)):
             if insert or not self._saved or not _id:
                 created = True
                 old = d.copy()
-                
+
                 if get_dispatch_send() and self.__dispatch_enabled__:
                     dispatch.call(self.__class__, 'pre_save', instance=self, created=True, data=d, old_data=self._old_values, signal=self.tablename)
-                
+
                 #process auto_now_add
                 _manytomany = {}
                 for k, v in self.properties.items():
@@ -4153,7 +4171,7 @@ class Model(with_metaclass(ModelMetaclass)):
                     for k, v in _manytomany.items():
                         if v:
                             _saved = getattr(self, k).update(v) or _saved
-                
+
             else:
                 _id = d.pop(self._primary_field)
                 if d:
@@ -4189,7 +4207,7 @@ class Model(with_metaclass(ModelMetaclass)):
                             # setattr(self, version_fieldname, _version_value+1)
                             d[version_fieldname] = _version_value+1
                             _cond = (version_field == _version_value) & _cond
-                            
+
                         if callable(changed):
                             changed(self, created, self._old_values, d)
                             old.update(d)
@@ -4206,7 +4224,7 @@ class Model(with_metaclass(ModelMetaclass)):
                         elif result.rowcount == 0:
                             _saved = False
                             # raise NotFound("The record can't be found!", self.tablename, self._key)
-                      
+
                     if _manytomany:
                         for k, v in _manytomany.items():
                             if v is not None:
@@ -4226,7 +4244,7 @@ class Model(with_metaclass(ModelMetaclass)):
                 if send_dispatch and get_dispatch_send() and self.__dispatch_enabled__:
                     dispatch.call(self.__class__, 'post_save', instance=self, created=created, data=old, old_data=self._old_values, signal=self.tablename)
                 self.set_saved()
-                
+
                 if callable(saved):
                     saved(self, created, self._old_values, old)
 
@@ -4242,7 +4260,7 @@ class Model(with_metaclass(ModelMetaclass)):
         """
         Delete current obj
         :param manytomany: if also delete all manytomany relationships
-        :param delete_fieldname: if True then it'll use 'deleted', others will 
+        :param delete_fieldname: if True then it'll use 'deleted', others will
         be the property name
         """
         if get_dispatch_send() and self.__dispatch_enabled__:
@@ -4314,16 +4332,16 @@ class Model(with_metaclass(ModelMetaclass)):
         else:
             clsname = self.__class__.__name__
         return ('<%s {' % clsname) + ','.join(s) + '}>'
-    
+
     def __str__(self):
         return str(self._key)
-    
+
     def __unicode__(self):
         return text_type(self._key)
 
     def get_display_value(self, field_name, value=None):
         return self.properties[field_name].get_display_value(value or getattr(self, field_name))
-        
+
     def get_datastore_value(self, field_name):
         return self.properties[field_name].get_value_for_datastore(self)
 
@@ -4348,7 +4366,7 @@ class Model(with_metaclass(ModelMetaclass)):
                     if name == n:
                         index = i
                         break
-                   
+
                 if index >= 0:
                     cls._fields_list[index] = (name, prop)
                 else:
@@ -4373,12 +4391,12 @@ class Model(with_metaclass(ModelMetaclass)):
                     if name == n:
                         index = i
                         break
-                    
+
                 if index >= 0:
                     cls._fields_list[index] = (name, prop)
         else:
             raise AttributeError("Prop should be instance of Property, but %r found" % prop)
-        
+
     @classmethod
     def get_collection_name(cls, from_class_name, collection_name=None, prefix=None):
         """
@@ -4406,7 +4424,7 @@ class Model(with_metaclass(ModelMetaclass)):
             if collection_name in cls.properties:
                 raise DuplicatePropertyError("Model %s already has property %s" % (cls.__name__, collection_name))
         return collection_name
-            
+
     @classmethod
     def Reference(cls, name, model, reference_fieldname=None, collection_name=None, **kwargs):
         field_from = getattr(cls, name)
@@ -4414,13 +4432,13 @@ class Model(with_metaclass(ModelMetaclass)):
             raise AttributeError("Field %s can't be found in Model %s" % (name, cls.tablename))
         d = field_from.get_parameters()
         d.update(kwargs)
-        prop = ReferenceProperty(reference_class=model, 
+        prop = ReferenceProperty(reference_class=model,
             reference_fieldname=reference_fieldname,
             collection_name=collection_name,
             **d)
 
         cls.update_property(name, prop)
-        
+
     @classmethod
     def OneToOne(cls, name, model, reference_fieldname=None, collection_name=None, **kwargs):
         field_from = getattr(cls, name)
@@ -4428,20 +4446,20 @@ class Model(with_metaclass(ModelMetaclass)):
             raise AttributeError("Field %s can't be found in Model %s" % (name, cls.tablename))
         d = field_from.get_parameters()
         d.update(kwargs)
-        prop = OneToOne(reference_class=model, 
+        prop = OneToOne(reference_class=model,
             reference_fieldname=reference_fieldname,
             collection_name=collection_name,
             **d)
-        
+
         cls.update_property(name, prop)
-        
+
     @classmethod
-    def ManyToMany(cls, name, model, collection_name=None, 
-        reference_fieldname=None, reversed_fieldname=None, required=False, 
-        through=None, 
-        through_reference_fieldname=None, through_reversed_fieldname=None, 
+    def ManyToMany(cls, name, model, collection_name=None,
+        reference_fieldname=None, reversed_fieldname=None, required=False,
+        through=None,
+        through_reference_fieldname=None, through_reversed_fieldname=None,
         **kwargs):
-        prop = ManyToMany(reference_class=model, 
+        prop = ManyToMany(reference_class=model,
             collection_name=collection_name,
             reference_fieldname=reference_fieldname,
             reversed_fieldname=reversed_fieldname,
@@ -4467,22 +4485,22 @@ class Model(with_metaclass(ModelMetaclass)):
         if appname:
             name = appname.lower() + '_' + name
         cls.tablename = name
-        
+
     @classmethod
     def get_session(cls):
         if cls._connection:
             return cls._connection
         return get_session(cls.get_engine_name())
-        
+
     @classmethod
     def get_engine_name(cls):
         return cls._engine_name or __default_engine__
-    
+
     @classmethod
     def get_engine(cls):
         ec = cls.get_engine_name()
         return engine_manager[ec]
-        
+
     @classmethod
     def _use(cls, ec):
         """
@@ -4500,21 +4518,21 @@ class Model(with_metaclass(ModelMetaclass)):
             ConnectModel._engine_name = ec.engine_name
             ConnectModel._connection = ec
         return ConnectModel
-    
+
     @classmethod
     def use(cls, ec):
         """
         use will duplicate a new Model class and bind ec
-        
+
         ec is Engine name or Sesstion object
         """
-        
+
         if isinstance(ec, strings_types):
             m = get_model(cls._alias, ec, signal=False)
         else:
             m = cls._use(ec)
         return m
-    
+
     @classmethod
     def bind(cls, metadata=None, auto_create=False, reset=False):
         cls._lock.acquire()
@@ -4548,12 +4566,12 @@ class Model(with_metaclass(ModelMetaclass)):
                     _path = __models__.get(cls.tablename, {}).get('model_path', '')
                     if _path and model_path != _path:
                         return
-                
+
                 #check if the table is already existed
                 t = cls.metadata.tables.get(cls.tablename, None)
                 if t is not None and not __auto_set_model__ and not reset:
-                    return 
-                
+                    return
+
                 if t is not None:
                     cls.metadata.remove(t)
                 args = getattr(cls, '__table_args__', {})
@@ -4574,18 +4592,18 @@ class Model(with_metaclass(ModelMetaclass)):
                 #add appname to self.table
                 appname = cls.__module__
                 cls.table.__appname__ = appname[:appname.rfind('.')]
-                
+
                 #add __mapping_only__ property to Table object
                 cls.table.__mapping_only__ = getattr(cls, '__mapping_only__', False)
-                
+
                 cls.c = cls.table.c
                 cls.columns = cls.table.c
-                
+
                 if hasattr(cls, 'OnInit'):
                     cls.OnInit()
-                
+
                 if auto_create:
-                    #only metadata is and bound 
+                    #only metadata is and bound
                     #then the table will be created
                     #otherwise the creation of tables will be via: create_all(db)
                     if cls.metadata.bind:
@@ -4596,11 +4614,11 @@ class Model(with_metaclass(ModelMetaclass)):
                 else:
                     if __auto_set_model__:
                         set_model(cls)
-                        
+
                 cls._bound_classname = cls._alias
         finally:
             cls._lock.release()
-            
+
     @classmethod
     def create(cls):
         cls._c_lock.acquire()
@@ -4613,19 +4631,19 @@ class Model(with_metaclass(ModelMetaclass)):
                     x.create(engine, checkfirst=True)
         finally:
             cls._c_lock.release()
-            
+
     @classmethod
     def get(cls, id=None, condition=None, fields=None, cache=False, engine_name=None, **kwargs):
         """
         Get object from Model, if given fields, then only fields will be loaded
         into object, other properties will be Lazy
-        
+
         if cache is True or defined __cacheable__=True in Model class, it'll use cache first
         """
-        
+
         if id is None and condition is None:
             return None
-        
+
         can_cacheable = (cache or getattr(cls, '__cacheable__', None)) and \
             isinstance(id, integer_types + string_types)
         if can_cacheable:
@@ -4651,22 +4669,22 @@ class Model(with_metaclass(ModelMetaclass)):
 
         #if there is no cached object, then just fetch from database
         obj = cls.filter(_cond, **kwargs).fields(*(fields or [])).one()
-        
+
         if obj and cache or getattr(cls, '__cacheable__', None):
             dispatch.call(cls, 'set_object', instance=obj)
 
         return obj
-    
+
     def put_cached(self):
         dispatch.call(self.__class__, 'set_object', instance=self)
-    
+
     @classmethod
     def get_or_notfound(cls, condition=None, fields=None):
         obj = cls.get(condition, fields=fields)
         if not obj:
             raise NotFound("Can't found the object", cls, condition)
         return obj
-    
+
     @classmethod
     def _data_prepare(cls, record):
         d = {}
@@ -4677,11 +4695,11 @@ class Model(with_metaclass(ModelMetaclass)):
             else:
                 d[str(k)] = v
         return d
-    
+
     @classmethod
     def all(cls, **kwargs):
         return Result(cls, **kwargs)
-        
+
     @classmethod
     def empty(cls, **kwargs):
         return Result(cls, **kwargs).filter(false())
@@ -4689,7 +4707,7 @@ class Model(with_metaclass(ModelMetaclass)):
     @classmethod
     def filter(cls, *condition, **kwargs):
         return Result(cls, **kwargs).filter(*condition)
-            
+
     @classonlymethod
     def remove(cls, condition=None, **kwargs):
         if isinstance(condition, (tuple, list)):
@@ -4698,13 +4716,13 @@ class Model(with_metaclass(ModelMetaclass)):
             condition = cls.c[cls._primary_field]==condition
         #todo
         do_(cls.table.delete(condition, **kwargs), cls.get_session())
-            
+
     @classmethod
     def count(cls, condition=None, **kwargs):
         # count = do_(cls.table.count(condition, **kwargs), cls.get_session()).scalar()
         count = cls.filter(condition, **kwargs).count()
         return count
-    
+
     @classmethod
     def any(cls, *condition, **kwargs):
         return Result(cls, **kwargs).filter(*condition).any()
@@ -4819,13 +4837,13 @@ class Model(with_metaclass(ModelMetaclass)):
             d = values
         else:
             raise BadValueError("Can't support the data type %r" % values)
-        
+
         o = cls()
         o._load(d, use_delay=True, from_=from_)
         o.set_saved()
-            
+
         return o
-    
+
     def refresh(self, fields=None, **kwargs):
         """
         Re get the instance of current id
@@ -4834,19 +4852,19 @@ class Model(with_metaclass(ModelMetaclass)):
         query = self.filter(cond, **kwargs)
         if not fields:
             fields = list(self.table.c)
-        
+
         v = query.values_one(*fields)
         if not v:
             raise NotFound('Instance <{0}:{1}> can not be found'.format(self.tablename, self._key))
-        
+
         d = self._data_prepare(v.items())
         self.update(**d)
         self.set_saved()
-        
+
     def _load(self, data, use_delay=False, from_='db'):
         if not data:
             return
-        
+
         #compounds fields will be processed in the end
         compounds = []
         for prop in self.properties.values():
@@ -4911,7 +4929,7 @@ class Model(with_metaclass(ModelMetaclass)):
         if self._primary_field and d and self._primary_field not in d:
             d[self._primary_field] = str(self._key)
         return d
-        
+
     @classmethod
     def migrate(cls, manytomany=True):
         tables = [cls.tablename]
