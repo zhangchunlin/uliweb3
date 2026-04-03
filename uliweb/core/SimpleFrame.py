@@ -3168,13 +3168,21 @@ def json(data, **kwargs):
         - status_code: HTTP 状态码
         - 其他参数传递给 JSONResponse
     """
-    from starlette.responses import JSONResponse
+    from starlette.responses import Response
+    from .js import json_dumps
 
     # 处理 status 参数，转换为 status_code
     if 'status' in kwargs:
         kwargs['status_code'] = kwargs.pop('status')
 
-    return JSONResponse(data, **kwargs)
+    # 处理 content_type
+    content_type = kwargs.pop('content_type', 'application/json')
+
+    # 使用 json_dumps 处理 LazyString 等特殊类型
+    # json_dumps 内部使用 JSONEncoder 的 default=simple_value
+    content = json_dumps(data)
+
+    return Response(content, media_type=content_type, **kwargs)
 
 
 # 导出主要类和方法
