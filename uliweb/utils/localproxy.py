@@ -47,9 +47,10 @@ class LocalProxy(object):
     def __getattr__(self, name):
         # 首先检查 LocalProxy 自身是否有这个属性
         # 这避免了在底层对象上查找 _get_instance 等内部方法
+        # 注意：'values' 不在这里黑名单中，因为需要支持 request.values 等属性访问
         if name in ('_env', '_obj_name', '_use_contextvars', '_var',
                     '_get_instance', '__get_instance__', 'get_value',
-                    'get_var', 'set_var', 'items', 'keys', 'values', 'set'):
+                    'get_var', 'set_var', 'items', 'keys', 'set'):
             raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
         instance = self.__get_instance__()
         if instance is None:
@@ -111,8 +112,9 @@ class LocalProxy(object):
     def keys(self):
         return getattr(self.__get_instance__(), 'keys', lambda: [])()
 
-    def values(self):
-        return getattr(self.__get_instance__(), 'values', lambda: [])()
+    # 注意：删除了 values 方法，因为它的存在会导致 request.values
+    # 返回 LocalProxy.values 方法而不是 Request.values 属性
+    # 如果需要访问底层的 values 方法，需要直接访问底层对象
 
     def set(self, value):
         """设置值，返回 token（用于 contextvars 场景）"""

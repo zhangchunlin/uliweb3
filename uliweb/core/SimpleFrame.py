@@ -118,6 +118,14 @@ class Request(StarletteRequest):
         return self.query_params
 
     @property
+    def values(self):
+        """兼容 values 属性，返回 GET 参数的字典形式
+
+        用于保持与旧代码的兼容性
+        """
+        return dict(self.query_params)
+
+    @property
     def user(self):
         """获取当前用户
 
@@ -2167,14 +2175,15 @@ class AsyncDispatcher:
         if not self._initialized:
             await self._async_init()
 
-        request = Request(scope, receive, send)
+        # 使用 req 作为局部变量名，避免遮蔽全局的 request (LocalProxy)
+        req = Request(scope, receive, send)
 
         # 设置请求上下文
-        request_token = request.set(request)
+        request_token = request.set(req)
 
         try:
             # 处理请求
-            response = await self._open(request)
+            response = await self._open(req)
             await response(scope, receive, send)
         finally:
             # 清理上下文
@@ -2211,6 +2220,10 @@ class AsyncDispatcher:
         # 使用 res 作为局部变量名，避免遮蔽全局的 response (LocalProxy)
         res = Response()
         response_token = response.set(res)
+
+        # 设置 request 上下文（如果还没有设置的话）
+        # 注意：handle_http 和 _handle_request 已经在调用 _open 之前设置了 request
+        # 这里不再重复设置，避免覆盖已有的 context
 
         # 设置设置上下文
         settings_token = settings.set(self.settings)
@@ -2686,8 +2699,12 @@ class AsyncDispatcher:
         """异步渲染模板"""
         # 使用协程池执行同步的模板渲染
         loop = asyncio.get_event_loop()
+        # 使用 copy_context 确保 contextvars 在线程池中正确传播
+        from contextvars import copy_context
+        ctx = copy_context()
         content = await loop.run_in_executor(
             None,
+            ctx.run,
             self._sync_render_template,
             template_file, vars, env
         )
@@ -2983,7 +3000,10 @@ class AsyncDispatcher:
             return await method(*args)
         else:
             loop = asyncio.get_event_loop()
-            return await loop.run_in_executor(None, method, *args)
+            # 使用 copy_context 确保 contextvars 在线程池中正确传播
+            from contextvars import copy_context
+            ctx = copy_context()
+            return await loop.run_in_executor(None, ctx.run, method, *args)
 
     async def _handle_cors_preflight(self, request):
         """处理 CORS 预检请求"""
