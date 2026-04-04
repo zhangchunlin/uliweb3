@@ -189,10 +189,22 @@ class Expose(object):
             else:
                 return d.get('subdomain')
 
-    def _fix_url(self, appname, rule):
+    def _fix_url(self, appname, rule, prefix=None):
         app_prefix = self._get_app_prefix(appname)
-        if rule.startswith('/') and app_prefix:
-            url = os.path.normcase(os.path.join(app_prefix, rule.lstrip('/'))).replace('\\', '/')
+
+        # 如果有类级别前缀（prefix），需要先拼接 prefix，然后再添加应用前缀
+        if prefix and rule.startswith('/'):
+            # 始终拼接 prefix 和 rule，因为这是不同的路径
+            # 例如：prefix='/dexpert', rule='/ws' -> '/dexpert/ws'
+            full_rule = prefix + rule
+            if app_prefix:
+                # 再添加应用前缀
+                url = app_prefix + full_rule
+            else:
+                url = full_rule
+        elif rule.startswith('/') and app_prefix:
+            # 没有类级别前缀，直接添加应用前缀
+            url = app_prefix + rule
         else:
             if rule.startswith('!'):
                 url = rule[1:]
@@ -269,8 +281,17 @@ class Expose(object):
                                         raise ValueError("The rule of <!rule> definition should be start with '!/'")
 
                                 else:
-                                    rule = os.path.join(prefix, _old).replace('\\', '/')
-                                    rule = self._fix_url(appname, rule)
+                                    # 如果 _old 为空字符串，直接使用 prefix 作为规则
+                                    if not _old:
+                                        rule = prefix
+                                        rule = self._fix_url(appname, rule, prefix=None)
+                                    else:
+                                        # 拼接 prefix 和 _old，但需要处理 _old 以 / 开头的情况
+                                        # os.path.join('/dexpert', '/ws') 会返回 '/ws'
+                                        # 所以需要去掉 _old 的前导斜杠
+                                        _old_clean = _old.lstrip('/')
+                                        rule = prefix + '/' + _old_clean
+                                        rule = self._fix_url(appname, rule, prefix=None)
 
                                 func.__old_rule__['clsname'] = clsname
                                 #save processed data
@@ -331,10 +352,34 @@ class Expose(object):
         if f.__name__ in reserved_keys:
             raise ReservedKeyError('The name "%s" is a reversed key, so please change another one' % f.__name__)
         prefix = prefix.rstrip('/')
-        if self.restful:
-            rule = self._fix_url(appname, '/'.join([prefix] + args[:1] + [f.__name__] +args[1:]))
+
+        # 如果 self.rule 不为 None（类有 @expose 装饰器），使用 self.rule 作为基础规则
+        if self.rule is not None:
+            rule = self._fix_route(self.rule)
+            # 如果方法名是 'index'，使用类级别前缀作为 URL（不包含方法名）
+            if f.__name__ == 'index':
+                pass
+            else:
+                # 构建完整的规则（包含类级别前缀和方法名）
+                if args:
+                    rule = '/'.join([rule, f.__name__] + args)
+                else:
+                    rule = rule + '/' + f.__name__
+            # rule 已经包含类级别前缀，不需要再次传递 prefix 参数
+            rule = self._fix_url(appname, rule, prefix=None)
         else:
-            rule = self._fix_url(appname, '/'.join([prefix, f.__name__] +args))
+            # 如果方法名是 'index'，使用类级别前缀作为 URL（不包含方法名）
+            if f.__name__ == 'index':
+                rule = prefix
+            else:
+                # 构建完整的规则（包含类级别前缀）
+                if self.restful:
+                    rule = '/'.join([prefix] + args[:1] + [f.__name__] + args[1:])
+                else:
+                    rule = '/'.join([prefix, f.__name__] + args)
+
+            # 传递 prefix 参数，告知 _fix_url 规则已经包含类级别前缀
+            rule = self._fix_url(appname, rule, prefix=prefix)
         return rule
 
     def parse_function(self, f):

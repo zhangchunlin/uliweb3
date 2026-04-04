@@ -1457,12 +1457,40 @@ class AsyncDispatcher:
 
         self.domains = {}
 
+        # 新增：将 DOMAINS 配置转换为 __app_rules__
+        # 这样 rules._fix_url 方法才能正确处理 app 前缀
+        app_rules = {}
+
         for k, v in settings.DOMAINS.items():
-            _domain = urlparse(v['domain'])
-            self.domains[k] = {'domain':v.get('domain'), 'domain_parse':_domain,
-                'host':_domain.netloc or v.get('domain'),
-                'scheme':_domain.scheme or 'http', 'display':v.get('display', False),
-                'url_prefix':v.get('url_prefix', '')}
+            # 配置格式: {'url_prefix': '/knowbot', 'domain': '', 'display': False}
+            domain_url = v.get('domain', '')
+            url_prefix = v.get('url_prefix', '')
+            display = v.get('display', False)
+
+            # 解析域名
+            try:
+                _domain = urlparse(domain_url) if domain_url else None
+            except Exception:
+                _domain = None
+
+            self.domains[k] = {
+                'domain': domain_url,
+                'domain_parse': _domain,
+                'host': _domain.netloc if _domain else '',
+                'scheme': _domain.scheme if _domain else 'http',
+                'display': display,
+                'url_prefix': url_prefix
+            }
+
+            # 将 url_prefix 添加到 app_rules
+            # 这里的 key 使用域名名称（如 'default'）
+            if url_prefix:
+                app_rules[k] = url_prefix
+
+        # 调用 set_app_rules 设置全局的 __app_rules__
+        # 这样 _fix_url 方法就能正确生成 URL（如 /knowbot/dexpert/ws）
+        if app_rules:
+            rules.set_app_rules(app_rules)
 
     async def _handle_request(self, scope, receive, send):
         """处理请求的核心逻辑"""

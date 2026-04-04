@@ -144,14 +144,13 @@ def make_simple_application(apps_dir='apps', project_dir=None, include_apps=None
     """Create a simple ASGI application for command line use"""
     settings = {'ORM/AUTO_DOTRANSACTION':False}
     settings.update(default_settings or {})
+    # 注意：make_application 内部已经调用了 app.prepare()，不需要重复调用
     app = make_application(apps_dir=apps_dir, project_dir=project_dir,
         include_apps=include_apps, debug_console=False, debug=False,
         settings_file=settings_file, local_settings_file=local_settings_file,
         start=False, default_settings=settings, dispatcher_cls=dispatcher_cls,
         dispatcher_kwargs=dispatcher_kwargs, reuse=reuse, pythonpath=pythonpath,
         trace_print=trace_print)
-    # 调用 prepare() 方法完成初始化（模板加载器、日志等）
-    app.prepare()
     return app
 
 class MakeAppCommand(Command):
