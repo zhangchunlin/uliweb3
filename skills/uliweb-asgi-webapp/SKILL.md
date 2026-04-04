@@ -407,3 +407,4 @@ class Todo:
 - `references/template.md` - 模板系统
 - `references/asgi.md` - ASGI 迁移指南，包括 middleware 的迁移
 - `references/db.md` - 数据库使用指南
+- `references/test_server.md` - 测试服务器，用于单元测试中启动真实 ASGI 服务器

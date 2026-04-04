@@ -1,3 +1,5 @@
 uliweb3
 redis
 sqlalchemy<2.0.0
+nose3
+pytest
