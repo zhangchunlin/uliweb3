@@ -405,6 +405,8 @@ class Todo:
 - `references/globals.md` - 全局环境对象
 - `references/views.md` - 视图开发指南
 - `references/template.md` - 模板系统
+- `references/staticfiles.md` - 静态文件服务，包括 url_for_static 的使用
+- `references/debug_logging.md` - 调试模式与日志级别，包括 WebSocket debug 日志控制
 - `references/asgi.md` - ASGI 迁移指南，包括 middleware 的迁移
 - `references/db.md` - 数据库使用指南
 - `references/test_server.md` - 测试服务器，用于单元测试中启动真实 ASGI 服务器
