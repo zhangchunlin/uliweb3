@@ -145,8 +145,28 @@ async def async_view():
     files = await request.get_FILES()
     params = await request.get_params()
 
+    # 获取原始请求体（字节）
+    body = await request.body()
+    body_str = body.decode('utf-8')  # 解码为字符串
+
     return {"status": "success", "data": post_data}
 ```
+
+{% alert class=info %}
+**Request 数据获取方法对比：**
+
+| 方法 | 返回类型 | 说明 |
+|------|----------|------|
+| `await request.body()` | `bytes` | 获取原始请求体（字节） |
+| `await request.get_POST()` | `dict` | 获取表单数据 |
+| `await request.get_json()` | `dict` | 获取 JSON 数据 |
+| `await request.form()` | `FormData` | 获取表单/文件数据（Starlette） |
+
+**注意事项：**
+- `body()` 是异步方法，必须使用 `await` 调用
+- 调用 `get_json()` 或 `get_POST()` 后，不能再调用 `body()`，因为流已经被消费
+- 如果需要同时获取 body 和解析数据，建议先调用 `body()` 获取原始数据，然后再自行解析
+{% endalert %}
 
 同步视图（通过适配器支持）：
 
