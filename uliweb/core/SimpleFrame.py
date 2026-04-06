@@ -1800,6 +1800,13 @@ class AsyncDispatcher:
         # 因为 rules.merge_rules() 会保留 websocket 参数
         merged_rules = rules.merge_rules()
 
+        # 构建已注册路由的集合（用于去重和覆盖）
+        # key: endpoint - 用于判断端点是否重复
+        # value: (url, route_info) - 存储路由信息，支持后续覆盖
+        # 这与 WSGI 版本的机制一致：endpoint 是端点的唯一标识
+        # 后来的定义可以覆盖前面的
+        registered_routes = {}
+
         # 检查是否已经有路由，如果有则跳过重复注册
         # 因为 _init_routes_sync 已经正确注册了路由
         existing_route_paths = set(r.path for r in self.router.routes)
@@ -1844,8 +1851,12 @@ class AsyncDispatcher:
                     # 注册普通 HTTP 路由
                     self.router.add_route(starlette_rule, endpoint, **kw)
 
+                # 记录已注册的路由（用于后续 EXPOSES 覆盖）
+                registered_routes[endpoint] = (starlette_rule, endpoint)
+
         # 处理每个应用的 EXPOSES 路由（来自 settings.ini 的路由定义）
         # 这个处理不应该被跳过，因为 _init_routes_sync 可能没有处理 EXPOSES
+        # 添加覆盖逻辑：如果 endpoint 已经通过 @expose 注册过，EXPOSES 可以覆盖
         for app_name in self.apps:
             # 使用应用的简短名称（如 'UPLOAD'）而不是完整路径（如 'ULIWEB.CONTRIB.UPLOAD'）
             app_short_name = app_name.split('.')[-1].upper()
@@ -1854,6 +1865,15 @@ class AsyncDispatcher:
                 for name, route_info in app_settings.EXPOSES.items():
                     if isinstance(route_info, (list, tuple)) and len(route_info) >= 2:
                         url, endpoint = route_info[:2]
+
+                        # 覆盖逻辑：如果 endpoint 已经注册过，先移除旧的路由
+                        # 后来的 EXPOSES 定义可以覆盖之前的 @expose 定义
+                        if endpoint in registered_routes:
+                            old_rule, old_endpoint = registered_routes[endpoint]
+                            # 移除旧路由
+                            self.router.routes = [r for r in self.router.routes if r.path != old_rule]
+                            self.router.router.routes = [r for r in self.router.router.routes if r.path != old_rule]
+                            logger.debug(f"Override EXPOSES route {url} -> {endpoint}, overriding previous @expose route")
                         # 转换 Werkzeug 风格路由到 Starlette 风格
                         starlette_rule, param_types = _convert_route_param(url)
                         # 存储参数类型信息
@@ -1887,16 +1907,28 @@ class AsyncDispatcher:
                     elif isinstance(route_info, str):
                         # 如果只有 URL，使用 name 作为 endpoint，同时作为 name 参数
                         url = route_info
+                        # 先转换路由规则
                         starlette_rule, param_types = _convert_route_param(url)
                         # 存储参数类型信息
                         if param_types:
                             self.route_param_types[starlette_rule] = param_types
+
+                        # 覆盖逻辑：如果 name 已经注册过，先移除旧的路由
+                        if name in registered_routes:
+                            old_rule, old_endpoint = registered_routes[name]
+                            # 移除旧路由
+                            self.router.routes = [r for r in self.router.routes if r.path != old_rule]
+                            self.router.router.routes = [r for r in self.router.router.routes if r.path != old_rule]
+                            logger.debug(f"Override EXPOSES route {url} -> {name}, overriding previous registration")
+
                         # 注册路由，使用 name 同时作为 endpoint 和路由名称
                         # 根据 EXPOSES 文档，默认支持所有 HTTP 方法
                         self.router.add_route(starlette_rule, name, name=name,
                             methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'])
                         # 同步更新 url_map，确保 build 方法能找到正确的路由
                         self.router.url_map[name] = self.router.routes[-1]
+                        # 更新 registered_routes
+                        registered_routes[name] = (starlette_rule, name)
 
         # 处理全局 EXPOSES 路由（来自 settings.ini 的路由定义）
         if hasattr(self.settings, 'EXPOSES') and self.settings.EXPOSES:
@@ -1907,6 +1939,14 @@ class AsyncDispatcher:
             for name, route_info in self.settings.EXPOSES.items():
                 if isinstance(route_info, (list, tuple)) and len(route_info) >= 2:
                     url, endpoint = route_info[:2]
+
+                    # 覆盖逻辑：如果 endpoint 已经注册过，先移除旧的路由
+                    if endpoint in registered_routes:
+                        old_rule, old_endpoint = registered_routes[endpoint]
+                        # 移除旧路由
+                        self.router.routes = [r for r in self.router.routes if r.path != old_rule]
+                        self.router.router.routes = [r for r in self.router.router.routes if r.path != old_rule]
+                        logger.debug(f"Override global EXPOSES route {url} -> {endpoint}, overriding previous registration")
                     # 添加 url_prefix
                     full_url = url_prefix + url
                     # 转换 Werkzeug 风格路由到 Starlette 风格
@@ -1938,6 +1978,14 @@ class AsyncDispatcher:
                 elif isinstance(route_info, str):
                     # 如果只有 URL，使用 name 作为 endpoint
                     url = route_info
+                    # 覆盖逻辑：如果 name 已经注册过，先移除旧的路由
+                    if name in registered_routes:
+                        old_rule, old_endpoint = registered_routes[name]
+                        # 移除旧路由
+                        self.router.routes = [r for r in self.router.routes if r.path != old_rule]
+                        self.router.router.routes = [r for r in self.router.router.routes if r.path != old_rule]
+                        logger.debug(f"Override global EXPOSES route {url} -> {name}, overriding previous registration")
+
                     starlette_rule, param_types = _convert_route_param(url)
                     # 存储参数类型信息
                     if param_types:
@@ -3082,8 +3130,27 @@ class AsyncDispatcher:
     async def _handle_exception(self, request, exception):
         """异步处理异常"""
         from starlette.exceptions import HTTPException
-        from starlette.responses import JSONResponse
+        from starlette.responses import JSONResponse, RedirectResponse
         import traceback
+
+        # 检查是否是 uliweb 的 HTTPError（自定义错误类）
+        # 需要在检查 StarletteHTTPException 之前进行，因为 HTTPError 可能是自定义类
+        if hasattr(exception, 'errorpage') and hasattr(exception, 'errors'):
+            # 这是 uliweb 的 HTTPError
+            # 检查 errors 中是否有 message
+            message = exception.errors.get('message', str(exception))
+
+            # 检查是否是重定向错误（errorpage 不为 None 且不是默认错误页）
+            errorpage = exception.errorpage
+            if errorpage and errorpage != 'error.html':
+                # 重定向到错误页面
+                return RedirectResponse(url=errorpage, status_code=302)
+            else:
+                # 返回错误信息
+                return JSONResponse(
+                    {'error': message},
+                    status_code=403
+                )
 
         if isinstance(exception, HTTPException):
             if exception.status_code == 404:
