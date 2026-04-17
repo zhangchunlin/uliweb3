@@ -6,7 +6,7 @@ import inspect
 from optparse import make_option
 import uliweb
 from uliweb.core.commands import Command, CommandManager
-from uliweb.core.SimpleFrame import AsyncDispatcher, ASGIApplication
+from uliweb.core.SimpleFrame import AsyncDispatcher, ASGIApplication, get_app_dir
 from .utils._compat import input, string_types, iteritems, exec_
 
 apps_dir = 'apps'
@@ -320,7 +320,7 @@ class SupportCommand(Command):
 
         _types = []
         support_dirs = {}
-        app_dirs = [os.path.join(SimpleFrame.get_app_dir(appname), 'template_files/support') for appname in self.get_apps(global_options)]
+        app_dirs = [os.path.join(get_app_dir(appname), 'template_files/support') for appname in self.get_apps(global_options)]
         for path in [pkg.resource_filename('uliweb', 'template_files/support/')] + app_dirs:
             if os.path.exists(path):
                 for f in os.listdir(path):
@@ -357,7 +357,7 @@ class ConfigCommand(Command):
 
         _types = []
         config_files = {}
-        app_dirs = [os.path.join(SimpleFrame.get_app_dir(appname), 'template_files/config') for appname in self.get_apps(global_options)]
+        app_dirs = [os.path.join(get_app_dir(appname), 'template_files/config') for appname in self.get_apps(global_options)]
         for path in [pkg.resource_filename('uliweb', 'template_files/config/')] + app_dirs:
             if os.path.exists(path):
                 files = glob.glob(os.path.join(path, '*.conf'))
@@ -446,7 +446,7 @@ class ExportStaticCommand(Command):
             apps = self.get_apps(global_options)
         else:
             apps = args[1:]
-        dirs = [os.path.join(SimpleFrame.get_app_dir(appname), 'static') for appname in apps]
+        dirs = [os.path.join(get_app_dir(appname), 'static') for appname in apps]
         self.options = options
         self.global_options = global_options
         # copy_dir_with_check(dirs, outputdir, False, options.check, processor=self.process_file)
