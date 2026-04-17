@@ -35,6 +35,105 @@ json_data = await request.get_json()
 params = await request.get_params()    # GET + POST 合并参数（等价于旧 request.values，注意没有 request.get_values()方法）
 ```
 
+#### 已弃用属性的错误处理
+
+Uliweb3 对一些已弃用的同步属性提供了明确的错误提示：
+
+```python
+# 访问这些属性会抛出 RuntimeError 异常，提示正确的异步用法
+request.POST    # RuntimeError: POST 属性已弃用，请使用 await request.get_POST() 方法。
+request.FILES   # RuntimeError: FILES 属性已弃用，请使用 await request.get_FILES() 方法。
+request.json    # RuntimeError: json 属性已弃用，请使用 await request.get_json() 方法。
+request.values  # RuntimeError: values 属性已弃用，请使用 await request.get_params() 方法。
+```
+
+**重要说明**：`request.values` 在 Uliweb3 中会抛出异常，强制开发者使用 `await request.get_params()` 来获取完整的合并参数。
+
+#### 其他已弃用属性的迁移
+
+| 旧版（已弃用） | 新版 |
+|--------------|------|
+| `request.is_xhr` | `request.headers.get('X-Requested-With') == 'XMLHttpRequest'` |
+| `request.environ['REMOTE_ADDR']` | `request.client.host` |
+| `from uliweb import redirect` | `from starlette.responses import RedirectResponse` |
+
+**示例**：
+
+```python
+# request.is_xhr 迁移
+# 旧版
+if request.is_xhr:
+    return json({'status': 'ok'})
+
+# 新版
+if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+    return json({'status': 'ok'})
+
+# request.client.host 迁移
+# 旧版
+ip = request.environ['REMOTE_ADDR']
+
+# 新版
+ip = request.client.host
+
+# RedirectResponse 迁移
+# 旧版
+from uliweb import redirect
+return redirect('/next')
+
+# 新版
+from starlette.responses import RedirectResponse
+return RedirectResponse(url='/next', status_code=302)
+```
+
+#### 同步视图中的参数获取（不推荐）
+
+在同步视图中，如果需要获取请求参数，可以使用以下方式：
+
+```python
+from uliweb import request
+import asyncio
+
+def sync_view():
+    try:
+        # 尝试在事件循环中获取参数
+        loop = asyncio.get_event_loop()
+        if not loop.is_running():
+            params = loop.run_until_complete(request.get_params())
+        else:
+            # 在异步上下文中，返回空字典
+            params = {}
+    except RuntimeError:
+        # 没有事件循环，框架应该已经预加载了请求数据
+        # 如果需要手动处理，可以记录警告
+        params = {}
+
+    # 使用 params 进行处理
+    return {'data': params}
+```
+
+**推荐方案**：将同步视图改为异步视图
+
+这种 try/except RuntimeError 的模式本身就说明代码结构有问题。最简单的解决方案是直接将同步视图改为异步视图：
+
+```python
+# 旧版：同步视图（需要处理事件循环）
+def login():
+    try:
+        loop = asyncio.get_event_loop()
+        params = loop.run_until_complete(request.get_params())
+    except RuntimeError:
+        params = {}
+    # ...
+
+# 新版：异步视图（推荐）
+async def login():
+    params = await request.get_params()
+    # ...
+```
+
+**建议**：优先使用异步视图函数，避免处理复杂的同步/异步适配逻辑。
+
 #### request.get_params() 详细说明
 
 `request.get_params()` 是一个异步方法，返回合并了 GET 参数和 POST 表单数据的字典。
