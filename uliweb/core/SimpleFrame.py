@@ -119,11 +119,10 @@ class Request(StarletteRequest):
 
     @property
     def values(self):
-        """兼容 values 属性，返回 GET 参数的字典形式
-
-        用于保持与旧代码的兼容性
-        """
-        return dict(self.query_params)
+        """已弃用：同步访问 values 数据会抛出异常"""
+        raise RuntimeError(
+            "values 属性已弃用，请使用 await request.get_params() 方法。"
+        )
 
     @property
     def user(self):
