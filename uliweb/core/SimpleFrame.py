@@ -3132,6 +3132,11 @@ class AsyncDispatcher:
         from starlette.responses import JSONResponse, RedirectResponse
         import traceback
 
+        # 首先检查是否是 RedirectException（重定向异常）
+        # RedirectException 有 get_response() 方法可以返回重定向响应
+        if isinstance(exception, RedirectException):
+            return exception.get_response()
+
         # 检查是否是 uliweb 的 HTTPError（自定义错误类）
         # 需要在检查 StarletteHTTPException 之前进行，因为 HTTPError 可能是自定义类
         if hasattr(exception, 'errorpage') and hasattr(exception, 'errors'):
