@@ -1563,8 +1563,13 @@ class AsyncDispatcher:
             await self._async_init()
 
         # 根据 scope type 判断是 HTTP 还是 WebSocket
-        if scope["type"] == "websocket":
+        scope_type = scope.get("type", "unknown")
+        if scope_type == "websocket":
             return await self._handle_websocket_request(scope, receive, send)
+        elif scope_type != "http":
+            # 不是 HTTP 或 WebSocket，跳过处理
+            logger.warning(f"_handle_request: Unsupported scope type: {scope_type}, skipping")
+            return
 
         # 使用 req 作为局部变量名，避免遮蔽全局的 request (LocalProxy)
         req = Request(scope, receive, send)
