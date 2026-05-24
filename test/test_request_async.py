@@ -212,6 +212,43 @@ def test_get_params_method():
     assert callable(req.get_POST)
 
 
+def test_get_data_interface():
+    """
+    Test the new async get_data method interface
+
+    The get_data method returns the raw request body bytes,
+    replacing the deprecated request.data property.
+    """
+    from uliweb.core.SimpleFrame import Request
+
+    # Test 1: get_data method exists and is callable
+    scope = {
+        'type': 'http',
+        'method': 'POST',
+        'path': '/test',
+        'query_string': b'',
+    }
+
+    async def receive():
+        return {'type': 'http.request', 'body': b'{"key": "value"}', 'more_body': False}
+
+    async def send(message):
+        pass
+
+    req = Request(scope, receive, send)
+
+    assert hasattr(req, 'get_data')
+    assert callable(req.get_data)
+
+    # Test 2: deprecated data property raises RuntimeError
+    try:
+        _ = req.data
+        assert False, "Expected RuntimeError to be raised"
+    except RuntimeError as e:
+        assert "data 属性已弃用" in str(e)
+        assert "get_data" in str(e)
+
+
 def test_state_property():
     """
     Test the state property for request state management

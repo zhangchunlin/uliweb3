@@ -65,7 +65,18 @@ class Request(StarletteRequest):
 
     async def get_json(self):
         """异步获取 JSON 数据"""
-        return await super().json()
+        import json as jsn
+        body = await self.get_data()
+        return jsn.loads(body)
+
+    async def get_data(self):
+        """异步获取原始请求体数据（bytes）
+
+        与 WSGI 版本的 request.data 行为一致：
+        - 返回原始请求体的字节数据
+        - 如果请求是表单数据，读取后 body 可能为空（因为表单解析器会消费流）
+        """
+        return await self.body()
 
     async def get_params(self):
         """异步获取合并参数"""
@@ -110,6 +121,17 @@ class Request(StarletteRequest):
         """已弃用：同步访问 JSON 数据会抛出异常"""
         raise RuntimeError(
             "json 属性已弃用，请使用 await request.get_json() 方法。"
+        )
+
+    @property
+    def data(self):
+        """已弃用：同步访问原始请求体数据会抛出异常
+
+        request.data 在 WSGI 版本中返回原始请求体字节。
+        在 ASGI 版本中，请使用 await request.get_data() 方法。
+        """
+        raise RuntimeError(
+            "data 属性已弃用，请使用 await request.get_data() 方法获取原始请求体字节。"
         )
 
     @property

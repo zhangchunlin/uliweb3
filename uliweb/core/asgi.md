@@ -226,7 +226,18 @@ class Request(StarletteRequest):
 
     async def get_json(self):
         """异步获取 JSON 数据"""
-        return await super().json()
+        import json as jsn
+        body = await self.get_data()
+        return jsn.loads(body)
+
+    async def get_data(self):
+        """异步获取原始请求体数据（bytes）
+
+        与 WSGI 版本的 request.data 行为一致：
+        - 返回原始请求体的字节数据
+        - 如果请求是表单数据，读取后 body 可能为空（因为表单解析器会消费流）
+        """
+        return await self.body()
 
     async def get_params(self):
         """异步获取合并参数"""
@@ -275,6 +286,17 @@ class Request(StarletteRequest):
         )
 
     @property
+    def data(self):
+        """已弃用：同步访问原始请求体数据会抛出异常
+
+        request.data 在 WSGI 版本中返回原始请求体字节。
+        在 ASGI 版本中，请使用 await request.get_data() 方法。
+        """
+        raise RuntimeError(
+            "data 属性已弃用，请使用 await request.get_data() 方法获取原始请求体字节。"
+        )
+
+    @property
     def params(self):
         """兼容 params 属性，返回 GET 参数"""
         return self.query_params
@@ -295,6 +317,32 @@ class Response(StarletteResponse):
 4. **明确的弃用策略**：保留同步属性但抛出异常，指导用户使用正确的异步方法
 5. **同步适配器支持**：框架层提供同步到异步的自动适配，支持现有同步代码
 6. **新增 state 属性**：提供 `request.state` 用于在请求生命周期内存储数据
+
+### 4.1.1 request.data 迁移说明
+
+**WSGI → ASGI 迁移对照：**
+
+| WSGI 用法 | ASGI 用法 |
+|-----------|-----------|
+| `request.data` | `await request.get_data()` |
+| `json.loads(request.data)` | `await request.get_json()` |
+| `request.POST` | `await request.get_POST()` |
+| `request.FILES` | `await request.get_FILES()` |
+| `request.params` | `await request.get_params()` |
+
+**示例：**
+
+```python
+# WSGI 版本
+data = request.data
+payload = json.loads(data)
+
+# ASGI 版本（正确）
+data = await request.get_data()
+payload = await request.get_json()
+```
+
+**注意：** `request.get_data()` 调用后流只能读取一次，表单解析会消费流。
 
 **使用示例：**
 ```python
