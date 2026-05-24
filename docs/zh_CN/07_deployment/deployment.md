@@ -249,4 +249,4 @@ services:
 1. **不再使用 WSGI**：所有 WSGI 相关的配置和部署方式都已废弃
 2. **需要 ASGI 服务器**：使用 Uvicorn、Hypercorn 或 Daphne
 3. **异步支持**：充分利用 async/await 特性
-4. **Request/Response 变化**：POST、FILES、json 需要使用异步方法访问
+4. **Request/Response 变化**：POST、FILES、json、values 需要使用异步方法访问

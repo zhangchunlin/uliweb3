@@ -248,3 +248,10 @@ def prepare_default_env(sender, env):
 
 Uliweb中已经定义了 `prepare_default_env` 这个plugin的插入点，你可以直接使用它。它的
 作用就是向env中增加新的对象，如上面是增加了一个新的函数可以用来将文本转为HTML代码。
+
+## 常见问题
+
+- **JSON API 返回 HTML**：uliweb 的 `wrap_result` 判断 JSON 需要路径含 `/api/` 或方法名含 `api`，或使用 `starlette.responses.JSONResponse` 直接返回
+- **SSE 流式响应不工作**：需设置 `headers={'X-Accel-Buffering': 'no'}` 禁用代理缓冲
+- **前端 fetch 流式读取失败**：不要用 `pipeThrough`，直接用 `response.body.getReader()` + `TextDecoder`
+- **子进程流式输出**：用 `asyncio.wait_for(process.stdout.read(), timeout=0.1)` 循环读取
