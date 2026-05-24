@@ -77,14 +77,18 @@ class TestAsyncDispatcher:
     """AsyncDispatcher 测试类"""
 
     def setUp(self):
-        """设置测试环境"""
+        """设置测试环境（支持 nosetests）"""
         cleanup_rules()
         self.project_dir, self.apps_dir, self.app_dir = create_temp_project()
 
     def tearDown(self):
-        """清理测试环境"""
+        """清理测试环境（支持 nosetests）"""
         cleanup_rules()
         cleanup_temp_project(self.project_dir)
+
+    # 同时支持 pytest
+    setup_method = setUp
+    teardown_method = tearDown
 
     def test_async_dispatcher_init(self):
         """测试 AsyncDispatcher 基本初始化"""
@@ -304,14 +308,18 @@ class TestViewsImport:
     """视图导入测试类"""
 
     def setUp(self):
-        """设置测试环境"""
+        """设置测试环境（支持 nosetests）"""
         cleanup_rules()
         self.project_dir, self.apps_dir, self.app_dir = create_temp_project()
 
     def tearDown(self):
-        """清理测试环境"""
+        """清理测试环境（支持 nosetests）"""
         cleanup_rules()
         cleanup_temp_project(self.project_dir)
+
+    # 同时支持 pytest
+    setup_method = setUp
+    teardown_method = tearDown
 
     def test_views_extra_import(self):
         """测试 views_*.py 文件导入"""
