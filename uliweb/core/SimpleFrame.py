@@ -1059,14 +1059,25 @@ class AsyncDispatcher:
             # 如果有事件循环在运行，使用 run_in_executor
             import concurrent.futures
             with concurrent.futures.ThreadPoolExecutor() as executor:
+                logger.info("prepare: Using ThreadPoolExecutor with running event loop")
                 future = executor.submit(asyncio.run, self._import_views())
-                future.result()
+                try:
+                    future.result()
+                    logger.info("prepare: _import_views completed successfully")
+                except Exception as e:
+                    logger.error(f"prepare: _import_views failed with error: {e}")
+                    raise
         except RuntimeError:
             # 没有事件循环在运行
+            logger.info("prepare: No running event loop, creating new one")
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
                 loop.run_until_complete(self._import_views())
+                logger.info("prepare: _import_views completed successfully")
+            except Exception as e:
+                logger.error(f"prepare: _import_views failed with error: {e}")
+                raise
             finally:
                 loop.close()
 
@@ -2068,19 +2079,29 @@ class AsyncDispatcher:
             app_dir = self._get_app_dir(app)
 
             # 导入应用目录下的 views*.py 文件（包括 views.py 和 views_xxx.py）
-            try:
-                if os.path.exists(app_dir) and os.path.isdir(app_dir):
-                    for filename in os.listdir(app_dir):
-                        if filename.startswith("views") and filename.endswith(".py"):
-                            module_name = filename[:-3]  # 去掉 .py 后缀
-                            full_module = f"{app}.{module_name}"
-                            try:
-                                myimport(full_module)
-                                views_modules.append(full_module)
-                            except ImportError:
-                                pass
-            except Exception:
-                pass
+            if os.path.exists(app_dir) and os.path.isdir(app_dir):
+                for filename in os.listdir(app_dir):
+                    if filename.startswith("views") and filename.endswith(".py"):
+                        module_name = filename[:-3]  # 去掉 .py 后缀
+                        full_module = f"{app}.{module_name}"
+                        try:
+                            myimport(full_module)
+                            views_modules.append(full_module)
+                        except ImportError as e:
+                            # 导入失败时抛出异常，使调试服务器退出
+                            import traceback
+                            raise ImportError(
+                                f"Failed to import view module '{full_module}': {e}\n"
+                                f"This may be caused by missing dependencies or syntax errors.\n"
+                                f"Traceback:\n{traceback.format_exc()}"
+                            ) from e
+                        except SyntaxError as e:
+                            # 语法错误也抛出异常
+                            import traceback
+                            raise SyntaxError(
+                                f"Syntax error in view module '{full_module}': {e}\n"
+                                f"Traceback:\n{traceback.format_exc()}"
+                            ) from e
 
         # 导入 contrib 应用的模块
         for app in self.apps:
@@ -3244,10 +3265,13 @@ class ASGIApplication:
     def _initialize(self):
         """初始化 ASGI 应用"""
         if not self._initialized:
+            logger.info("ASGIApplication._initialize: Starting initialization...")
+
             # 处理 project_dir 为 None 的情况
             if self.project_dir is None:
                 # 尝试从环境变量获取项目目录
                 self.project_dir = os.environ.get('PROJECT_DIR', os.getcwd())
+                logger.info(f"ASGIApplication._initialize: Using project_dir from env: {self.project_dir}")
 
             # 从环境变量获取 include_apps
             include_apps_env = os.environ.get('INCLUDE_APPS', '')
@@ -3256,27 +3280,50 @@ class ASGIApplication:
             else:
                 include_apps = self.include_apps
 
+            logger.info(f"ASGIApplication._initialize: Creating AsyncDispatcher with project_dir={self.project_dir}")
+
             # 创建 ASGI Dispatcher
             # 注意：apps_dir 只需要传递 'apps'，而不是完整路径
             # 因为 AsyncDispatcher 会将 project_dir 和 apps_dir 拼接
-            asgi_app = AsyncDispatcher(
-                apps_dir='apps',
-                project_dir=self.project_dir,
-                include_apps=include_apps
-            )
+            try:
+                asgi_app = AsyncDispatcher(
+                    apps_dir='apps',
+                    project_dir=self.project_dir,
+                    include_apps=include_apps
+                )
+                logger.info("ASGIApplication._initialize: AsyncDispatcher created, calling prepare()...")
+            except Exception as e:
+                logger.error(f"ASGIApplication._initialize: Failed to create AsyncDispatcher: {e}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
+                raise
 
             # 调用 prepare() 方法确保视图模块被导入，路由被正确注册
-            asgi_app.prepare()
+            try:
+                asgi_app.prepare()
+                logger.info("ASGIApplication._initialize: prepare() completed successfully")
+            except Exception as e:
+                logger.error(f"ASGIApplication._initialize: prepare() failed: {e}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
+                raise
 
             # 保存实例
             ASGIApplication._instance_asgi_app = asgi_app
 
             self._initialized = True
+            logger.info("ASGIApplication._initialize: Initialization completed")
 
     async def __call__(self, scope, receive, send):
         """ASGI 接口"""
-        self._initialize()
-        await ASGIApplication._instance_asgi_app(scope, receive, send)
+        try:
+            self._initialize()
+            await ASGIApplication._instance_asgi_app(scope, receive, send)
+        except Exception as e:
+            logger.error(f"ASGIApplication.__call__: Exception caught: {e}")
+            import traceback
+            logger.error(f"ASGIApplication.__call__: Traceback:\n{traceback.format_exc()}")
+            raise
 
 # 上下文管理中间件
 async def context_middleware(app):
