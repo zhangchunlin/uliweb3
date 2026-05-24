@@ -70,6 +70,7 @@ try:
         POST,
         GET,
         redirect,
+        Redirect,
         json,
         url_for,
         merge_rules,
@@ -106,7 +107,7 @@ from .contrib.orm import models
 # 兼容性导出
 __all__ = [
     'Request', 'Response', 'Dispatcher', 'expose', 'POST', 'GET',
-    'redirect', 'json', 'request', 'response', 'settings', 'application',
+    'redirect', 'Redirect', 'json', 'request', 'response', 'settings', 'application',
     'UliwebError', 'HTTPError', 'RedirectException', 'Middleware',
     'SimpleFrame', 'dispatch', 'template', 'html', 'js', 'uaml',
     'common', 'date', 'files', 'storage', 'sorteddict',

@@ -298,6 +298,8 @@ class UliwebRouter:
         # 如果没有指定 methods，默认支持主要 HTTP 方法（与 Expose 类的默认值一致）
         methods = kwargs.get('methods', ['GET', 'POST', 'PUT'])
         name = kwargs.get('name')
+        if name is None and isinstance(endpoint, str):
+            name = endpoint
 
         # 创建 Starlette 路由
         route = Route(starlette_rule, endpoint, methods=methods, name=name)
@@ -312,6 +314,8 @@ class UliwebRouter:
         """添加 WebSocket 路由"""
         starlette_rule = re.sub(r'<([^:>]+)(?::[^>]+)?>', r'{\1}', rule)
         name = kwargs.get('name')
+        if name is None and isinstance(endpoint, str):
+            name = endpoint
 
         from starlette.routing import WebSocketRoute
         route = WebSocketRoute(starlette_rule, endpoint, name=name)
@@ -998,9 +1002,18 @@ class AsyncDispatcher:
 
         当 start=False 时，需要手动调用此方法来完成初始化
         """
+        # 保存用户预先设置的 apps 值（如果有）
+        # 这允许测试或其他场景中手动指定 apps 列表
+        user_defined_apps = getattr(self, '_user_defined_apps', None)
+
         # 确保 settings 已加载
         if not self._settings_loaded:
             self._init_settings()
+
+        # 如果用户预先设置了 apps，恢复它
+        # 这必须在 _init_settings() 之后执行，因为 _init_settings() 会覆盖 self.apps
+        if user_defined_apps is not None:
+            self.apps = user_defined_apps
 
         # 设置 debug 模式（如果未设置）
         if not hasattr(self, 'debug'):
@@ -1065,6 +1078,18 @@ class AsyncDispatcher:
 
         return self
 
+    @property
+    def apps(self):
+        """获取 apps 列表"""
+        return getattr(self, '_apps', [])
+
+    @apps.setter
+    def apps(self, value):
+        """设置 apps 列表，同时保存用户定义的 apps 值"""
+        self._apps = value
+        # 标记用户定义的 apps，以便在 prepare() 中恢复
+        self._user_defined_apps = value
+
     def _init_settings(self):
         """同步初始化 settings"""
         import asyncio
@@ -1084,12 +1109,16 @@ class AsyncDispatcher:
 
             # 设置结果 - 必须在调用 dispatch.call 之前完成
             self.settings = loaded_settings
-            self.apps = apps
             __global__.settings = loaded_settings
             # 修复：设置 LocalProxy 的值为实际的 pyini.Ini 对象
             # 注意：这里使用模块级的 settings (LocalProxy)，而不是局部变量 loaded_settings
             settings.set(self.settings)
             self._settings_loaded = True
+
+            # 如果用户没有预先设置 apps，则使用从 settings 加载的 apps
+            # 这允许测试或其他场景中手动指定 apps 列表
+            if getattr(self, '_user_defined_apps', None) is None:
+                self._apps = apps
 
             # 初始化 dispatch 绑定（必须在调用 startup_installed 之前）
             self.install_binds()
@@ -1833,9 +1862,8 @@ class AsyncDispatcher:
                 # 转换 Werkzeug 风格路由到 Starlette 风格，返回 (转换后的规则, 参数类型字典)
                 starlette_rule, param_types = _convert_route_param(_url)
 
-                # 存储参数类型信息
-                if param_types:
-                    self.route_param_types[starlette_rule] = param_types
+                # 存储参数类型信息（即使是空字典也要存储，以支持简单参数如 /user/<id>）
+                self.route_param_types[starlette_rule] = param_types
 
                 # 处理静态视图 - 已经从 kw 中获取了 static，不需要再 pop
                 if static:
@@ -2014,48 +2042,23 @@ class AsyncDispatcher:
         # 收集所有应用的视图模块
         views_modules = []
         for app in self.apps:
-            # 检查是否有 apps 目录
-            has_apps_dir = self.project_dir and os.path.exists(os.path.join(self.project_dir, 'apps'))
+            # 获取应用目录
+            app_dir = self._get_app_dir(app)
 
-            # 尝试导入 views.py
+            # 导入应用目录下的 views*.py 文件（包括 views.py 和 views_xxx.py）
             try:
-                # 始终使用不带 apps. 前缀的模块路径
-                # 这样 __module__ 属性就不会包含 apps. 前缀
-                # endpoint 应该是 'kado.views.Kado.list' 而不是 'apps.kado.views.Kado.list'
-                views_module = f"{app}.views"
-
-                # 尝试直接导入模块
-                try:
-                    myimport(views_module)
-                    views_modules.append(views_module)
-                except ImportError:
-                    # 如果失败，尝试直接导入应用模块
-                    try:
-                        myimport(app)
-                        views_modules.append(app)
-                    except ImportError:
-                        # 再次尝试 views 模块
-                        pass
-            except ImportError:
-                # 如果 views.py 不存在，尝试导入 views 目录下的模块
-                try:
-                    # 获取应用目录
-                    app_dir = self._get_app_dir(app)
-                    views_dir = os.path.join(app_dir, 'views')
-                    if os.path.exists(views_dir) and os.path.isdir(views_dir):
-                        # 导入 views 目录下的所有 Python 文件
-                        for filename in os.listdir(views_dir):
-                            if filename.endswith('.py') and not filename.startswith('_'):
-                                module_name = filename[:-3]  # 去掉 .py 后缀
-                                # 始终使用不带 apps. 前缀的模块路径
-                                full_module = f"{app}.views.{module_name}"
-                                try:
-                                    myimport(full_module)
-                                    views_modules.append(full_module)
-                                except ImportError:
-                                    pass
-                except ImportError:
-                    pass
+                if os.path.exists(app_dir) and os.path.isdir(app_dir):
+                    for filename in os.listdir(app_dir):
+                        if filename.startswith("views") and filename.endswith(".py"):
+                            module_name = filename[:-3]  # 去掉 .py 后缀
+                            full_module = f"{app}.{module_name}"
+                            try:
+                                myimport(full_module)
+                                views_modules.append(full_module)
+                            except ImportError:
+                                pass
+            except Exception:
+                pass
 
         # 导入 contrib 应用的模块
         for app in self.apps:
