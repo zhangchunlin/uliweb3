@@ -107,7 +107,7 @@ class UserView(object):
 
     @expose('/login')
     def login(self):
-        # URL = /login
+        # URL = /user/login
         pass
 
     def register(self, name):
@@ -131,6 +131,49 @@ class UserView(object):
 - 支持__begin__处理
 - 如果方法名开始为'_'，则不会被exposed
 - 在类上使用expose，类的方法上不使用expose，则会自动生成 /url/method_name 的链接形式
+
+{% alert class=warning %}
+**类视图 URL 最佳实践**
+
+1. **类的根路径使用 `@expose('/path')`** - 不要在类路径末尾加 `/`
+   ```python
+   # 正确：URL = /gateway
+   @expose('/gateway')
+   class IndexView:
+       @expose('')
+       def index(self):
+           pass
+
+   # 错误：URL 会变成 /，不是 /gateway
+   @expose('/gateway/')  # 不要这样写！
+   class IndexView:
+       @expose('')
+       def index(self):
+           pass
+   ```
+
+2. **类的 index 方法使用 `@expose('')`** - 不要使用 `@expose('/')`
+   ```python
+   # 正确：URL = /gateway
+   @expose('/gateway')
+   class IndexView:
+       @expose('')
+       def index(self):
+           pass
+
+   # 错误：URL 可能变成 /
+   @expose('/')
+   def index(self):
+       pass
+   ```
+
+3. **子路由路径规则**：
+   - `@expose('')` - 相对于类的根路径
+   - `@expose('/login')` - 相对于类的根路径（会变成 /gateway/login）
+   - `@expose('login')` - 同上，不带前导斜杠也可以
+
+总结：类视图的根路径用 `/path`（无尾随斜杠），index 方法用 `''`（空字符串）。
+{% endalert %}
 
 ## 异步视图
 
