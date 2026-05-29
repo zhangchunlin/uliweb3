@@ -28,6 +28,8 @@ from starlette.websockets import WebSocket as StarletteWebSocket
 OriginalResponse = StarletteResponse
 
 import logging
+import sys
+
 # 创建日志记录器
 logger = logging.getLogger('uliweb')
 
@@ -1558,18 +1560,20 @@ class AsyncDispatcher:
         from starlette.exceptions import HTTPException
         from starlette.websockets import WebSocket
 
-        # 确保应用已初始化（处理首次请求时 settings 未加载的问题）
-        if not self._initialized:
-            await self._async_init()
-
-        # 根据 scope type 判断是 HTTP 还是 WebSocket
+        # 根据 scope type 判断是 HTTP、WebSocket 还是 lifespan
         scope_type = scope.get("type", "unknown")
-        if scope_type == "websocket":
+        if scope_type == "lifespan":
+            return await self._handle_lifespan_request(scope, receive, send)
+        elif scope_type == "websocket":
             return await self._handle_websocket_request(scope, receive, send)
         elif scope_type != "http":
             # 不是 HTTP 或 WebSocket，跳过处理
             logger.warning(f"_handle_request: Unsupported scope type: {scope_type}, skipping")
             return
+
+        # 确保应用已初始化（处理首次请求时 settings 未加载的问题）
+        if not self._initialized:
+            await self._async_init()
 
         # 使用 req 作为局部变量名，避免遮蔽全局的 request (LocalProxy)
         req = Request(scope, receive, send)
@@ -1592,6 +1596,54 @@ class AsyncDispatcher:
         finally:
             # 清理上下文
             request.reset(request_token)
+
+    async def _handle_lifespan_request(self, scope, receive, send):
+        """处理 ASGI lifespan 事件
+
+        ASGI lifespan 协议：
+        1. 服务器发送 'startup' 事件，应用执行初始化
+        2. 应用发送 'startup.complete' 或 'startup.failed' 事件
+        3. 服务器发送 'shutdown' 事件，应用执行清理
+        4. 应用发送 'shutdown.complete' 事件
+        """
+        # 确保应用已初始化
+        if not self._initialized:
+            await self._async_init()
+
+        # 接收 lifespan 事件
+        message = await receive()
+
+        if message["type"] == "lifespan.startup":
+            # 执行启动逻辑
+            try:
+                # 调用 startup 钩子
+                dispatch.call(self, 'startup')
+
+                # 发送启动成功事件
+                await send({"type": "lifespan.startup.complete"})
+            except Exception as e:
+                # 启动失败
+                logger.error(f"Lifespan startup failed: {e}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
+                await send({
+                    "type": "lifespan.startup.failed",
+                    "message": str(e)
+                })
+        elif message["type"] == "lifespan.shutdown":
+            # 执行关闭逻辑
+            try:
+                # 调用 shutdown 钩子
+                dispatch.call(self, 'shutdown')
+
+                # 发送关闭完成事件
+                await send({"type": "lifespan.shutdown.complete"})
+            except Exception as e:
+                logger.error(f"Lifespan shutdown failed: {e}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
+                # 即使关闭失败，也发送完成事件
+                await send({"type": "lifespan.shutdown.complete"})
 
     async def _handle_websocket_request(self, scope, receive, send):
         """处理 WebSocket 请求的核心逻辑"""
@@ -2301,6 +2353,9 @@ class AsyncDispatcher:
         # 这里需要实现异步版本的 error
         # 暂时简单实现
         from starlette.responses import JSONResponse
+        # 确保 message 是字符串类型，避免 LazyString 等无法 JSON 序列化的类型
+        if hasattr(message, '__str__'):
+            message = str(message)
         return JSONResponse({'error': message}, status_code=500)
 
     async def __call__(self, scope, receive, send):
@@ -3053,6 +3108,9 @@ class AsyncDispatcher:
             # 设置全局 request LocalProxy
             # 这样中间件中的 functions.get_auth_user() 等函数可以访问 request.session
             request_token = request.set(req)
+
+            # 标记响应是否已经被发送
+            response_sent = False
 
             # 创建 call_next 函数
             async def call_next(req):
