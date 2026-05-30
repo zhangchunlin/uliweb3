@@ -112,3 +112,108 @@ multilines = True
 ```
 
 表示使用 `[[` 和 `]]` 作为模板的标签。
+
+## 视图返回值与模板自动渲染
+
+当视图函数或类视图方法返回 dict 类型时，Uliweb 会自动查找并渲染对应的模板。
+
+### 模板查找规则
+
+模板查找使用 `settings.ini` 中的配置：
+
+```ini
+[GLOBAL]
+TEMPLATE_TEMPLATE = ['{appname}/{view_class}/{function}.html', '{appname}/{function}.html', '{function}.html']
+TEMPLATE_SUFFIX = '.html'
+```
+
+查找顺序：
+1. `{appname}/{view_class}/{function}.html` - 类视图专用
+2. `{appname}/{function}.html` - 函数视图或类视图
+3. `{function}.html` - 通用模板
+
+### 函数视图的模板查找
+
+对于函数视图，模板路径为 `{appname}/{function_name}.html`：
+
+```python
+# 视图文件: apps/gateway/views.py
+@expose('/')
+def index():
+    return {'title': 'Hello'}  # 查找: gateway/index.html
+```
+
+### 类视图的模板查找
+
+对于类视图方法，模板路径为 `{appname}/{ViewClass}/{method_name}.html`：
+
+```python
+# 视图文件: apps/gateway/views.py
+@expose('/user')
+class UserView:
+    @expose('')
+    def list(self):
+        return {'users': []}  # 查找: gateway/UserView/list.html
+
+    @expose('/login')
+    def login(self):
+        return {'message': 'Please login'}  # 查找: gateway/UserView/login.html
+```
+
+### 手动指定模板
+
+可以通过以下方式手动指定模板：
+
+**方式1：使用 @expose 的 template 参数**
+
+```python
+@expose('/user', template='custom/user.html')
+class UserView:
+    pass
+```
+
+**方式2：在类方法上设置 __template__ 属性**
+
+```python
+class UserView:
+    @expose('')
+    def list(self):
+        return {'users': []}
+
+    # 手动指定模板
+    list.__template__ = 'custom/list.html'
+    # 或者使用字典格式
+    list.__template__ = {'appname': 'gateway', 'view_class': 'UserView', 'function': 'list'}
+```
+
+### 模板目录结构示例
+
+```
+apps/
+  gateway/
+    templates/
+      index.html              # 函数视图: gateway/index
+      UserView/               # 类视图模板目录
+        list.html             # UserView.list 方法
+        login.html            # UserView.login 方法
+      custom/
+        list.html             # 手动指定的模板
+```
+
+## url_for 反向 URL 生成
+
+模板中使用 `url_for()` 生成 URL，endpoint 必须使用完整路径：
+
+| 视图类型 | endpoint 格式 | 示例 |
+|----------|---------------|------|
+| 函数视图 | `{app}.{module}.{func_name}` | `gateway.views.index` |
+| 类视图 | `{app}.{module}.{ClassName}.{method_name}` | `gateway.views.AgentView.get` |
+
+```html
+<a href="{{= url_for('gateway.views.index') }}">首页</a>
+<a href="{{= url_for('gateway.views.AgentView.get', agent_id=1) }}">查看</a>
+```
+
+{% alert class=warning %}
+endpoint 必须包含完整路径 `gateway.views.AgentView.index`，不能只写 `AgentView.index`。
+{% endalert %}
