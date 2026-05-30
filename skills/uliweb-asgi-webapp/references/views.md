@@ -175,6 +175,48 @@ class UserView(object):
 总结：类视图的根路径用 `/path`（无尾随斜杠），index 方法用 `''`（空字符串）。
 {% endalert %}
 
+### 类视图的模板自动渲染
+
+类视图方法返回 dict 时，Uliweb 会自动查找并渲染模板。模板路径规则为 `{appname}/{ViewClass}/{method_name}.html`。
+
+例如：
+
+```python
+@expose('/user')
+class UserView:
+    @expose('')
+    def list(self):
+        return {'users': []}  # 模板路径: testapp/UserView/list.html
+
+    @expose('/login')
+    def login(self):
+        return {'message': 'Please login'}  # 模板路径: testapp/UserView/login.html
+```
+
+**模板查找顺序：**
+1. `{appname}/{view_class}/{function}.html` - 类视图专用
+2. `{appname}/{function}.html` - 函数视图或类视图
+3. `{function}.html` - 通用模板
+
+**手动指定模板：**
+
+```python
+# 方式1：使用 @expose 的 template 参数
+@expose('/user', template='custom/user.html')
+class UserView:
+    pass
+
+# 方式2：设置 __template__ 属性
+class UserView:
+    @expose('')
+    def list(self):
+        return {'users': []}
+
+    list.__template__ = 'custom/list.html'
+```
+
+详细说明请参考 [模板文档](./template.md#视图返回值与模板自动渲染)。
+
 ## 异步视图
 
 推荐使用异步视图函数：
@@ -298,3 +340,4 @@ Uliweb中已经定义了 `prepare_default_env` 这个plugin的插入点，你可
 - **SSE 流式响应不工作**：需设置 `headers={'X-Accel-Buffering': 'no'}` 禁用代理缓冲
 - **前端 fetch 流式读取失败**：不要用 `pipeThrough`，直接用 `response.body.getReader()` + `TextDecoder`
 - **子进程流式输出**：用 `asyncio.wait_for(process.stdout.read(), timeout=0.1)` 循环读取
+- **url_for Endpoint not found**：endpoint 必须使用完整路径 例如 `gateway.views.AgentView.index`，详细说明见 [模板文档](./template.md#url_for-反向-url-生成)。
