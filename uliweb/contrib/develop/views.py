@@ -1,7 +1,7 @@
 #coding=utf-8
 from uliweb import expose
 from .menu import bind_menu
-from uliweb.utils.common import log
+import logging
 from uliweb.utils.common import pkg, is_pyfile_exist
 
 @expose('/develop')
@@ -16,17 +16,62 @@ async def develop_appsinfo():
 @expose('/develop/urls')
 async def develop_urls():
     from uliweb import application
+    from uliweb.core import rules
 
+    # 使用 rules.merge_rules() 而不是 application.router.routes
+    # 因为 router.routes 可能包含重复的路由
+    merged = rules.merge_rules()
     u = []
-    # 使用 application.router 而不是全局 url_map
-    router = application.router
-    for r in router.routes:
-        rule = r.path if hasattr(r, 'path') else str(r)
-        methods = ', '.join(r.methods) if hasattr(r, 'methods') and r.methods else 'GET'
-        # 获取 endpoint 的完整路径
-        endpoint = _get_endpoint(r)
+    for rule_info in merged:
+        appname, endpoint, rule, kw = rule_info
+        methods = ', '.join(kw.get('methods', ['GET']))
         u.append((rule, methods, endpoint))
     u.sort()
+
+    # 添加调试日志，用于和 commands 里的 urls 做对比
+    logger = logging.getLogger('uliweb')
+    logger.info("=" * 80)
+    logger.info("[develop/urls] Routes from rules.merge_rules():")
+    logger.info("=" * 80)
+    for i, (rule, methods, endpoint) in enumerate(u, 1):
+        logger.info(f"  {i:3d}. {rule:<40} [{methods:<20}] -> {endpoint}")
+    logger.info("-" * 80)
+    logger.info(f"Total routes: {len(u)}")
+
+    # 打印 __url_names__ 信息
+    logger.info("")
+    logger.info("=" * 80)
+    logger.info("[develop/urls] rules.__url_names__ content:")
+    logger.info("=" * 80)
+    for name, endpoint in sorted(rules.__url_names__.items()):
+        logger.info(f"  {name:<40} -> {endpoint}")
+    logger.info("-" * 80)
+    logger.info(f"Total url_names: {len(rules.__url_names__)}")
+
+    # 打印 __exposes__ 信息
+    logger.info("")
+    logger.info("=" * 80)
+    logger.info("[develop/urls] rules.__exposes__ content:")
+    logger.info("=" * 80)
+    # __exposes__ 的键是函数对象，无法排序，直接遍历
+    for func, exposes in rules.__exposes__.items():
+        func_path = getattr(func, '__module__', str(func)) + '.' + getattr(func, '__name__', str(func))
+        logger.info(f"  Function: {func_path}")
+        for expose_info in exposes:
+            logger.info(f"    {expose_info}")
+    logger.info("-" * 80)
+    logger.info(f"Total apps with exposes: {len(rules.__exposes__)}")
+
+    # 打印 merged_rules 信息
+    logger.info("")
+    logger.info("=" * 80)
+    logger.info("[develop/urls] rules.merge_rules() result:")
+    logger.info("=" * 80)
+    merged = rules.merge_rules()
+    for i, rule_info in enumerate(merged, 1):
+        logger.info(f"  {i:3d}. {rule_info}")
+    logger.info("-" * 80)
+    logger.info(f"Total merged rules: {len(merged)}")
 
     return {'urls': u}
 
