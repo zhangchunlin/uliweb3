@@ -38,7 +38,22 @@ CONNECTION_TYPE = 'long'
 - **DEBUG_LOG**: 设置为 True 时，SQL 语句会输出到日志
 - **AUTO_CREATE**: 是否自动建表，生产环境建议关闭
 - **CONNECTION**: 数据库连接串，格式：`driver://username:password@host:port/database`
+- **CONNECTION_ARGS**: 额外的连接参数，传递给 SQLAlchemy 引擎
 - **CONNECTION_TYPE**: 连接模式，`long` 为长连接，`short` 为短连接
+
+### SQLite 特殊配置
+
+SQLite 在 ASGI 等多线程环境下需要特殊配置：
+
+```ini
+[ORM]
+CONNECTION = 'sqlite:///database.db'
+CONNECTION_ARGS = {'poolclass': 'sqlalchemy.pool.NullPool', 'connect_args': {'check_same_thread': False}}
+CONNECTION_TYPE = 'short'
+```
+
+- `poolclass = NullPool`: 禁用连接池，避免多线程问题
+- `check_same_thread = False`: 允许非创建线程访问数据库
 
 常见数据库连接串示例：
 

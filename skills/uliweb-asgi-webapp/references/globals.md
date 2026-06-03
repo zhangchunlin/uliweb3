@@ -110,3 +110,92 @@ request对象在处理过程中还有一些属性：
 - `request.function` - view函数名
 - `request.session` - 如果安装了session App，则会自动绑定
 - `request.user` - 如果安装了auth App，则会自动绑定用户对象
+
+## 全局对象注入机制
+
+Uliweb3 使用 `LocalProxy` 实现全局对象的注入，定义在 `uliweb/utils/localproxy.py`。
+
+### LocalProxy 的两种模式
+
+| 对象 | `use_contextvars` | 说明 |
+|------|------------------|------|
+| `request` | `True` | 每个协程有独立的值，通过 `ContextVar` 实现隔离 |
+| `response` | `True` | 每个协程有独立的值 |
+| `settings` | `False` | 全局共享，存储在 `__global__` 对象上 |
+| `application` | `False` | 全局共享，存储在 `__global__` 对象上 |
+
+### 实际注入时机
+
+#### 1. AsyncDispatcher 初始化时
+
+在 `AsyncDispatcher.__init__` 中设置 application 和 settings：
+
+```python
+__global__.application = self
+application.set(self)
+self._init_settings()  # 加载 settings
+```
+
+#### 2. 处理请求时
+
+在 `_handle_request` 方法中注入 request：
+
+```python
+req = Request(scope, receive, send)
+request_token = request.set(req)  # 注入 request
+```
+
+#### 3. `_open` 方法中注入 settings 和 application
+
+```python
+res = Response()
+response_token = response.set(res)  # 注入 response
+settings_token = settings.set(self.settings)  # 注入 settings
+application_token = application.set(self)     # 注入 application
+```
+
+### 视图函数中的直接可用函数
+
+在视图函数执行时，以下函数会被自动注入到视图函数的 `__globals__` 命名空间中，**可以直接使用而无需导入**：
+
+```python
+# 在 _call_function 方法中实现
+handler.__globals__.update(env)
+handler.__globals__['env'] = env
+```
+
+注入的函数包括：
+- `redirect` - URL 重定向
+- `url_for` - URL 反向生成
+- `error` - 错误处理
+- `json` - JSON 响应
+- `json_dumps` - JSON 序列化
+- `application` - 当前应用对象
+- `settings` - 配置对象
+- `functions` - 函数查找器
+
+### prepare_default_env 钩子
+
+各 contrib 应用通过 `prepare_default_env` 钩子注入额外的全局函数：
+
+| App | 注入的函数 |
+|-----|-----------|
+| `uliweb.contrib.staticfiles` | `url_for_static` |
+| `uliweb.contrib.rbac` | `has_permission`, `has_role` |
+| `uliweb.contrib.flashmessage` | `get_flashed_messages` |
+| `uliweb.contrib.i18n` | 国际化函数 |
+| `uliweb.contrib.template` | 模板标签函数 |
+
+### LocalProxy 的 set/reset 机制
+
+```python
+def set(self, value):
+    if self._use_contextvars:
+        return self._var.set(value)  # 返回 token
+    else:
+        setattr(self._env, self._obj_name, value)
+
+def reset(self, token):
+    if self._use_contextvars:
+        self._var.reset(token)  # 恢复到之前的状态
+```

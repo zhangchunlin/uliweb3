@@ -27,6 +27,11 @@ Uliweb的模板的语法很简单，只有以下几种类型的标记：
 - `{{# ... }}` - 单行注释
 - `{{## ... ##}}` - 片段注释
 
+### 块结束语法说明
+
+- `{{block blockname}}` 可以使用 `{{end}}` 或 `{{end blockname}}` 结束（推荐使用后者以提高可读性）
+- `{{if}}` / `{{for}}` / `{{while}}` 等 Python 代码块必须使用 `{{pass}}` 结束
+
 ## 模板继承
 
 父模板 (layout.html)：
@@ -75,10 +80,19 @@ out_write("<h1>Hello</h1>")
 
 {{if condition:}}
     <p>True</p>
+{{elif other_condition:}}
+    <p>Other</p>
 {{else:}}
     <p>False</p>
 {{pass}}
 ```
+
+{% alert class=warning %}
+**重要：Python 代码块必须使用 `{{pass}}` 结束**
+
+- `{{if}}` / `{{for}}` / `{{while}}` 等必须用 `{{pass}}` 结束，不能用 `{{end}}`
+- `{{block}}` 可以用 `{{end}}` 结束，也使用 `{{end blockname}}` 提高可读性
+{% endalert %}
 
 ## 模板环境
 
