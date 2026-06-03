@@ -137,3 +137,43 @@ class SettingsCommand(Command):
                                 except Exception:
                                     pass
                         print()
+
+
+class MiddlewaresCommand(Command):
+    name = 'middlewares'
+    help = 'Display all registered middlewares.'
+    check_apps_dirs = True
+
+    def handle(self, options, global_options, *args):
+        from uliweb import application
+
+        # 确保应用已初始化
+        self.get_application(global_options)
+
+        print("\n=== Registered Middlewares ===")
+
+        # 获取中间件实例列表
+        middlewares = getattr(application, 'middlewares', [])
+        if not middlewares:
+            print("No middlewares registered.")
+            return
+
+        print("Total: %d middlewares" % len(middlewares))
+        print()
+
+        for i, middleware in enumerate(middlewares, 1):
+            middleware_name = middleware.__class__.__name__
+            middleware_module = middleware.__class__.__module__
+            print("  %d. %s (%s)" % (i, middleware_name, middleware_module))
+            # 显示中间件属性（排除私有属性）
+            attrs = [a for a in dir(middleware) if not a.startswith('_') and not callable(getattr(middleware, a))]
+            if attrs:
+                for attr in attrs[:5]:  # 最多显示5个属性
+                    try:
+                        value = getattr(middleware, attr)
+                        if len(str(value)) > 50:
+                            value = str(value)[:50] + '...'
+                        print("     - %s = %s" % (attr, value))
+                    except Exception:
+                        pass
+        print()
