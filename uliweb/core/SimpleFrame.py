@@ -1588,6 +1588,14 @@ class AsyncDispatcher:
 
             # 处理请求
             res = await self._open(req)
+
+            # 检查是否是 SSE 流式响应（通过 scope 标记判断）
+            # 如果是 SSE，中间件已经直接发送了响应，不需要再次发送
+            if scope.get('_sse_streaming'):
+                logger.debug(f"[_handle_request] SSE streaming mode, response already sent by middleware")
+                return
+
+            # 非 SSE 响应，需要手动发送
             await res(scope, receive, send)
         except (HTTPException, RuntimeError) as exc:
             # 处理 HTTP 异常（如 404）
@@ -2783,6 +2791,8 @@ class AsyncDispatcher:
 
     async def _call_function(self, handler, request, response, env, args=None, kwargs=None):
         """异步调用函数"""
+        logger.debug(f"[_call_function] START - handler: {handler}")
+
         # 更新全局环境
         handler.__globals__.update(env)
         handler.__globals__['env'] = env
@@ -2820,7 +2830,9 @@ class AsyncDispatcher:
 
         # 检查是否是协程函数
         if iscoroutinefunction(handler):
+            logger.debug(f"[_call_function] handler is coroutine function, awaiting...")
             result = await handler(*call_args, **call_kwargs)
+            logger.debug(f"[_call_function] after await, result type: {type(result)}, result: {result}")
         else:
             # 同步函数需要在协程池中执行
             # run_in_executor 只接受位置参数，使用 functools.partial 绑定参数
@@ -2831,6 +2843,7 @@ class AsyncDispatcher:
             # 获取当前 contextvars 上下文
             ctx = copy_context()
 
+            logger.debug(f"[_call_function] handler is sync function, using run_in_executor")
             if call_kwargs:
                 # 使用 partial 绑定关键字参数，不再额外传递位置参数
                 partial_handler = functools.partial(handler, **call_kwargs)
@@ -2840,16 +2853,55 @@ class AsyncDispatcher:
                 # 使用 copy_context 确保 contextvars 在线程中正确传播
                 result = await loop.run_in_executor(None, ctx.run, handler, *call_args)
 
+            logger.debug(f"[_call_function] after run_in_executor, result type: {type(result)}, result: {result}")
+
+            # 检查结果是否是异步生成器或异步迭代器
+            # 如果是，需要在异步上下文中保持原样返回，而不是等待它
+            # 注意：这里不能直接用 inspect.isasyncgenerator(result) 判断，
+            # 因为 result 可能是被 copy_context.run() 包装后的结果
+            # 我们需要检查它是否具有 __aiter__ 方法
+            if hasattr(result, '__aiter__'):
+                # 这是一个异步生成器或异步迭代器
+                # 返回它而不是等待它，让调用者自己处理迭代
+                logger.debug(f"[_call_function] Detected async generator/iterator: {type(result)}, returning as-is")
+                return result
+
         # 处理 LocalProxy 响应
         if isinstance(result, LocalProxy) and result._obj_name == 'response':
             result = get_response()
 
+        logger.debug(f"[_call_function] END - returning result type: {type(result)}")
         return result
 
     async def wrap_result(self, handler, result, request, response, env):
         """异步包装结果"""
         from starlette.responses import Response as StarletteResponse
         from starlette.responses import JSONResponse
+        from starlette.responses import StreamingResponse
+
+        logger.debug(f"[wrap_result] START - result type: {type(result)}, result: {result}")
+        logger.debug(f"[wrap_result] result has __aiter__: {hasattr(result, '__aiter__')}")
+
+        # 检查结果是否是 SSEStreamResponse（已格式化的 SSE 数据）
+        # 如果是，直接返回，不使用 StreamingResponse 包装
+        # 因为 SSEStreamResponse 已经生成了完整的 SSE 格式数据（data: {...}\n\n）
+        from starlette.responses import Response as StarletteResponse_
+        if isinstance(result, StarletteResponse_):
+            # 检查是否是 SSE 流式响应（media_type 为 text/event-stream）
+            media_type = getattr(result, 'media_type', '')
+            logger.debug(f"[wrap_result] Result is StarletteResponse, media_type={media_type}")
+            if 'text/event-stream' in media_type:
+                logger.debug(f"[wrap_result] Detected SSEStreamResponse, returning as-is")
+                return result
+
+        # 检查结果是否是异步生成器或异步迭代器
+        # 如果是，需要使用 StreamingResponse 来处理
+        if hasattr(result, '__aiter__'):
+            # 这是一个异步生成器或异步迭代器
+            # 检查 media_type，如果已经有 response 对象，使用它的 media_type
+            media_type = getattr(response, 'media_type', 'text/plain')
+            logger.debug(f"[wrap_result] Detected async generator, using StreamingResponse with media_type={media_type}")
+            return StreamingResponse(result, media_type=media_type)
 
         # 如果是字典，检查是否是 API 响应
         if isinstance(result, dict):
@@ -3118,25 +3170,75 @@ class AsyncDispatcher:
                 response_body = b""
                 response_status = None
                 response_headers = []
+                is_streaming = False  # 标记是否为流式响应
+                start_sent = False  # 标记 start 消息是否已发送
 
                 # 创建自定义的 send 函数来捕获响应
                 async def capture_send(message):
-                    nonlocal response_body, response_status, response_headers
+                    nonlocal response_body, response_status, response_headers, is_streaming, start_sent
+
+                    # 检查是否已经标记为 SSE 流式响应完成
+                    if scope.get('_sse_completed'):
+                        logger.debug(f"[Middleware] SSE streaming already completed, ignoring message: {message.get('type')}")
+                        return
+
                     if message["type"] == "http.response.start":
                         response_status = message["status"]
                         response_headers = list(message.get("headers", []))  # 确保是可变的列表
+                        # 检查是否为流式响应（text/event-stream）
+                        for header in response_headers:
+                            if len(header) == 2:
+                                key, value = header
+                                if isinstance(key, bytes):
+                                    key = key.decode('latin-1').lower()
+                                else:
+                                    key = key.lower()
+                                if key == 'content-type':
+                                    if isinstance(value, bytes):
+                                        value = value.decode('latin-1').lower()
+                                    elif isinstance(value, str):
+                                        value = value.lower()
+                                    else:
+                                        value = str(value).lower()
+                                    # 检查是否为 SSE 流式响应
+                                    if 'text/event-stream' in value:
+                                        is_streaming = True
+                        # 对于 SSE 响应，立即发送 start 消息并标记
+                        if is_streaming:
+                            scope['_sse_streaming'] = True
+                            await send(message)
+                            start_sent = True
+                            return
+                        # 非 SSE 响应，缓冲 start 消息
+                        start_sent = True
                     elif message["type"] == "http.response.body":
                         body_chunk = message.get("body", b"")
+                        # 如果是 SSE 流式响应，直接传递消息，不缓冲数据
+                        if is_streaming:
+                            await send(message)
+                            # 如果是最后一个 chunk，标记 SSE 完成
+                            if not message.get("more_body", True):
+                                scope['_sse_completed'] = True
+                            return
                         response_body += body_chunk
                         # 如果是最后一个 chunk，创建响应对象
                         if not message.get("more_body", False):
-                            pass
+                            pass  # 后续处理
+
+                logger.debug(f"[Middleware] Before call_next, is_streaming={is_streaming}")
 
                 # 创建新的 scope，可能需要修改
                 new_scope = scope.copy()
                 # 调用下一个应用
                 try:
                     await next_app(new_scope, receive, capture_send)
+
+                    logger.debug(f"[Middleware] After call_next, is_streaming={is_streaming}, response_body_size={len(response_body)}")
+
+                    # 如果是流式响应，直接返回 None，让框架直接发送响应
+                    if is_streaming:
+                        logger.debug(f"[Middleware] Returning None for streaming response")
+                        return None
 
                     # 创建响应对象
                     from starlette.responses import Response as StarletteResponse
@@ -3167,13 +3269,21 @@ class AsyncDispatcher:
             # 调用中间件
             try:
                 response = await middleware.dispatch(req, call_next)
+                # 检查是否已经通过 call_next 发送了响应（如 SSE 流式响应）
+                # 如果是，不要再次发送响应
+                if scope.get('_sse_streaming'):
+                    logger.debug(f"[Middleware] SSE streaming response already sent via call_next, skipping response")
+                    return None
                 # 发送响应
                 if response is not None:
                     await response(scope, receive, send)
                     return response
                 else:
-                    # 如果中间件返回 None，调用下一个应用
-                    response = await next_app(scope, receive, send)
+                    # 如果中间件返回 None 且没有通过 call_next 发送响应，调用下一个应用
+                    # 注意：这里使用 new_scope 而不是 scope，避免在 scope 上设置 _sse_streaming
+                    # 因为 scope 是共享的，new_scope 是独立的副本
+                    new_scope = scope.copy()
+                    response = await next_app(new_scope, receive, send)
                     return response
             except Exception as e:
                 # 如果中间件抛出异常，重新抛出

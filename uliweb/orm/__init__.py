@@ -61,6 +61,7 @@ __to_ltimezone__ = None
 import sys
 import decimal
 import threading
+import contextvars
 import datetime
 import copy
 import re
@@ -86,12 +87,47 @@ from ..utils._compat import (string_types, text_type, PY2, callable, u, b,
 
 log = logging.getLogger(__name__)
 
-Local = threading.local()
-Local.dispatch_send = True
-Local.conn = {}
-Local.trans = {}
-Local.echo = False
-Local.echo_func = sys.stdout.write
+# 使用 contextvars 替代 threading.local，以支持 ASGI 异步环境中的状态隔离
+_orm_context = contextvars.ContextVar('orm_context', default=None)
+
+def _get_orm_state():
+    """获取当前上下文的 ORM 状态，如果没有则创建默认状态"""
+    ctx = _orm_context.get()
+    if ctx is None:
+        ctx = {
+            'dispatch_send': True,
+            'conn': {},
+            'trans': {},
+            'echo': False,
+            'echo_args': {'time': None, 'explain': False, 'caller': True, 'session': None},
+            'echo_func': sys.stdout.write,
+        }
+        _orm_context.set(ctx)
+    return ctx
+
+class Local:
+    """
+    使用 contextvars 实现的 Local 类，用于在 ASGI 异步环境中隔离 ORM 状态。
+
+    在 ASGI 环境中，同一个线程可能处理多个并发请求。
+    使用 threading.local 时，所有请求共享同一个状态，可能导致状态污染。
+    使用 contextvars 时，每个请求都有独立的状态，互不干扰。
+    """
+    def __getattr__(self, name):
+        ctx = _get_orm_state()
+        return ctx.get(name)
+
+    def __setattr__(self, name, value):
+        ctx = _get_orm_state()
+        ctx[name] = value
+
+    def __delattr__(self, name):
+        ctx = _get_orm_state()
+        if name in ctx:
+            del ctx[name]
+
+# 创建 Local 实例
+Local = Local()
 
 class Error(Exception):pass
 class NotFound(Error):
@@ -174,8 +210,8 @@ def set_encoding(encoding):
     __default_encoding__ = encoding
 
 def set_dispatch_send(flag):
-    global Local
-    Local.dispatch_send = flag
+    ctx = _get_orm_state()
+    ctx['dispatch_send'] = flag
 
 def set_tablename_converter(converter=None):
     global __default_tablename_converter__
@@ -214,16 +250,15 @@ def get_tablename(tablename):
     return c(tablename)
 
 def get_dispatch_send(default=True):
-    global Local
-    if not hasattr(Local, 'dispatch_send'):
-        Local.dispatch_send = default
-    return Local.dispatch_send
+    ctx = _get_orm_state()
+    if 'dispatch_send' not in ctx:
+        ctx['dispatch_send'] = default
+    return ctx['dispatch_send']
 
 def set_echo(flag, time=None, explain=False, caller=True, session=None):
-    global Local
-
-    Local.echo = flag
-    Local.echo_args = {'time':time, 'explain':explain, 'caller':caller,
+    ctx = _get_orm_state()
+    ctx['echo'] = flag
+    ctx['echo_args'] = {'time':time, 'explain':explain, 'caller':caller,
         'session':None}
 
 def set_pk_type(name):
