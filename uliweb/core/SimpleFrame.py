@@ -2888,7 +2888,7 @@ class AsyncDispatcher:
         from starlette.responses import Response as StarletteResponse_
         if isinstance(result, StarletteResponse_):
             # 检查是否是 SSE 流式响应（media_type 为 text/event-stream）
-            media_type = getattr(result, 'media_type', '')
+            media_type = getattr(result, 'media_type', '') or ''
             logger.debug(f"[wrap_result] Result is StarletteResponse, media_type={media_type}")
             if 'text/event-stream' in media_type:
                 logger.debug(f"[wrap_result] Detected SSEStreamResponse, returning as-is")
