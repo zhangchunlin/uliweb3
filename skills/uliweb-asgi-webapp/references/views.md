@@ -334,6 +334,16 @@ def prepare_default_env(sender, env):
 Uliweb中已经定义了 `prepare_default_env` 这个plugin的插入点，你可以直接使用它。它的
 作用就是向env中增加新的对象，如上面是增加了一个新的函数可以用来将文本转为HTML代码。
 
+## App 之间的模块导入
+
+Uliweb 启动时会把 **apps 目录加入 sys.path**，因此 App 之间可以直接使用标准 Python import：
+
+```python
+# apps/appa/views.py 中
+from appb.models import User  # 直接 import，不需要带 apps. 前缀
+from appb.utils import helper_func
+```
+
 ## 常见问题
 
 - **JSON API 返回 HTML**：uliweb 的 `wrap_result` 判断 JSON 需要路径含 `/api/` 或方法名含 `api`，或使用 `starlette.responses.JSONResponse` 直接返回

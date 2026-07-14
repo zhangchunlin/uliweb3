@@ -82,6 +82,21 @@ Uliweb在启动时会根据有效的App来导入它们自已的settings.ini文�
 的其它的App，这样在配置有效App时，可以减少配置的工作量，在启动时，会自动处理依赖的
 App。
 
+### App 之间的模块导入
+
+Uliweb 启动时会将 **apps 目录加入 sys.path**，因此 App 之间可以直接使用标准 Python import：
+
+```python
+# apps/appa/views.py 中
+from appb.models import User  # 直接 import，不需要带 apps. 前缀
+from appb.utils import helper_func
+```
+
+导入内置 App 也使用完整路径：
+```python
+from uliweb.contrib.orm import DB
+```
+
 
 ## Settings处理
 
