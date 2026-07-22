@@ -80,6 +80,104 @@ settings中的value只能定义基本的 Python 数据结构和表达式，因�
 
 这些是可以直接使用的。
 
+## 字典(dict)类型值说明
+
+在settings中，dict类型是非常常用的配置格式，特别适合用于需要组织多个相关配置项的场景。
+
+### 基本写法
+
+dict类型值采用标准的Python字典语法，例如：
+
+```
+[DEFAULT]
+config = {'key1': 'value1', 'key2': 'value2'}
+```
+
+### 嵌套dict
+
+dict的值也可以是另一个dict，形成嵌套结构：
+
+```
+[DEFAULT]
+user = {'name': 'admin', 'info': {'email': 'admin@example.com', 'phone': '123456'}}
+```
+
+### 常见使用场景
+
+#### 1. 域名配置
+
+```
+[DOMAINS]
+default = {'domain':'', 'display':False, 'url_prefix':''}
+static = {'domain':'', 'display':False, 'url_prefix':''}
+```
+
+#### 2. 日志配置
+
+```
+[LOG.Loggers]
+uliweb.app = {'propagate':0, 'format':'format_full'}
+uliweb.console = {'propagate':0, 'format':'format_simple'}
+
+[LOG.Handlers]
+Full = {'format':'format_full'}
+Simple = {'format':'format_simple'}
+```
+
+#### 3. 模板配置
+
+```
+[TEMPLATE]
+namespace = {}
+cache = True
+use_tmp = False
+tmp_dir = 'tmp/templates_temp'
+begin_tag = '{{'
+end_tag = '}}'
+```
+
+### dict的合并行为
+
+当多个settings.ini文件中存在同名的dict配置项时，后加载的文件会对前面的dict进行
+合并处理（update）。这意味着：
+
+* 如果在后面的文件中添加新的key，会被合并到原有的dict中
+* 如果在后面的文件中修改已有key的值，会覆盖原有的值
+* 如果希望完全替换而不是合并，使用 `<=` 运算符
+
+例如：
+
+```
+# app/settings.ini
+[DEFAULT]
+config = {'a': 1, 'b': 2}
+
+# local_settings.ini
+config = {'b': 3, 'c': 4}
+# 结果：config = {'a': 1, 'b': 3, 'c': 4}（合并）
+
+# local_settings.ini
+config <= {'b': 3, 'c': 4}
+# 结果：config = {'b': 3, 'c': 4}（完全替换）
+```
+
+### 访问dict配置
+
+在代码中访问dict类型的配置项：
+
+```
+from uliweb import settings
+
+# 访问整个dict
+config = settings.DEFAULT.config
+
+# 访问dict中的某个值
+value = settings.DEFAULT.config['key1']
+
+# 或者使用get方法
+value = settings.DEFAULT.config.get('key1', 'default')
+```
+
 ## 国际化支持
 
 可以直接在settings中使用 `_` 进行语言的翻译。注意应使用在value部分。例如：
