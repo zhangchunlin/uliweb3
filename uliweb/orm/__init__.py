@@ -2684,7 +2684,7 @@ class Result(object):
             field = fieldname
         return field
 
-    def get_columns(self, model=None, columns=None):
+    def get_columns(self, model=None, columns=None, use_alias=False):
         columns = columns or self.columns
         model = model or self.model
         fields = []
@@ -2694,7 +2694,13 @@ class Result(object):
             fields.append(func.distinct(field).label(field.name))
         for col in columns:
             if col is not field:
-                fields.append(col)
+                # ManyToMany with_relation: 为所有列添加明确的别名
+                # 使用 col.name 作为别名，确保查询结果的列名与预期一致
+                # 避免 SQLAlchemy 自动给同名列添加后缀导致 load_data 无法匹配
+                if use_alias:
+                    fields.append(col.label(col.name))
+                else:
+                    fields.append(col)
 
         return fields
 
@@ -3281,8 +3287,9 @@ class ManyResult(Result):
             args = flat_list(args)
             if args:
                 keep_primary_key = kwargs.pop('keep_primary_key', True)
+                # 去重：如果主键不在列表中才追加
                 if keep_primary_key and self.modelb._primary_field and self.modelb._primary_field not in args:
-                    args.append(self.modelb.c[self.modelb._primary_field])
+                    args.append(self.modelb._primary_field)
                 self.funcs.append(('with_only_columns', ([self.get_column(self.modelb, x) for x in args],), kwargs))
         return self
 
@@ -3338,8 +3345,12 @@ class ManyResult(Result):
             condition = self.condition
         if condition is not None and isinstance(condition, string_types):
             condition = text(condition)
+
+        # ManyToMany with_relation: 只有在合并两个表的列时（with_relation_name）
+        # 才需要添加别名以避免列名冲突
+        # 普通 ManyToMany 查询不需要别名，否则会破坏测试期望的输出格式
         query = select(
-            self.get_columns(self.modelb, columns),
+            self.get_columns(self.modelb, columns, use_alias=bool(self.with_relation_name)),
             self.get_default_condition() &
             (self.table.c[self.fieldb] == self.modelb.c[self.realfieldb]) &
             condition,
@@ -3365,7 +3376,11 @@ class ManyResult(Result):
             if self.with_relation_name:
                 offset = len(self.table.columns)
 
-            o = self.modelb.load(list(zip(list(result.keys())[offset:], list(result.values())[offset:])))
+            keys = list(result.keys())
+            values = list(result.values())
+            load_data = list(zip(keys[offset:], values[offset:]))
+
+            o = self.modelb.load(load_data)
 
             if self.with_relation_name:
                 r = self.through_model.load(list(zip(list(result.keys())[:offset], list(result.values())[:offset])))
@@ -3395,7 +3410,11 @@ class ManyResult(Result):
                 yield result
                 continue
 
-            o = self.modelb.load(list(zip(list(result.keys())[offset:], list(result.values())[offset:])))
+            keys = list(result.keys())
+            values = list(result.values())
+            load_data = list(zip(keys[offset:], values[offset:]))
+
+            o = self.modelb.load(load_data)
 
             if self.with_relation_name:
                 r = self.through_model.load(list(zip(list(result.keys())[:offset], list(result.values())[:offset])))
