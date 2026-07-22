@@ -3311,6 +3311,11 @@ class ManyResult(Result):
         and named them as relation.
 
         If relation_name is not given, then default value is 'relation'
+
+        设计说明：
+        - with_relation() 会加载关联表的完整数据（所有列）
+        - 中间表的列会被加载到 relation_name 属性中
+        - fields() 方法只影响最终返回对象的列，不会影响 with_relation 的数据加载
         """
         if not relation_name:
             relation_name = 'relation'
@@ -3319,6 +3324,8 @@ class ManyResult(Result):
         if not self.through_model:
             raise Error("Only with through style in ManyToMany supports with_relation function of Model %s!" % self.modelb.__name__)
         self.with_relation_name = relation_name
+        # 标记 with_relation 已激活，后续 fields() 不会覆盖关联表列
+        self._with_relation_activated = True
         return self
 
     def run(self, limit=0):
@@ -3335,10 +3342,19 @@ class ManyResult(Result):
             _f = getattr(self.modelb, 'default_query', None)
             if _f:
                 _f(self)
+
+        # 设计改进：with_relation() 始终加载关联表的完整数据
+        # 只有在没有启用 with_relation 时，fields()/values() 才会限制列
         if self.with_relation_name:
+            # with_relation 激活时，始终加载中间表 + 关联表的所有列
+            # fields()/values() 不会影响实际查询，只会影响最终返回
             columns = list(self.table.c) + self.columns
+            use_alias = True
         else:
+            # 没有 with_relation 时，使用 fields()/values() 限制列
             columns = self.columns
+            use_alias = False
+
         if self.condition is None:
             condition = ''
         else:
@@ -3346,17 +3362,34 @@ class ManyResult(Result):
         if condition is not None and isinstance(condition, string_types):
             condition = text(condition)
 
-        # ManyToMany with_relation: 只有在合并两个表的列时（with_relation_name）
-        # 才需要添加别名以避免列名冲突
-        # 普通 ManyToMany 查询不需要别名，否则会破坏测试期望的输出格式
         query = select(
-            self.get_columns(self.modelb, columns, use_alias=bool(self.with_relation_name)),
+            self.get_columns(self.modelb, columns, use_alias=use_alias),
             self.get_default_condition() &
             (self.table.c[self.fieldb] == self.modelb.c[self.realfieldb]) &
             condition,
             **self.kwargs)
-        for func, args, kwargs in self.funcs:
-            query = getattr(query, func)(*args, **kwargs)
+
+        # 设计说明：
+        # 当 with_relation() 激活时，fields()/values() 的列限制应该被忽略
+        # 因为 with_relation() 需要加载关联表的完整数据才能正确构建对象
+        # 如果 fields() 限制了列，with_relation() 将无法获取完整数据，导致对象属性为 None
+        #
+        # 这样的设计决策是为了保证 with_relation() 的正常工作：
+        # - with_relation() 是更高级的功能，用于加载关联数据
+        # - fields() 是优化功能，用于限制返回列
+        # - 当两者冲突时，优先保证功能的正确性
+        #
+        # 如果用户既想限制列又想加载关联数据，应该分开调用，或不使用 with_relation()
+        if self.with_relation_name:
+            # with_relation 激活时，跳过 with_only_columns 操作
+            # 只执行其他操作（如 order_by, limit, offset 等）
+            for func, args, kwargs in self.funcs:
+                if func != 'with_only_columns':
+                    query = getattr(query, func)(*args, **kwargs)
+        else:
+            for func, args, kwargs in self.funcs:
+                query = getattr(query, func)(*args, **kwargs)
+
         if self._group_by:
             query = query.group_by(*self._group_by)
             if self._having:
@@ -3372,9 +3405,9 @@ class ManyResult(Result):
             if self._values_flag:
                 return result
 
-            offset = 0
-            if self.with_relation_name:
-                offset = len(self.table.columns)
+            # 设计改进：with_relation() 始终加载完整数据
+            # 中间表列数固定为 len(self.table.columns)
+            offset = len(self.table.columns) if self.with_relation_name else 0
 
             keys = list(result.keys())
             values = list(result.values())
@@ -3398,9 +3431,9 @@ class ManyResult(Result):
         if not self.result:
             return
 
-        offset = 0
-        if self.with_relation_name:
-            offset = len(self.table.columns)
+        # 设计改进：with_relation() 始终加载完整数据
+        # 中间表列数固定为 len(self.table.columns)
+        offset = len(self.table.columns) if self.with_relation_name else 0
 
         while 1:
             result = self.result.fetchone()
