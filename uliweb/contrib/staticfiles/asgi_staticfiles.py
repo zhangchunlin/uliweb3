@@ -1,7 +1,46 @@
 import os
+import logging
 from starlette.responses import Response, FileResponse
 from uliweb import settings
-import pkg_resources
+
+logger = logging.getLogger('uliweb.contrib.staticfiles')
+
+try:
+    from importlib.resources import files as resource_files
+except (ImportError, ModuleNotFoundError):
+    resource_files = None
+
+try:
+    import pkg_resources
+except (ImportError, ModuleNotFoundError):
+    pkg_resources = None
+
+
+def _get_package_resource_filename(package_name, resource_path=''):
+    """查找 Python 包中的资源物理路径"""
+    if resource_files is not None:
+        try:
+            target = resource_files(package_name)
+            if resource_path:
+                target = target.joinpath(resource_path.replace('\\', '/'))
+            # 仅当转换出的路径在真实物理文件系统上存在时返回，非物理路径记录调试信息并尝试 pkg_resources（如 zip 包）
+            target_str = str(target)
+            if os.path.exists(target_str):
+                return target_str
+            else:
+                logger.debug("importlib.resources target %s is not a real filesystem path for package %s", target_str, package_name)
+        except (ModuleNotFoundError, ImportError, TypeError, AttributeError, ValueError) as e:
+            logger.debug("importlib.resources lookup failed for package %s: %s", package_name, e)
+
+    if pkg_resources is not None:
+        try:
+            f = pkg_resources.resource_filename(package_name, resource_path)
+            if os.path.exists(f):
+                return f
+        except Exception as e:
+            logger.debug("pkg_resources lookup failed for package %s: %s", package_name, e)
+
+    return None
 
 
 class ASGIStaticFilesMiddleware:
@@ -87,33 +126,33 @@ class ASGIStaticFilesMiddleware:
                         if os.path.exists(real_f):
                             return real_f
 
-        # 继续使用 pkg_resources 检查应用包中的静态文件
+        # 检查应用包中的静态文件（优先 importlib.resources，降级 pkg_resources）
         for p in reversed(apps):
             try:
                 fname = os.path.normpath(os.path.join('static', filename).replace('\\', '/'))
                 if fname.startswith('static/'):
-                    # 使用 pkg_resources 查找文件
-                    try:
-                        # 尝试获取文件路径
-                        f = pkg_resources.resource_filename(p, fname)
-                        if os.path.exists(f):
-                            # 验证路径 - 使用 pkg_resources 返回的实际路径来计算 static 目录
-                            real_f = os.path.realpath(f)
-                            # 正确计算包的 static 目录路径
-                            # 使用 pkg_resources.resource_filename(p, '') 获取包的实际路径
-                            package_path = pkg_resources.resource_filename(p, '')
+                    f = _get_package_resource_filename(p, fname)
+                    if f and os.path.exists(f):
+                        real_f = os.path.realpath(f)
+                        # 优先从计算出的真实路径反推 package_path
+                        real_fname = os.path.normpath(fname).replace('\\', '/')
+                        normalized_real_f = real_f.replace('\\', '/')
+                        
+                        if normalized_real_f.endswith(real_fname):
+                            package_path = normalized_real_f[:-len(real_fname)].rstrip('/')
+                        else:
+                            # 符号链接或特殊布局不匹配时，降级获取包根路径
+                            package_path = _get_package_resource_filename(p, '')
+
+                        if package_path:
                             static_path = os.path.join(package_path, 'static')
                             real_static = os.path.realpath(static_path)
-                            # 检查是否在 static 目录内
                             if real_f.startswith(real_static + os.sep) or real_f == real_static:
                                 return real_f
-                            # 使用 commonpath 检查
                             elif os.path.commonpath([real_f, real_static]) == real_static:
                                 return real_f
-                    except Exception:
-                        pass
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to resolve package static resource for app %s, file %s: %s", p, filename, e)
 
         return None
 
