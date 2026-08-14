@@ -33,6 +33,8 @@ import sys
 # 创建日志记录器
 logger = logging.getLogger('uliweb')
 
+from uliweb.orm import CommitAll, RollbackAll
+
 
 # ==================== Request 类 ====================
 # 基于 Starlette 的异步 Request
@@ -3249,21 +3251,20 @@ class AsyncDispatcher:
 
                     logger.debug(f"[Middleware] After call_next, is_streaming={is_streaming}, response_body_size={len(response_body)}")
 
-                    # 如果是流式响应，直接返回 None，让框架直接发送响应
+                    # If streaming response, return None directly so framework handles it
                     if is_streaming:
                         logger.debug(f"[Middleware] Returning None for streaming response")
                         return None
 
-                    # 创建响应对象
+                    # Create response object
                     from starlette.responses import Response as StarletteResponse
 
-                    # 转换响应头，将字节类型转换为字符串类型
+                    # Convert headers, converting bytes to string
                     converted_headers = {}
                     if response_headers:
                         for header in response_headers:
                             if len(header) == 2:
                                 key, value = header
-                                # 将字节类型转换为字符串
                                 if isinstance(key, bytes):
                                     key = key.decode('latin-1')
                                 if isinstance(value, bytes):
@@ -3277,33 +3278,44 @@ class AsyncDispatcher:
                     )
                     return response
                 except Exception as e:
-                    # 如果下一个应用抛出异常，重新抛出
+                    # Re-raise if inner app raised exception
                     raise e
 
-            # 调用中间件
+            # Dispatch middleware
+            request_success = False
             try:
                 response = await middleware.dispatch(req, call_next)
-                # 检查是否已经通过 call_next 发送了响应（如 SSE 流式响应）
-                # 如果是，不要再次发送响应
+                # Check if response was sent via call_next (e.g., SSE streaming)
                 if scope.get('_sse_streaming'):
                     logger.debug(f"[Middleware] SSE streaming response already sent via call_next, skipping response")
+                    request_success = True
                     return None
-                # 发送响应
+                # Send response
                 if response is not None:
                     await response(scope, receive, send)
+                    request_success = True
                     return response
                 else:
-                    # 如果中间件返回 None 且没有通过 call_next 发送响应，调用下一个应用
-                    # 注意：这里使用 new_scope 而不是 scope，避免在 scope 上设置 _sse_streaming
-                    # 因为 scope 是共享的，new_scope 是独立的副本
                     new_scope = scope.copy()
                     response = await next_app(new_scope, receive, send)
+                    request_success = True
                     return response
             except Exception as e:
-                # 如果中间件抛出异常，重新抛出
+                # Log detailed exception stack and roll back the transaction
+                logger.error(f"[ASGI Middleware Error] Exception occurred during request processing: {e}", exc_info=True)
+                try:
+                    RollbackAll()
+                except Exception as rollback_err:
+                    logger.error(f"[ASGI Middleware Error] RollbackAll failed: {rollback_err}", exc_info=True)
                 raise e
             finally:
-                # 清理 request 上下文
+                # Commit ORM database transaction only on success path to prevent persisting invalid data
+                if request_success:
+                    try:
+                        CommitAll()
+                    except Exception as commit_err:
+                        logger.error(f"[ASGI Middleware Error] CommitAll failed: {commit_err}", exc_info=True)
+                # Clean up request context
                 request.reset(request_token)
 
         return app
