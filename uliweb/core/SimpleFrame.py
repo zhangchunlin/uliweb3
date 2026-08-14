@@ -143,10 +143,24 @@ class Request(StarletteRequest):
 
     @property
     def values(self):
-        """已弃用：同步访问 values 数据会抛出异常"""
-        raise RuntimeError(
-            "values 属性已弃用，请使用 await request.get_params() 方法。"
-        )
+        """兼容 WSGI 模式的 values 属性，返回 GET 参数"""
+        return self.query_params
+
+    @property
+    def remote_addr(self):
+        """兼容 WSGI 模式的 remote_addr 属性"""
+        if self.client:
+            return self.client.host
+        x_forwarded_for = self.headers.get("x-forwarded-for")
+        if x_forwarded_for:
+            return x_forwarded_for.split(",")[0].strip()
+        return self.headers.get("x-real-ip", "")
+
+    @property
+    def environ(self):
+        """兼容 WSGI 模式的 environ 属性，返回 scope"""
+        return self.scope
+
 
     @property
     def user(self):
