@@ -384,44 +384,61 @@ class UliwebRouter:
         """
         根据 endpoint 名称和参数构建 URL
         兼容 werkzeug 的 build 方法
+
+        路径中的参数会替换到 URL 中，额外的参数会作为 query string 追加，
+        例如 url_for('app.views.index', next='/login') -> '/index?next=/login'
         """
         # 首先尝试通过 endpoint 名称直接查找（字符串 endpoint）
         route = self.url_map.get(endpoint)
 
         if route:
-            # 使用 Starlette 的 url_path_for 方法
-            try:
-                # 尝试使用 route 的 name 属性
-                if route.name:
-                    url = self.router.url_path_for(route.name, **values).path
-                    return url
-            except Exception:
-                pass
-
-            # 如果上面的方法失败，直接使用路径替换参数
-            path = route.path
-            for k, v in values.items():
-                path = path.replace('{' + k + '}', str(v))
-            return path
+            return self._build_route(route, values)
 
         # 如果找不到，尝试通过 route.name 查找
         for key, route in self.url_map.items():
             route_name = getattr(route, 'name', None)
             if route_name and route_name == endpoint:
-                try:
-                    if route.name:
-                        url = self.router.url_path_for(route.name, **values).path
-                        return url
-                except Exception:
-                    pass
-
-                path = route.path
-                for k, v in values.items():
-                    path = path.replace('{' + k + '}', str(v))
-                return path
+                return self._build_route(route, values)
 
         # 如果找不到，抛出异常
         raise ValueError(f"Could not build URL for endpoint '{endpoint}'. Endpoint not found in url_map.")
+
+    def _build_route(self, route, values):
+        """构建单个路由的 URL，路径参数替换到路径中，其余参数作为 query string"""
+        import re
+        from urllib.parse import urlencode
+
+        # 提取路径参数名
+        path_names = set(re.findall(r'\{([^}]+)\}', route.path))
+
+        path_params = {}
+        query_params = {}
+        for k, v in values.items():
+            if k in path_names:
+                path_params[k] = v
+            else:
+                query_params[k] = v
+
+        url = None
+        try:
+            # 使用 Starlette 的 url_path_for 方法
+            if route.name:
+                url = self.router.url_path_for(route.name, **path_params).path
+        except Exception:
+            url = None
+
+        # 如果上面的方法失败，直接使用路径替换参数
+        if url is None:
+            path = route.path
+            for k, v in path_params.items():
+                path = path.replace('{' + k + '}', str(v))
+            url = path
+
+        # 追加额外的参数作为 query string
+        if query_params:
+            url = url + '?' + urlencode(query_params)
+
+        return url
 
 
 url_map = UliwebRouter()

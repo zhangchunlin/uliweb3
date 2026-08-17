@@ -87,6 +87,52 @@ def test_url_router_build():
     assert '123' in url
 
 
+def test_url_router_build_with_next():
+    """测试 url_for 带 next 参数的 URL 生成
+
+    当传入 next 等非路径参数时，应作为 query string 追加到生成的 URL 上，
+    例如 url_for('index', next='/login') 应生成 '/index?next=/login'
+    """
+    router = UliwebRouter()
+
+    def index(request):
+        return "index"
+
+    router.add_route('/index', index, methods=['GET'], name='index')
+    router.url_map[index] = router.routes[0]
+
+    # 带 next 参数构建 URL
+    url = router.build('index', {'next': '/login'})
+    assert url.startswith('/index?next='), f"Expected '?next=' in url, got '{url}'"
+
+    # 解析 query string 验证 next 参数值
+    from urllib.parse import urlparse, parse_qs
+    parsed = urlparse(url)
+    qs = parse_qs(parsed.query)
+    assert qs.get('next') == ['/login'], f"Expected next=/login, got {qs}"
+
+
+def test_url_router_build_with_path_and_next():
+    """测试路径参数和 next 参数同时存在的情况"""
+    router = UliwebRouter()
+
+    def user_view(request, user_id):
+        return f"user {user_id}"
+
+    router.add_route('/users/{user_id}', user_view, methods=['GET'], name='user')
+    router.url_map[user_view] = router.routes[0]
+
+    # 同时传入路径参数和 next 参数
+    url = router.build('user', {'user_id': '42', 'next': '/admin'})
+    assert url.startswith('/users/42?next='), f"Expected path+next in url, got '{url}'"
+
+    from urllib.parse import urlparse, parse_qs
+    parsed = urlparse(url)
+    assert parsed.path == '/users/42'
+    qs = parse_qs(parsed.query)
+    assert qs.get('next') == ['/admin'], f"Expected next=/admin, got {qs}"
+
+
 def test_convert_route_param():
     """测试路由参数转换功能"""
     from uliweb.core.SimpleFrame import _convert_route_param
@@ -224,6 +270,14 @@ def test_async_dispatcher_url_for():
     # 测试带参数的 URL
     url = dispatcher._url_for('test.test_url_for.user', id=123)
     assert '123' in url, f"Expected '123' in url, got '{url}'"
+
+    # 测试带 next 参数的 URL
+    url = dispatcher._url_for('test.test_url_for.hello', next='/login')
+    assert url.startswith('/hello?next='), f"Expected '?next=' in url, got '{url}'"
+
+    from urllib.parse import urlparse, parse_qs
+    qs = parse_qs(urlparse(url).query)
+    assert qs.get('next') == ['/login'], f"Expected next=/login, got {qs}"
 
 
 def test_rules_get_endpoint():
