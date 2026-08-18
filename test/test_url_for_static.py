@@ -73,6 +73,8 @@ def test_url_for_static():
         project_dir=test_project_dir,
         start=False
     )
+    # Register the static files route dynamically to make the test self-contained
+    app.router.add_route("/static/{filename}", lambda: None, name="uliweb.contrib.staticfiles.static")
     app.prepare()
 
     # 设置到全局和 contextvars 中

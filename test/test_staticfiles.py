@@ -273,7 +273,11 @@ static = {'domain': '', 'display': False, 'url_prefix': ''}
     def test_pkg_resources_static_file(self):
         """测试通过 pkg_resources 查找已安装包的静态文件"""
         import asyncio
-        import pkg_resources
+        import unittest
+        try:
+            import pkg_resources
+        except ImportError:
+            raise unittest.SkipTest("pkg_resources is not installed (deprecated/removed in modern setuptools)")
         from unittest.mock import patch
 
         # 测试 find_static_file 方法的路径验证逻辑

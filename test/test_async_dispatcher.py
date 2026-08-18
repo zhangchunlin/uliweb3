@@ -462,6 +462,104 @@ def comment(post_id, comment_id):
         # 带类型的参数
         assert dispatcher.route_param_types.get('/post/{post_id}/comment/{comment_id}') == {'post_id': 'int', 'comment_id': 'int'}
 
+    def test_async_dispatcher_sync_handler_transaction_commit(self):
+        """测试 AsyncDispatcher 自动对成功的同步视图提交 ORM 事务"""
+        from unittest.mock import patch, MagicMock
+        from uliweb.core.SimpleFrame import AsyncDispatcher
+        import asyncio
+
+        # 创建 AsyncDispatcher
+        dispatcher = AsyncDispatcher(
+            apps_dir='apps',
+            project_dir=str(self.project_dir),
+            start=False
+        )
+
+        # 定义简单的同步视图函数
+        mock_called = []
+        def sync_handler(*args, **kwargs):
+            mock_called.append(True)
+            return "sync_handler_success"
+
+        # Mock parameters
+        mock_request = MagicMock()
+        mock_response = MagicMock()
+        mock_env = {}
+
+        # Patch CommitAll 和 RollbackAll
+        with patch('uliweb.core.SimpleFrame.CommitAll') as mock_commit_all,              patch('uliweb.core.SimpleFrame.RollbackAll') as mock_rollback_all:
+             
+            # 运行同步视图调度
+            loop = asyncio.new_event_loop()
+            try:
+                result = loop.run_until_complete(
+                    dispatcher._call_function(
+                        handler=sync_handler,
+                        request=mock_request,
+                        response=mock_response,
+                        env=mock_env,
+                        args=[],
+                        kwargs={}
+                    )
+                )
+            finally:
+                loop.close()
+
+            # 验证结果
+            assert result == "sync_handler_success"
+            assert len(mock_called) == 1
+            mock_commit_all.assert_called_once()
+            mock_rollback_all.assert_not_called()
+
+    def test_async_dispatcher_sync_handler_transaction_rollback(self):
+        """测试 AsyncDispatcher 对失败的同步视图执行自动 ORM 事务回滚"""
+        from unittest.mock import patch, MagicMock
+        from uliweb.core.SimpleFrame import AsyncDispatcher
+        import asyncio
+
+        # 创建 AsyncDispatcher
+        dispatcher = AsyncDispatcher(
+            apps_dir='apps',
+            project_dir=str(self.project_dir),
+            start=False
+        )
+
+        # 定义会引发异常的同步视图函数
+        class CustomTestException(Exception):
+            pass
+
+        def sync_handler(*args, **kwargs):
+            raise CustomTestException("View Error")
+
+        # Mock parameters
+        mock_request = MagicMock()
+        mock_response = MagicMock()
+        mock_env = {}
+
+        # Patch CommitAll 和 RollbackAll
+        with patch('uliweb.core.SimpleFrame.CommitAll') as mock_commit_all,              patch('uliweb.core.SimpleFrame.RollbackAll') as mock_rollback_all:
+             
+            # 运行并断言异常抛出
+            loop = asyncio.new_event_loop()
+            try:
+                with pytest.raises(CustomTestException):
+                    loop.run_until_complete(
+                        dispatcher._call_function(
+                            handler=sync_handler,
+                            request=mock_request,
+                            response=mock_response,
+                            env=mock_env,
+                            args=[],
+                            kwargs={}
+                        )
+                    )
+            finally:
+                loop.close()
+
+            # 验证结果
+            mock_commit_all.assert_not_called()
+            mock_rollback_all.assert_called_once()
+
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

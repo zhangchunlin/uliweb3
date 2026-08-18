@@ -2876,15 +2876,51 @@ class AsyncDispatcher:
             # 获取当前 contextvars 上下文
             ctx = copy_context()
 
-            logger.debug(f"[_call_function] handler is sync function, using run_in_executor")
+            # Define a safe wrapper to execute synchronous handlers on the child thread
+            # and automatically Commit/Rollback ORM transactions in the child thread context.
+            def sync_orm_wrapper(func, *args, **kwargs):
+                try:
+                    res = func(*args, **kwargs)
+                    try:
+                        CommitAll()
+                    except Exception as commit_err:
+                        logger.error(
+                            "[ASGI Sync Executor] CommitAll failed on child thread, "
+                            f"rolling back: {commit_err}",
+                            exc_info=True
+                        )
+                        try:
+                            RollbackAll()
+                        except Exception as rollback_err:
+                            logger.error(
+                                "[ASGI Sync Executor] RollbackAll failed after commit failure: "
+                                f"{rollback_err}",
+                                exc_info=True
+                            )
+                        raise commit_err
+                    return res
+                except Exception as e:
+                    try:
+                        RollbackAll()
+                    except Exception as rollback_err:
+                        logger.error(
+                            "[ASGI Sync Executor] RollbackAll failed on child thread: "
+                            f"{rollback_err}",
+                            exc_info=True
+                        )
+                    raise e
+
+            logger.debug(f"[_call_function] handler is sync function, using run_in_executor with sync_orm_wrapper")
             if call_kwargs:
-                # 使用 partial 绑定关键字参数，不再额外传递位置参数
-                partial_handler = functools.partial(handler, **call_kwargs)
+                # 使用 partial 绑定关键字参数，以及包装函数
+                partial_handler = functools.partial(sync_orm_wrapper, handler, **call_kwargs)
                 # 使用 copy_context 确保 contextvars 在线程中正确传播
                 result = await loop.run_in_executor(None, ctx.run, partial_handler)
             else:
+                # 使用 partial 绑定位置参数，以及包装函数
+                partial_handler = functools.partial(sync_orm_wrapper, handler, *call_args)
                 # 使用 copy_context 确保 contextvars 在线程中正确传播
-                result = await loop.run_in_executor(None, ctx.run, handler, *call_args)
+                result = await loop.run_in_executor(None, ctx.run, partial_handler)
 
             logger.debug(f"[_call_function] after run_in_executor, result type: {type(result)}, result: {result}")
 
