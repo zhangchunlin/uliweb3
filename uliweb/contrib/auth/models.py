@@ -8,7 +8,7 @@ from uliweb.utils.common import get_var
 
 class User(Model):
     username = Field(str, verbose_name=_('Username'), max_length=30, unique=True, index=True, nullable=False)
-    nickname = Field(str, verbose_name=_('Nick Name'), max_length=30)
+    nickname = Field(str, verbose_name=_('Nick Name'), max_length=100)
     email = Field(str, verbose_name=_('Email'), max_length=40)
     password = Field(str, verbose_name=_('Password'), max_length=128)
     is_superuser = Field(bool, verbose_name=_('Is Superuser'))
