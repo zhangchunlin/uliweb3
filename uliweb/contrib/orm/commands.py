@@ -2,6 +2,7 @@
 from __future__ import print_function, absolute_import, unicode_literals
 
 import os, sys
+import sqlalchemy
 import re
 import datetime
 from decimal import Decimal
@@ -682,6 +683,80 @@ class DumpTableFileCommand(SQLCommandMixin, Command):
         if global_options.verbose:
             print(t)
 
+def reset_postgresql_sequences(engine, tables=None):
+    """Automatically synchronize PostgreSQL sequences on completion of load operations."""
+    try:
+        if engine.dialect.name == 'postgresql':
+            log.info("[PostgreSQL Sync] Resetting auto-increment sequences...")
+            
+            schema = getattr(engine.dialect, 'default_schema_name', 'public') or 'public'
+            
+            query = """
+                SELECT
+                    n.nspname AS schema_name,
+                    t.relname AS table_name,
+                    a.attname AS column_name,
+                    s.relname AS sequence_name
+                FROM pg_class s
+                JOIN pg_depend d ON d.objid = s.oid AND d.deptype = 'a'
+                JOIN pg_class t ON t.oid = d.refobjid AND t.relkind = 'r'
+                JOIN pg_namespace n ON n.oid = t.relnamespace
+                JOIN pg_attribute a ON a.attrelid = d.refobjid AND a.attnum = d.refobjsubid
+                WHERE s.relkind = 'S' AND n.nspname = :schema
+            """
+            
+            params = {"schema": schema}
+            if tables:
+                table_names = [t.name if hasattr(t, 'name') else str(t) for t in tables]
+                placeholders = []
+                for i, name in enumerate(table_names):
+                    key = f"t_{i}"
+                    placeholders.append(f":{key}")
+                    params[key] = name
+                query += f" AND t.relname IN ({', '.join(placeholders)})"
+                
+            with engine.connect() as conn:
+                res = conn.execute(sqlalchemy.text(query), params)
+                rows = list(res)
+                total_count = 0
+                success_count = 0
+                fail_count = 0
+                
+                preparer = engine.dialect.identifier_preparer
+                
+                with conn.begin():
+                    for row in rows:
+                        schema_name, table_name, column_name, seq_name = row
+                        total_count += 1
+                        try:
+                            with conn.begin_nested():
+                                qcol = preparer.quote(column_name)
+                                qtable = '.'.join(preparer.quote(p) for p in (schema_name, table_name))
+                                max_id_res = conn.execute(sqlalchemy.text(f'SELECT MAX({qcol}) FROM {qtable};'))
+                                max_id = max_id_res.scalar() or 0
+                                new_val = max_id + 1
+                                
+                                qseq = '.'.join(preparer.quote(p) for p in (schema_name, seq_name))
+                                conn.execute(
+                                    sqlalchemy.text("SELECT setval(:seq_name, :new_val, false);"),
+                                    {"seq_name": qseq, "new_val": new_val}
+                                )
+                                log.info(f"  - Reset sequence {schema_name}.{seq_name} to {new_val} (MAX value of {table_name}.{column_name})")
+                                success_count += 1
+                        except Exception as e:
+                            log.warning(f"  - Failed to reset sequence {schema_name}.{seq_name}: {e}")
+                            fail_count += 1
+                
+                if total_count == 0:
+                    log.info("[PostgreSQL Sync] No auto-increment sequences found to synchronize.")
+                elif fail_count == 0:
+                    log.info("[PostgreSQL Sync] All sequences successfully synchronized!")
+                else:
+                    log.warning(f"[PostgreSQL Sync] Synchronization completed: {success_count} succeeded, {fail_count} failed out of {total_count} sequence(s).")
+    except Exception as e:
+        log.exception(f"[PostgreSQL Sync] Error: Failed to synchronize sequences: {e}")
+
+
 class LoadCommand(SQLCommandMixin, Command):
     name = 'load'
     args = '<appname, appname, ...>'
@@ -689,7 +764,7 @@ class LoadCommand(SQLCommandMixin, Command):
     option_list = (
         make_option('-d', dest='dir', default='./data',
             help='Directory of data files. Default is ./data'),
-        make_option('-b', dest='bulk', default='100',
+        make_option('-b', dest='bulk', default=100, type='int',
             help='Bulk number of insert. Default is 100.'),
         make_option('-t', '--text', dest='text', action='store_true', default=False,
             help='Load files in text format.'),
@@ -798,6 +873,7 @@ are you sure to load data""" % options.engine
 
         if options.zipfile:
             shutil.rmtree(path)
+        reset_postgresql_sequences(engine, tables=[name for name, _ in tables])
 
 class LoadTableCommand(SQLCommandMixin, Command):
     name = 'loadtable'
@@ -806,7 +882,7 @@ class LoadTableCommand(SQLCommandMixin, Command):
     option_list = (
         make_option('-d', dest='dir', default='./data',
             help='Directory of data files.'),
-        make_option('-b', dest='bulk', default='100', type='int',
+        make_option('-b', dest='bulk', default=100, type='int',
             help='Bulk number of insert.'),
         make_option('-t', '--text', dest='text', action='store_true', default=False,
             help='Load files in text format.'),
@@ -906,13 +982,14 @@ are you sure to load data""" % (options.engine, ','.join(args))
 
         if options.zipfile:
             shutil.rmtree(path)
+        reset_postgresql_sequences(engine, tables=[name for name, _ in tables])
 
 class LoadTableFileCommand(SQLCommandMixin, Command):
     name = 'loadtablefile'
     args = 'tablename text_filename'
     help = 'Load table data from text file. If no tables, then will do nothing.'
     option_list = (
-        make_option('-b', dest='bulk', default='100',
+        make_option('-b', dest='bulk', default=100, type='int',
             help='Bulk number of insert.'),
         make_option('-t', '--text', dest='text', action='store_true', default=False,
             help='Load files in text format.'),
@@ -964,6 +1041,7 @@ class LoadTableFileCommand(SQLCommandMixin, Command):
             orm.Commit()
             if global_options.verbose:
                 print(t)
+            reset_postgresql_sequences(engine, tables=[name])
         except:
             log.exception("There are something wrong when loading table [%s]" % name)
             orm.Rollback()
