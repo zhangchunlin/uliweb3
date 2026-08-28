@@ -198,7 +198,7 @@ port = '${MYSQL_PORT}'
 
 #### settings 取值方式
 
-在代码中使用 settings：
+在代码中使用 settings，**推荐使用属性访问**（最常用、最直观）：
 
 ```python
 # 在 view 函数中直接使用（已注入）
@@ -207,14 +207,18 @@ def index():
     debug = settings.GLOBAL.DEBUG
     site_name = settings.SITE.SITE_NAME
     return {'debug': debug}
+```
 
+以上写法等同于属性访问链式取值，例如 `settings.MAIL.HOST` 对应配置段 `[MAIL]` 中的 `HOST` 项。其他方式（较少用，作为补充）：
+
+```python
 # 通用方式（在任意位置）
 from uliweb import settings
-debug = settings.get_var('GLOBAL/DEBUG')
-
-# 字典方式
-debug = settings['GLOBAL']['DEBUG']
+debug = settings.get_var('GLOBAL/DEBUG')   # 使用斜杠路径
+debug = settings['GLOBAL']['DEBUG']        # 字典方式
 ```
+
+> 推荐在文档与代码中以 `settings.段名.项名`（如 `settings.MAIL.HOST`）作为常用写法。
 
 ### 步骤 4: 编写视图
 

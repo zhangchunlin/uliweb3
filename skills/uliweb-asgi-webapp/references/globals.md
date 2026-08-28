@@ -43,6 +43,24 @@ from uliweb import (application, request, response,
 
 配置信息对象。
 
+**常用写法（推荐）**：使用属性访问，`settings.<配置段>.<配置项>`，例如 `settings.MAIL.HOST` 对应配置段 `[MAIL]` 中的 `HOST`：
+
+```python
+from uliweb import settings
+
+host = settings.MAIL.HOST          # 等价于 MAIL/HOST
+debug = settings.GLOBAL.DEBUG      # 等价于 GLOBAL/DEBUG
+```
+
+**补充写法**（较少用）：`get_var('MAIL/HOST')` 使用斜杠路径，`settings['MAIL']['HOST']` 使用字典方式。
+
+```python
+host = settings.get_var('MAIL/HOST')
+host = settings['MAIL']['HOST']
+```
+
+在视图函数中 `settings` 已自动注入，可直接使用。
+
 ## 全局方法
 
 ```python
