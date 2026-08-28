@@ -17,16 +17,17 @@ plan.md 由工程师在 plan mode 里基于已批准的 spec.md 生成；审阅�
 ## 改动的文件
 
 核心框架：
-- `uliweb/core/SimpleFrame.py`（修改）：实现 `Request`、`Response`、`AsyncDispatcher`、`UliwebRouter`、`ASGIApplication` 及中间件栈构建、同步适配器、路由匹配。
+- `uliweb/core/SimpleFrame.py`（修改）：实现 `Request`、`Response`、`AsyncDispatcher`、`UliwebRouter`、`ASGIApplication` 及中间件栈构建、同步适配器、路由匹配。所有 ASGI 相关实现集中于此。
 - `uliweb/core/rules.py`（修改）：`expose` 装饰器、`_merge_rules()`、`GET/POST` 方法装饰器。
 - `uliweb/core/context.py`（新增/修改）：基于 contextvars 的全局状态管理。
 - `uliweb/utils/localproxy.py`（修改/复用）：`LocalProxy`、`Global`。
-- `uliweb/__init__.py`（修改）：统一导出 Request、Response、expose、Middleware、ASGI_AVAILABLE 等。
+- `uliweb/__init__.py`（修改）：统一导出 Request、Response、expose、Middleware、ASGI_AVAILABLE、AsyncDispatcher 等。
 
 组件与工具：
 - `uliweb/core/dispatch.py`（修改）：事件分发 `acall` 异步化。
 - `uliweb/core/template.py`（修改）：`AsyncTemplateLoader.load_async` / `generate_async`。
-- `uliweb/mail`、`uliweb/contrib/*`（按需修改）：session / auth / cache 等异步适配。
+- `uliweb/mail`、`uliweb/contrib/*`（按需修改）：session / auth / cache 等异步适配（参考 `uliweb/contrib/session/middle_session.py`、`uliweb/contrib/auth/middle_auth.py`、`uliweb/contrib/cache/__init__.py` 的 `get_async_cache`）。
+- `uliweb/asgi/profile.py`（修改）：Profile 性能分析迁移到 ASGI。
 
 配置与文档：
 - `settings.ini`（项目级）：新增 `[MIDDLEWARES]`、`[ASGI]` 配置示例。
@@ -48,12 +49,116 @@ plan.md 由工程师在 plan mode 里基于已批准的 spec.md 生成；审阅�
 - 哪一步最冒险：中间件系统从 WSGI 迁移到纯 ASGI，接口差异大 → 提供高级/底层两套接口并支持混合，兼容传统 `process_*` 接口。
 - 放弃了的其他做法及原因：新建独立 `starlette.py` 文件 → 放弃，统一集中于 `SimpleFrame.py` 以降低复杂度；使用 contextvars 直接代理而非 LocalProxy → 放弃，采用 LocalProxy 保持与 WSGI 一致的统一接口。
 
+## 实际实现状态（已完成）
+
+**核心改进点：**
+1. 同步适配器机制：解决"大爆炸式"迁移问题，支持现有同步代码平滑过渡。
+2. 强制异步化接口：避免 async property 兼容性陷阱，采用明确异步方法。
+3. 渐进式迁移策略：支持外部异步、内部同步，降低迁移风险。
+
+**技术架构改进：** Request/Response 修复 async property 陷阱；Dispatcher 内置同步适配器；中间件采用纯 ASGI 接口；状态管理用 contextvars 替代 threading.local。
+
+**迁移收益：** 性能提升（更高并发）、功能增强（WebSocket/SSE）、生态整合（Python 异步生态）、未来兼容（现代 Web 标准）、平滑迁移（同步适配器渐进升级）。
+
+**已实现功能：** ASGI 3.0 接口、Request/Response 异步对象、Werkzeug→Starlette 路由转换、模板异步渲染（协程池）、兼容中间件系统、错误处理、CORS、WebSocket、兼容配置系统、Profile 性能分析。
+
+**实际实现特点：**
+1. 渐进式迁移：支持逐步迁移到 ASGI。
+2. 兼容性优先：保持与现有项目完全兼容。
+3. 性能优化：通过协程池实现同步→异步平滑过渡。
+4. 开发友好：提供详细错误信息与调试支持。
+5. 代码集中：所有 ASGI 实现集中在 `SimpleFrame.py`。
+
+**使用方式：** 用 Uvicorn / Hypercorn / Daphne 运行；继续使用 `settings.ini` 配置；保持 `@expose` 与视图接口；可逐步迁移。
+
+**移除 werkzeug 后的验证快照：**
+```
+✓ Request: starlette.requests.Request
+✓ Response: starlette.responses.Response
+✓ Middleware: uliweb.Middleware
+✓ expose: function
+✓ ASGI_AVAILABLE: True
+✓ Context proxies: available
+✓ AsyncDispatcher: available
+```
+
 ## 证明（如何证明它工作）
 
-- 测试：
-  - `python -c "from uliweb import Request, Response, Middleware, expose; ..."` 验证核心导出。
-  - `python -c "from uliweb.core.SimpleFrame import AsyncDispatcher; print(AsyncDispatcher)"` 验证 ASGI 分发器。
-  - 单元/集成/兼容性/WebSocket/性能/压力测试全部通过（见检查清单）。
-- 验证结果快照：
-  - `Request: starlette.requests.Request`、`Response: starlette.responses.Response`、`Middleware: uliweb.Middleware`、`ASGI_AVAILABLE: True`、`AsyncDispatcher: available`。
-- 部署证明：使用 Uvicorn / Hypercorn / Daphne 成功启动应用；`setup.cfg` 中已无 werkzeug 依赖。
+### 迁移检查清单
+
+**核心组件：**
+- [x] Request/Response 对象迁移（基于 Starlette）
+- [x] Dispatcher 类重构（ASGI 接口）
+- [x] URL 路由系统迁移（路由适配器）
+- [x] 全局状态管理迁移（contextvars）
+- [x] 中间件系统适配（兼容现有中间件）
+- [x] 模板系统异步化（协程池）
+- [x] 错误处理机制（完整异常处理）
+- [x] WebSocket 支持（完整协议）
+
+**功能组件：**
+- [x] HTML 生成工具（保持兼容）
+- [x] JSON 编码工具（保持兼容）
+- [x] 静态文件服务：项目级 `project_dir/static/`、app 级 `apps/{app}/static/`、`pkg_resources` 查找、路径遍历防护、隐藏文件控制
+- [x] 文件上传下载（异步化）
+- [x] CORS 支持（内置）
+- [x] 会话管理（`middle_session.py` 异步适配）
+- [x] 认证系统（`middle_auth.py` 异步适配）
+- [x] 数据库连接（同步 SQLAlchemy 经协程池）
+- [x] 缓存系统（`get_async_cache` 异步适配器）
+
+**测试验证：**
+- [x] 单元测试（异步用例）
+- [x] 集成测试（端到端）
+- [x] 兼容性测试（现有项目）
+- [x] WebSocket 功能测试
+- [x] 性能测试对比
+- [x] 压力/负载测试
+
+### 迁移时间线（建议）
+
+- **阶段一（1-2月）**：基础架构迁移、验证同步适配器、培训团队。
+- **阶段二（2-4月）**：逐步迁移关键业务到异步、优化性能路径、完善测试。
+- **阶段三（4-6月）**：全面异步化优化、性能调优与监控、生产验证。
+- **阶段四（长期）**：插件异步化、社区生态、持续优化。
+
+### 实现后补充说明
+
+**Scope 状态管理特别说明：** `scope['state']` 提供统一状态容器，类型安全、便于中间件协作、性能优化；推荐中间件在 `scope['state']` 中初始化与传递状态。未来可扩展：类型化状态（TypedDict/dataclass）、状态验证、状态监控、状态持久化（如会话）。
+
+**开发最佳实践：**
+```python
+# 推荐：明确的异步方法调用
+post_data = await request.get_POST()
+json_data = await request.get_json()
+# 避免：使用已弃用的同步属性
+# post_data = request.POST  # ❌ 会抛出异常
+
+# 现有同步代码可继续使用（框架自动适配为异步执行）
+@expose('/legacy/view')
+def legacy_view():
+    return {"status": "legacy function"}
+
+# 混合模式开发
+@expose('/mixed/view')
+async def mixed_view():
+    sync_result = await anyio.to_thread.run_sync(sync_function)
+    async_result = await async_function()
+    return {"sync": sync_result, "async": async_result}
+```
+
+**注意事项：**
+- 技术：线程安全、上下文管理、依赖管理、异步操作错误处理与重试。
+- 迁移：兼容性保证、监控线程池使用、合理配置预加载内存、混合模式调试支持。
+
+**配置优化建议：**
+```ini
+[ASGI]
+SYNC_THREAD_POOL_SIZE = 20        # 根据并发需求调整
+PRELOAD_REQUEST_DATA = true       # 启用数据预加载
+SYNC_FUNCTION_TIMEOUT = 30        # 同步函数超时时间
+LOG_SYNC_ADAPTER_USAGE = true     # 记录适配器使用情况
+
+[GLOBAL]
+DEBUG = true                      # 开发阶段启用调试模式
+```
