@@ -7,6 +7,36 @@ from uliweb.utils.sorteddict import SortedDict
 import copy
 from ..utils._compat import string_types, iterkeys, get_class, ismethod
 
+# ──────────────────────────────────────────────────────────────────────
+# Class-method auto-register guards (spec/core/design/spec.md §3.17)
+# ──────────────────────────────────────────────────────────────────────
+# 默认对类视图的所有 public 方法无差别 auto-register（路径段=方法名）。
+# 三个守卫让"我想用 Flask MethodView / RESTful 风格写类视图"成为可能，
+# 同时完全向后兼容：旧依赖"方法名当路径段"的用户代码不破坏。
+#
+# L1: 方法名（小写）∈ HTTP 动词 → 跳过 auto-register
+# L2: 方法或类设 __no_auto_expose__ = True → 跳过
+# L3: 方法设 __auto_expose__ = True → 强制走原行为（绕过 L1）
+#
+# 使用示例：
+#     @expose('/users')
+#     class UserView:                  # 不需要 @expose 的 Flask MethodView 风格
+#         async def get(self, id): ...         # L1 自动 skip
+#         async def delete(self, id): ...      # L1 自动 skip
+#
+#         def helper(self, id):                # L2：公开但不当路由
+#             helper.__no_auto_expose__ = True
+#             ...
+#
+#     class RPCView:                    # 非 HTTP 动词方法名
+#         def call(self, data): ...     # 仍按原行为 auto-register 成 /rpc/call/{data}
+#
+#         def patch(self, data): ...    # L1 skip（patch 是 HTTP 动词）
+#         patch.__auto_expose__ = True  # L3 强制走原行为
+HTTP_METHOD_NAMES = frozenset({
+    'get', 'post', 'put', 'delete', 'patch', 'head', 'options', 'trace', 'connect',
+})
+
 
 class ReservedKeyError(Exception):
     pass
@@ -323,6 +353,12 @@ class Expose(object):
                             self._fix_kwargs(appname, v[3])
                             __no_need_exposed__.append(v)
                 else:
+                    # ── L1/L2/L3 auto-register 守卫（spec §3.17）──
+                    # L1: 方法名（小写）∈ HTTP 动词 → 跳过
+                    # L2: 方法或类 __no_auto_expose__ = True → 跳过
+                    # L3: 方法 __auto_expose__ = True → 强制走原行为（绕过 L1）
+                    if not self._should_auto_expose_class_method(f, func, name):
+                        continue
                     # 调用 _get_url 获取相对路径，然后拼接 prefix
                     relative_rule = self._get_url(appname, prefix, func)
                     rule = prefix.rstrip('/') + '/' + relative_rule.lstrip('/')
@@ -341,6 +377,40 @@ class Expose(object):
                     setattr(func, '__template__', None)
                     setattr(func, '__layout__', None)
                     setattr(func, '__fixed_url__', False)
+
+    @staticmethod
+    def _should_auto_expose_class_method(cls, method, name):
+        """判断类视图方法是否应被 auto-register（spec §3.17 三层守卫）
+
+        Args:
+            cls:    类对象
+            method: 方法（bound method 或 function）
+            name:   方法名字符串
+
+        Returns:
+            bool: True = 走 auto-register（原行为），False = 跳过
+
+        三层守卫（L1 > L2 > L3，按短路顺序求值）：
+            L3: method.__auto_expose__ = True     → 强制走原行为，绕过 L1
+            L2: method.__no_auto_expose__ = True  → 一定不 auto-register
+            L1: name.lower() ∈ HTTP 动词集         → 不 auto-register
+                （除非 L3 强制）
+            L2-class: cls.__no_auto_expose__ = True → 整个类全不 auto-register
+                （除非 L3 强制）
+        """
+        # L3 最强优先级
+        if getattr(method, '__auto_expose__', False):
+            return True
+        # L2-method
+        if getattr(method, '__no_auto_expose__', False):
+            return False
+        # L2-class
+        if getattr(cls, '__no_auto_expose__', False):
+            return False
+        # L1: HTTP 动词名
+        if name.lower() in HTTP_METHOD_NAMES:
+            return False
+        return True
 
     def _get_url(self, appname, prefix, f):
         """

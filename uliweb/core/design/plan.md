@@ -41,7 +41,8 @@ plan.md 由工程师在 plan mode 里基于已批准的 spec.md 生成；审阅�
 4. **路由与 URL 生成**：完成 `<type:name>` → `{name}` 转换、`_merge_rules`、`url_for` 反向 URL。
 5. **周边组件异步化**：模板、事件分发、命令、HTML/UAML、JSON 工具。
 6. **Settings 与 ASGI 处理程序**：`ASGIApplication` 单例，`make_application` 便捷入口。
-7. **验证与清理**：移除 werkzeug 依赖，跑通检查清单与测试。
+7. **类视图方法 auto-register 语义修正**（spec §3.17）：在 `parse_class` 的 else 分支（[rules.py:325-342](uliweb/core/rules.py#L325-L342)）前置 L1/L2/L3 守卫，跳过 HTTP 动词方法名 + 显式 opt-out/opt-in。
+8. **验证与清理**：移除 werkzeug 依赖，跑通检查清单与测试。
 
 ## 风险与缓解
 
@@ -83,6 +84,27 @@ plan.md 由工程师在 plan mode 里基于已批准的 spec.md 生成；审阅�
 ```
 
 ## 证明（如何证明它工作）
+
+### 测试验收（Test Case Acceptance）
+
+在 uliweb3 仓库根目录执行以下命令，对 `test/` 目录进行整体测试（含 doctest），作为本迁移的**验收门槛**：
+
+```bash
+# 在 uliweb3 根目录执行（不在 test/ 内，以避免相对路径/导入问题）
+nosetests --with-doc test
+```
+
+- 该命令基于 nose + doctest 插件（`--with-doc`）运行 `test/` 下全部用例与文档测试。
+- 关键覆盖用例文件（与本迁移相关）：
+  - `test_async_dispatcher.py`：ASGI 分发、同步视图适配、事务安全（`sync_orm_wrapper` 提交/回滚）。
+  - `test_request_async.py`：异步 Request 数据读取（`get_POST`/`get_FILES`/`get_json`）。
+  - `test_expose.py` / `test_url_for.py` / `test_url.py`：路由与反向 URL。
+  - `test_middleware.py` / `test_middleware_init.py`：中间件系统。
+  - `test_websocket.py` / `test_sse_streaming.py`：WebSocket 与 SSE。
+  - `test_mail.py`：邮件发送。
+  - `test_orm*.py`、`test_cache.py`、`test_session.py` 等：功能组件异步适配。
+- 注意事项：`test_cache.test_redis` 需本地 Redis（`localhost:6379`），未启动会报连接错误；Python 3.10+ 若缺 `pkg_resources`，相关静态文件用例会自动 `SkipTest`。
+- 验收标准：上述命令执行通过（`OK`，无失败/错误）。
 
 ### 迁移检查清单
 

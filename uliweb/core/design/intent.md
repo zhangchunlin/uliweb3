@@ -18,6 +18,18 @@ intent.md 是 AI-native SDLC 流程的起点：把想法用提出者自己的话
 ## 问题 （今天做不到什么 / 痛点）
 - 现有 Uliweb 基于 Werkzeug 的 WSGI 架构，无法使用现代 Python 的 async/await，也无法原生支持 WebSocket，在高并发与实时通信场景下性能受限、生态陈旧。
 - 现有代码库大量为同步代码，直接整体迁移会导致"大爆炸式"重写，迁移风险与停机时间不可接受。
+- **类视图方法的 auto-register 语义与 REST 直觉相悖（影响范围：所有 `@expose('/path') class FooView` 形式）。**
+  - `parse_class` 对类的所有 public 方法（不以下划线开头）**无差别**注册到路由表（[rules.py:255-258](uliweb/core/rules.py#L255-L258)）。
+  - 自动相对路径 = `方法名 + / + 参数列表`（[rules.py:364-366](uliweb/core/rules.py#L364-L366)），再拼上类 `@expose` 的 prefix：
+    ```python
+    @expose('/gateway/agents')
+    class AgentView:
+        def get(self, agent_id): ...        # → /gateway/agents/get/{agent_id}    （应为 GET /{agent_id}）
+        def delete(self, agent_id): ...     # → /gateway/agents/delete/{agent_id} （应为 DELETE /{agent_id}）
+    ```
+  - 与 Flask `MethodView`、Django CBV、FastAPI 习惯不一致：它们把方法名当 HTTP method 而不是路径段。
+  - 与方法级 `@expose('/<int:agent_id>')` **叠加冲突**：装饰器走另一分支（[rules.py:258-303](uliweb/core/rules.py#L258-L303)）也会注册一次，导致 N×2 重复路由。
+  - 用户唯一"逃生口"是方法名加 `_` 前缀（依赖 [rules.py:257](uliweb/core/rules.py#L257) 的 `not name.startswith('_')` 过滤），无可读的 opt-out 机制。
 
 ## 期望结果 （更好的情况长什么样）
 - Uliweb 成为纯 ASGI 框架：支持异步处理能力、原生 WebSocket、更高并发、更好的 Python 异步生态集成。

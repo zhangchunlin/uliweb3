@@ -514,6 +514,69 @@ def create_application():
 
 **与原规划的主要差异：** 所有代码位于 `SimpleFrame.py`（无独立 `starlette.py`）；配置加载保持同步（协程池处理）；模板渲染用协程池；中间件简化（直接处理，支持传统+ASGI 接口）；路由匹配优化（更精确，支持参数提取）；错误处理增强。
 
+### 3.17 类视图方法 auto-register 语义修正
+
+**现状问题**（详见 [intent.md](#) §问题 第 3 条）：
+
+```python
+@expose('/gateway/agents')
+class AgentView:
+    def get(self, agent_id):        ...   # → /gateway/agents/get/{agent_id}
+    def delete(self, agent_id):     ...   # → /gateway/agents/delete/{agent_id}
+    def regenerate_key(self, id):   ...   # → /gateway/agents/regenerate_key/{id}
+```
+
+`parse_class`（[rules.py:246](uliweb/core/rules.py#L246)）对类所有 public 方法无差别注册；相对路径 = 方法名 + / + 参数（[rules.py:364-366](uliweb/core/rules.py#L364-L366)）。这与 Flask `MethodView` / Django CBV / FastAPI 习惯**不一致**，且与方法级 `@expose('/<int:id>')` 装饰器**叠加**产生 N×2 重复路由（用户案例：4 个方法 + 4 个模块级 = 8 条重复）。
+
+**修正方案（双层防御，向后兼容）：**
+
+1. **L1 启发式跳过**（[rules.py:325-342](uliweb/core/rules.py#L325-L342) `parse_class` else 分支前置）：
+   - 当方法名（不区分大小写）属于 HTTP 动词集合 `{'get','post','put','delete','patch','head','options','trace','connect'}` 时，**跳过 auto-register**。
+   - 直觉：方法名取 HTTP 动词，意图是"我是该 HTTP method 的处理器"，不是"我是独立路由"。
+   - 兼容：现有依赖此行为（把方法名当路径段）的代码极少；如有，需显式 `@expose` 或重命名方法。
+
+2. **L2 显式 opt-out 标记**：方法设 `__no_auto_expose__ = True` → 一定不 auto-register（即便不是 HTTP 动词名）。
+   - 用于类内 helper 方法（如 `get_owned_agent`）想保留公开但不被路由收录的场景。
+   - 类级 `__no_auto_expose__ = True` → 整个类所有方法都不 auto-register（与 Flask `MethodView` 等价）。
+
+3. **L3 显式 opt-in 标记**（可选）：方法设 `__auto_expose__ = True` → 强制走方法名作路径段，绕过 L1（防止未来新增 HTTP 动词时误伤用户代码）。
+
+**新相对路径生成规则**（伪代码）：
+
+```python
+HTTP_METHODS = frozenset({'get','post','put','delete','patch','head','options','trace','connect'})
+
+def parse_class(self, f):
+    for name in dir(f):
+        func = getattr(f, name)
+        if not (ismethod(func) or inspect.isfunction(func)): continue
+        if name.startswith('_'): continue
+        if hasattr(func, '__exposed__') and func.__exposed__:   # 已有 @expose
+            ...  # 走原 258-303 分支
+            continue
+        # 新增 L1+L2+L3 守卫
+        if getattr(f, '__no_auto_expose__', False) and not getattr(func, '__auto_expose__', False):
+            continue
+        if getattr(func, '__no_auto_expose__', False):
+            continue
+        if name.lower() in HTTP_METHODS and not getattr(func, '__auto_expose__', False):
+            continue
+        # 走原 325-342 分支（auto-register）
+        ...
+```
+
+**验收标准：**
+
+- 现有 `AgentView.get`/`AgentView.delete` 在 `@expose('/gateway/agents')` 下 **不再**被 auto-register，路由表只剩 `@expose('/gateway/agents/<int:agent_id>')` 显式声明的 1 条（DELETE）或 1 条（GET）。
+- 旧依赖"方法名当路径段"语义的代码：若方法名不在 HTTP 动词集，仍按原行为工作（向后兼容）。
+- 单元测试 `tests/test_class_method_expose.py` 覆盖：
+  1. HTTP 动词方法名 → 跳过 auto-register
+  2. `__no_auto_expose__ = True` → 跳过
+  3. `__auto_expose__ = True` + HTTP 动词名 → 强制走原行为
+  4. 现有 4 套业务场景（agent-gateway）回归全部通过
+
+**对外接口影响：** 仅新增三个 dunder 属性（`__no_auto_expose__` / `__auto_expose__` / 类级 `__no_auto_expose__`）；不修改 `@expose` 装饰器签名；不修改 `parse_class` 公共方法签名；不修改 `Expose` 类行为。**完全向后兼容**。
+
 ## 4. 约束与策略落地
 
 - 品牌 / 安全 / 合规 / UX 约束：
