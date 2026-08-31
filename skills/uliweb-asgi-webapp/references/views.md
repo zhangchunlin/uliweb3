@@ -251,6 +251,28 @@ async def async_view():
 - `body()` 是异步方法，必须使用 `await` 调用
 - 调用 `get_json()` 或 `get_POST()` 后，不能再调用 `body()`，因为流已经被消费
 - 如果需要同时获取 body 和解析数据，建议先调用 `body()` 获取原始数据，然后再自行解析
+
+{% alert class=warning %}
+**`get_params()` 不解析 JSON body**
+
+`await request.get_params()`（以及 `get_POST()`）只解析 **form 编码**（`application/x-www-form-urlencoded` / `multipart`），**不会**解析 `Content-Type: application/json` 的请求体。
+
+- 浏览器 `fetch` + `JSON.stringify` 发送的是 JSON → `get_params()` 读到空 dict。
+- 而 `requests`/`httpx` 用 `data=`（form 编码）发送则正常。
+- 因此**同一端点可能「CLI 正常、浏览器报错」**，根因往往是 body 解析差异。
+
+若端点需同时兼容 JSON 与 form，统一用「先 JSON、失败回退 form」：
+
+```python
+async def _read_json_or_params():
+    try:
+        data = await request.get_json()
+        if data is not None:
+            return data
+    except (json.JSONDecodeError, ValueError):
+        pass
+    return await request.get_params() or {}
+```
 {% endalert %}
 
 同步视图（通过适配器支持）：
