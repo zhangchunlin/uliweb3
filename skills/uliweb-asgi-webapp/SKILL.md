@@ -250,7 +250,7 @@ class UserView:
 
 #### 视图约定（建议做法）
 
-**类视图建议利用类级 `@expose` 的自动暴露约定**。当在 class 级别写了 `@expose('/xxx')`，该 class 下除 `_` 开头以外的方法会自动 expose 到 class expose 下的同名 endpoint，无需在类方法里再额外写 `@expose`（可以写注释说明这一点，让读者知道该方法是作为路由自动暴露的）：
+**尽量在 class 这里写 `@expose`，class method 尽量用约定的自动暴露端点，这样就不用在 class method 里写多余的 `@expose`**。也就是说，在 class 级别写了 `@expose('/xxx')` 后，该 class 下除 `_` 开头以外的方法会自动 expose 到 class expose 下的同名 endpoint，无需在类方法里再额外写 `@expose`（可以写注释说明这一点，让读者知道该方法是作为路由自动暴露的）：
 
 ```python
 # coding=utf-8
