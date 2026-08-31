@@ -248,6 +248,33 @@ class UserView:
         return {}
 ```
 
+#### 视图约定（建议做法）
+
+**类视图建议利用类级 `@expose` 的自动暴露约定**。当在 class 级别写了 `@expose('/xxx')`，该 class 下除 `_` 开头以外的方法会自动 expose 到 class expose 下的同名 endpoint，无需在类方法里再额外写 `@expose`（可以写注释说明这一点，让读者知道该方法是作为路由自动暴露的）：
+
+```python
+# coding=utf-8
+from uliweb import expose
+
+# 类级 @expose 下，非 _ 开头的方法会自动暴露到 /user/<方法名>
+@expose('/user')
+class UserView:
+    def index(self):          # 自动暴露为 /user/index
+        return {'users': []}
+
+    def profile(self, id):    # 自动暴露为 /user/profile/<id>
+        return {'profile': id}
+
+    def _helper(self):        # _ 开头的方法不会被暴露为路由
+        return 'internal'
+```
+
+需要注意的约定边界（与 uliweb3 代码 `rules.py` 一致）：
+
+- **方法名是 HTTP 动词时默认不自动暴露**：`get/post/put/delete/patch/head/options/trace/connect` 这些方法名会默认被跳过（此时更像 Flask MethodView / RESTful 风格）。若确实要把它们当普通方法名路径暴露，可在方法上设置 `方法名.__auto_expose__ = True` 强制；若要显式禁止某个公开方法被暴露，设置 `方法名.__no_auto_expose__ = True`。
+- **方法级单独写 `@expose`** 的类方法会使用其自己的显式规则，不会被自动暴露覆盖（可用来覆盖默认的 `/user/<方法名>` 路径）。
+- 带 `@expose('/')`（根路径）的类，方法会自动暴露为 `/方法名`。
+
 **重要：Uliweb3 异步变更**
 - `request.POST` 已弃用，使用 `await request.get_POST()`
 - `request.FILES` 已弃用，使用 `await request.get_FILES()`
@@ -255,6 +282,17 @@ class UserView:
 - 同步视图函数仍然可用，框架会自动适配
 
 ### 步骤 5: 编写模板
+
+#### 模板路径约定（建议做法）
+
+模板文件路径也有约定，**非必要不要指定自定义路径，而用约定的路径**。当视图返回字典且未显式指定 `template=` 时，Uliweb3 会按 `TEMPLATE_TEMPLATE` 约定自动查找模板（对应 `uliweb/core/default_settings.ini` 的 `TEMPLATE_TEMPLATE`）：
+
+- **函数视图**：查找 `templates/<函数名>.html`
+- **类视图**：查找 `templates/<类名>/<方法名>.html`
+
+例如上面的类视图 `UserView.index`，默认模板就是 `templates/UserView/index.html`；函数视图 `index` 默认模板是 `templates/index.html`。因此建议把模板放在约定的路径下（可以写注释说明这一点），避免在每个视图里额外指定 `template=` 参数。
+
+只有需要自定义模板文件名时才在 `@expose(..., template='xxx.html')` 中显式指定。
 
 在 `templates/` 目录下创建模板文件：
 
