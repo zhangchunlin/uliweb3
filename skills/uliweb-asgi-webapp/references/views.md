@@ -82,6 +82,24 @@ view函数可以返回多种类型的结果：
 - json对象 - 使用json函数包装
 - Response实例 - 主动创建Response实例
 
+### 错误处理 `error()`
+
+`error()` 用于向客户端返回错误响应，**抛 `HTTPError` 异常，无需 `return`**（与经典 Uliweb 一致）：
+
+```python
+from uliweb import error
+
+@expose('/item')
+def item(id):
+    if not id:
+        error('缺少 id 参数', status=400)   # → HTTP 400
+    return {'id': id}
+```
+
+- `error(message, status=...)` 通过 `status` 指定状态码；未传 `status` 时默认 **500**。
+- 视图中可直接使用 `error`（无需 import）；也可显式 `from uliweb import error`。
+- 常用语义：非法参数 → 400、无权限 → 403、未找到 → 404。
+
 ### view模块的入口处理
 
 可以在view模块中定义名为 `__begin__` 和 `__end__` 的特殊方法：

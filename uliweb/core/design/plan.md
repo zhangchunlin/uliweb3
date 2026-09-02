@@ -42,10 +42,10 @@ plan.md 由工程师在 plan mode 里基于已批准的 spec.md 生成；审阅�
 5. **周边组件异步化**：模板、事件分发、命令、HTML/UAML、JSON 工具。
 6. **Settings 与 ASGI 处理程序**：`ASGIApplication` 单例，`make_application` 便捷入口。
 7. **类视图方法 auto-register 语义修正**（spec §3.17）：在 `parse_class` 的 else 分支（[rules.py:325-342](uliweb/core/rules.py#L325-L342)）前置 L1/L2/L3 守卫，跳过 HTTP 动词方法名 + 显式 opt-out/opt-in。
-8. **错误响应状态码语义修正**（spec §3.18）：让 `error()` 的 `status` 参数在 ASGI 下生效——两处一行级改动（均集中在 `uliweb/core/SimpleFrame.py`）：
-   - `AsyncDispatcher._error`（[SimpleFrame.py:2392](uliweb/core/SimpleFrame.py#L2392)）：`status_code=500` → `kwargs.get('status', 500)`。
-   - `_handle_exception` 的 uliweb `HTTPError` 分支（[SimpleFrame.py:3452](uliweb/core/SimpleFrame.py#L3452)）：`status_code=403` → `exception.errors.get('status', 403)`。
-   - 单测：`tests/test_error_status.py` 覆盖 `error(msg, status=400/403)` ASGI 返回对应状态码、未传 status 默认 500、抛 HTTPError 时按 `errors['status']` 返回；agent-gateway 回归（非法 id → 400 / 无权限 → 403 / 不存在 → 404）。
+8. **错误响应状态码语义修正**（spec §3.18）：让 `error()` 的 `status` 参数在 ASGI 下生效，并恢复文档「error() 无需 return」契约——`_error` 由"返回响应"改为"抛 `HTTPError`"（与模块级 `error()` 一致），统一默认状态码 500（均集中在 `uliweb/core/SimpleFrame.py`）：
+   - `AsyncDispatcher._error`（[SimpleFrame.py:2392](uliweb/core/SimpleFrame.py#L2392)）：`return JSONResponse(..., status_code=500)` → `raise HTTPError(errorpage, **kwargs)`。
+   - `_handle_exception` 的 uliweb `HTTPError` 分支（[SimpleFrame.py:3452](uliweb/core/SimpleFrame.py#L3452)）：`status_code=403` → `exception.errors.get('status', 500)`。
+   - 单测：`test/test_error_status.py` 覆盖 `error(msg, status=400/403)` ASGI 返回对应状态码、未传 status 默认 500、`error()` 无需 return、抛 HTTPError 时按 `errors['status']` 返回；agent-gateway 回归（非法 id → 400 / 无权限 → 403 / 不存在 → 404）。
 9. **验证与清理**：移除 werkzeug 依赖，跑通检查清单与测试。
 
 ## 风险与缓解

@@ -583,11 +583,11 @@ def parse_class(self, f):
 `status` 在 ASGI 路径下**完全失效**，导致"非法参数 / 无权限 / 未找到"等语义错误统一返回 500，
 客户端无法按状态码区分错误类型。这是本 ASGI 迁移中错误处理环节的**缺陷**，需要在框架侧修复。
 
-**现状问题（两处硬编码，均忽略 `status`）：**
+**现状问题（两处，一处硬编码忽略 `status`，一处语义不统一）：**
 
 1. **`AsyncDispatcher._error`**（[SimpleFrame.py:2392](uliweb/core/SimpleFrame.py#L2392)）：
-   ASGI 下视图内调用 `error()` 时不抛异常，而是经由 `env['error'] = self._error`（[SimpleFrame.py:2336](uliweb/core/SimpleFrame.py#L2336)）
-   直接返回响应，但硬编码 `status_code=500`：
+   ASGI 下视图内调用 `error()` 不抛异常，而是经由 `env['error'] = self._error`（[SimpleFrame.py:2336](uliweb/core/SimpleFrame.py#L2336)）
+   **直接返回响应**，硬编码 `status_code=500`，无视 `kwargs` 里的 `status`：
    ```python
    def _error(self, message='', errorpage=None, **kwargs):
        from starlette.responses import JSONResponse
@@ -595,10 +595,12 @@ def parse_class(self, f):
            message = str(message)
        return JSONResponse({'error': message}, status_code=500)   # ← 无视 kwargs 里的 status
    ```
+   这与文档契约（`error()` 抛异常、无需 return，见 `docs/zh_CN` 教程）相悖：视图 `error("...")` 不带
+   return 会静默返回 200 + body `"None"`。
 
 2. **`_handle_exception` 对 uliweb `HTTPError` 的处理**（[SimpleFrame.py:3438-3455](uliweb/core/SimpleFrame.py#L3438-L3455)）：
-   当 `error()` 抛出的 `HTTPError` 被捕获时（WSGI / 非 request 上下文），其 `errors` dict 里
-   已有 `status`，但处理器硬编码 `status_code=403`：
+   当 `error()` 抛出的 `HTTPError` 被捕获时，其 `errors` dict 里已有 `status`，但处理器硬编码
+   `status_code=403`：
    ```python
    if hasattr(exception, 'errorpage') and hasattr(exception, 'errors'):
        message = exception.errors.get('message', str(exception))
@@ -608,32 +610,37 @@ def parse_class(self, f):
 
 **契约 / 期望行为：** `error(message, errorpage=None, request=None, appname=None, **kwargs)`
 （[SimpleFrame.py:544](uliweb/core/SimpleFrame.py#L544)）的 `**kwargs` 约定支持 `status`。
-无论走"返回响应"（ASGI `_error`）还是"抛 `HTTPError` 再被 `_handle_exception` 捕获"，
-最终响应的状态码都应**遵循调用方传入的 `status`**，且默认值保持一致（`_error` 默认 500，
-`_handle_exception` 对 HTTPError 默认 403）。
+`error()` 应始终**抛 `HTTPError`**（与文档「无需 return」一致），最终响应状态码由
+`_handle_exception` 遵循 `errors['status']`，未传 `status` 时统一默认 **500**（`error()` 属通用
+服务器错误，403「Forbidden」不宜作默认）。
 
-**修正方案（两处各一行级改动，向后兼容）：**
+**修正方案：**
 
-1. `_error` 读取 `kwargs.get('status', 500)`：
+1. `_error` 不再返回响应，改为抛 `HTTPError`（与模块级 `error()` 一致）：
    ```python
-   status = kwargs.get('status', 500)
-   return JSONResponse({'error': message}, status_code=status)
+   def _error(self, message='', errorpage=None, **kwargs):
+       if hasattr(message, '__str__'):
+           message = str(message)
+       kwargs.setdefault('message', message)
+       raise HTTPError(errorpage, **kwargs)
    ```
 
-2. `_handle_exception` 读取 `exception.errors.get('status', 403)`：
+2. `_handle_exception` 读取 `exception.errors.get('status', 500)`（默认统一为 500）：
    ```python
-   status = exception.errors.get('status', 403)
+   status = exception.errors.get('status', 500)
    return JSONResponse({'error': message}, status_code=status)
    ```
 
 **验收标准：**
 
 - 视图 `error(msg, status=400)` 在 ASGI 请求下返回 HTTP 400（而非 500）；`status=403` → 403；未传 `status` → 500。
-- `error()` 抛 `HTTPError` 被 `_handle_exception` 捕获时，返回 `errors['status']` 指定的状态码（默认 403）。
-- 对现有全部调用 `error(msg)`（未传 status）的项目零行为变化（仍 500 / 403）。
+- `error(msg)` **无需 return** 即生效（不再返回 200 + "None"）。
+- `raise HTTPError(message=..., status=...)` 被 `_handle_exception` 捕获时，返回 `errors['status']` 指定的状态码（默认 500）。
+- 对现有全部调用 `error(msg)`（未传 status）的项目零行为变化（仍 500）。
 - agent-gateway 回归：`GET /gateway/message_detail/{非法id}` → 400、跨用户访问 → 403、不存在 → 404。
 
-**对外接口影响：** 不改 `error()` 签名、不改 `HTTPError` 结构；只修正响应状态码的取值来源。**向后兼容**。
+**对外接口影响：** 不改 `error()` 签名、不改 `HTTPError` 结构；`_error` 由"返回响应"改为"抛
+`HTTPError`"，与模块级 `error()` 语义对齐，恢复文档「无需 return」契约。**向后兼容**。
 
 ## 4. 约束与策略落地
 

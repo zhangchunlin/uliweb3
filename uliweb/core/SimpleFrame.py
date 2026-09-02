@@ -2390,15 +2390,14 @@ class AsyncDispatcher:
             raise ValueError(f"url_for error for {endpoint} (point={point}): {e}")
 
     def _error(self, message='', errorpage=None, **kwargs):
-        """错误处理函数"""
-        # 这里需要实现异步版本的 error
-        # 暂时简单实现
-        from starlette.responses import JSONResponse
+        """错误处理函数（异步版本）"""
+        # 与模块级 error() 一致：抛 HTTPError，交由 _handle_exception 统一处理，
+        # 使视图调用 error() 时无需 return，且 status 参数经 errors 保留。
         # 确保 message 是字符串类型，避免 LazyString 等无法 JSON 序列化的类型
         if hasattr(message, '__str__'):
             message = str(message)
-        status = kwargs.get('status', 500)
-        return JSONResponse({'error': message}, status_code=status)
+        kwargs.setdefault('message', message)
+        raise HTTPError(errorpage, **kwargs)
 
     async def __call__(self, scope, receive, send):
         """ASGI 3.0 接口实现"""
@@ -3450,7 +3449,7 @@ class AsyncDispatcher:
                 return RedirectResponse(url=errorpage, status_code=302)
             else:
                 # 返回错误信息
-                status = exception.errors.get('status', 403)
+                status = exception.errors.get('status', 500)
                 return JSONResponse(
                     {'error': message},
                     status_code=status

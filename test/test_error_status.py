@@ -53,19 +53,19 @@ from uliweb.core.SimpleFrame import HTTPError
 
 @expose("/err/400")
 def err_400():
-    return error("bad request", status=400)
+    error("bad request", status=400)
 
 @expose("/err/403")
 def err_403():
-    return error("forbidden", status=403)
+    error("forbidden", status=403)
 
 @expose("/err/404")
 def err_404():
-    return error("not found", status=404)
+    error("not found", status=404)
 
 @expose("/err/default")
 def err_default():
-    return error("server error")
+    error("server error")
 
 @expose("/err/raise")
 def err_raise():
