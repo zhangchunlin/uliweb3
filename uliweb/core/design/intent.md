@@ -8,7 +8,7 @@ intent.md 是 AI-native SDLC 流程的起点：把想法用提出者自己的话
 
 ---
 类型: intent
-状态: draft            <!-- draft → 提交给产品负责人审阅修正 -->
+状态: approved          <!-- draft → 审阅通过 → approved -->
 创建: 2026-08-28
 ---
 

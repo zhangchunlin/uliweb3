@@ -8,7 +8,7 @@ spec.md 由"接受了的 intent.md"驱动生成。产品负责人审阅、就地
 ---
 类型: spec
 来源: intent.md
-状态: 待审阅        <!-- 审阅通过后 → approved，触发 Stage 3 plan mode -->
+状态: approved        <!-- 审阅通过 → approved，触发 Stage 3 plan mode -->
 创建: 2026-08-28
 ---
 
