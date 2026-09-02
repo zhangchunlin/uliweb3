@@ -2397,7 +2397,8 @@ class AsyncDispatcher:
         # 确保 message 是字符串类型，避免 LazyString 等无法 JSON 序列化的类型
         if hasattr(message, '__str__'):
             message = str(message)
-        return JSONResponse({'error': message}, status_code=500)
+        status = kwargs.get('status', 500)
+        return JSONResponse({'error': message}, status_code=status)
 
     async def __call__(self, scope, receive, send):
         """ASGI 3.0 接口实现"""
@@ -3449,9 +3450,10 @@ class AsyncDispatcher:
                 return RedirectResponse(url=errorpage, status_code=302)
             else:
                 # 返回错误信息
+                status = exception.errors.get('status', 403)
                 return JSONResponse(
                     {'error': message},
-                    status_code=403
+                    status_code=status
                 )
 
         if isinstance(exception, HTTPException):
