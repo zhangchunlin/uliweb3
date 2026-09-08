@@ -19,11 +19,8 @@ from starlette.responses import Response as StarletteResponse, JSONResponse
 from starlette.datastructures import UploadFile
 from starlette.routing import Route, Router, Mount
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from starlette.exceptions import HTTPException as BadRequest
-from starlette.exceptions import HTTPException as InternalServerError
 from starlette.exceptions import HTTPException as NotFound
 from starlette.websockets import WebSocket as StarletteWebSocket
-
 # 为了兼容性，创建别名
 OriginalResponse = StarletteResponse
 
@@ -598,9 +595,9 @@ def jsonp(data, **json_kwargs):
 
     begin = str(request.GET.get(cb))
     if not begin:
-        raise BadRequest("Can't found %s parameter in request's query_string" % cb)
+        raise StarletteHTTPException(status_code=400, detail="Can't found %s parameter in request's query_string" % cb)
     if not r_callback.match(begin):
-        raise BadRequest("The callback name is not right, it can be alphabetic, number and underscore only")
+        raise StarletteHTTPException(status_code=400, detail="The callback name is not right, it can be alphabetic, number and underscore only")
 
     if callable(data):
         @wraps(data)
@@ -724,7 +721,6 @@ def get_rule(url):
     """
     获取 URL 的路由规则信息。
     使用 bind 替代 bind_to_environ，避免依赖 werkzeug.test.EnvironBuilder。
-    NotFound 异常已在本文件顶部从 werkzeug.exceptions 导入。
     """
     # 使用 bind 替代 bind_to_environ
     url_adapter = url_map.bind('localhost')
