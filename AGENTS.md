@@ -3,7 +3,7 @@
 <!--
 AGENTS.md 放在仓库根目录，全团队共享。每个 agent 会话开始都读它。
 规则：agent 同样错误犯两次 → 把纠正写进来；保持简洁（过时内容白占上下文）。
-AI-native 工件链见 design/（intent → spec → plan → review）。
+AI-native 工件链见 intent/asgi-migration/（intent → spec → plan → review）。
 -->
 
 ## Commands
@@ -30,7 +30,7 @@ AI-native 工件链见 design/（intent → spec → plan → review）。
 - `uliweb/core/SimpleFrame.py`：核心分发器（Request/Response、AsyncDispatcher、UliwebRouter、中间件栈、同步适配器）
 - `uliweb/core/rules.py`：`@expose` 装饰器、路由注册与 `parse_class`
 - `uliweb/utils/localproxy.py`：`LocalProxy` / `Global` 全局状态管理
-- `design/`：AI-native 工件链（intent / spec / plan / review），改动时同步更新
+- `intent/asgi-migration/`：AI-native 工件链（intent / spec / plan / review），改动时同步更新
 
 ## Things agents get wrong
 - **Request 数据读取是异步方法，不是属性**：用 `await request.get_POST()` / `get_FILES()` / `get_json()` / `get_data()` / `get_params()`；访问同步属性 `request.POST` / `FILES` / `json` / `data` 会抛 `RuntimeError`（故意弃用引导迁移）。

@@ -8,7 +8,7 @@ import copy
 from ..utils._compat import string_types, iterkeys, get_class, ismethod
 
 # ──────────────────────────────────────────────────────────────────────
-# Class-method auto-register guards (design/spec.md §3.17)
+# Class-method auto-register guards (intent/asgi-migration/spec.md §3.17)
 # ──────────────────────────────────────────────────────────────────────
 # 默认对类视图的所有 public 方法无差别 auto-register（路径段=方法名）。
 # 三个守卫让"我想用 Flask MethodView / RESTful 风格写类视图"成为可能，
