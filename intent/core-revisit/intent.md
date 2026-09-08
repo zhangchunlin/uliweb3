@@ -55,7 +55,7 @@ core-design-cleanup 之后重新审视 `uliweb/core`，发现一批新的明显�
 
 ## 开放问题
 
-- **修复范围**：只修 6 个高置信 bug，还是连同死代码/误导注释一并清理？倾向一并清理（同一复盘目的），但死代码删除前逐个确认无引用。
-- **异常类统一方式**：`uliweb/__init__.py` 改为 `from .core.SimpleFrame import HTTPError, RedirectException, UliwebError`（保留 `from uliweb import` 兼容）vs 反过来。倾向前者。
-- **`common.wraps` 的 await 修法**：`get_view_env` 改同步 vs `wraps` 改异步装饰器。需看调用方形态，待实现阶段定。
-- **优先级/拆提交粒度**：按「一个目的一个提交」：双轨一致性、异常统一、commands 修复、死代码清理、注释清理。
+- **修复范围** → 已定案：**都做**——修 6 个 bug + 清死代码 + 清误导注释；死代码删除前逐个确认无引用。
+- **异常类统一方式** → 已定案：**保留 `from uliweb import HTTPError/RedirectException/UliwebError` 兼容**，`uliweb/__init__.py` 改为从 `uliweb.core.SimpleFrame` 导入真类。
+- **`common.wraps` 的 await 修法** → 待实现阶段定：`get_view_env` 改同步 vs `wraps` 改异步装饰器，需先看 RBAC/auth 调用方形态，倾向改动面最小的方案。
+- **优先级/拆提交粒度** → 已定案：按「一个目的一个提交」：双轨一致性、异常统一、commands 修复、死代码清理、注释清理。
