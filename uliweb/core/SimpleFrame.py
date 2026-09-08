@@ -1907,41 +1907,6 @@ class AsyncDispatcher:
                     logging.getLogger('uliweb').warning(f"Failed to initialize ASGI middleware {name}: {e}")
                     pass
 
-    def _sort_middlewares(self, middlewares):
-        """对中间件进行排序"""
-        m = []
-        for v in middlewares:
-            if not v:
-                continue
-
-            order = None
-            if isinstance(v, (list, tuple)):
-                if len(v) > 2:
-                    # 跳过格式不正确的中间件配置
-                    continue
-                middleware_path = v[0]
-                if len(v) == 2:
-                    order = v[1]
-            else:
-                middleware_path = v
-
-            try:
-                cls = import_attr(middleware_path)
-
-                if order is None:
-                    order = getattr(cls, 'ORDER', 500)
-                m.append((order, cls))
-            except Exception as e:
-                # 如果中间件导入失败，跳过
-                import logging
-                logging.getLogger('uliweb').warning(f"Failed to import middleware {middleware_path}: {e}")
-                continue
-
-        # 按顺序排序
-        m.sort(key=lambda x: x[0])
-
-        return [x[1] for x in m]
-
     async def _init_routes(self):
         """初始化路由，处理收集到的路由信息"""
         # 首先处理域名配置
