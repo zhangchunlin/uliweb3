@@ -444,7 +444,6 @@ use_urls = False
 url_adapters = {}
 __app_dirs__ = {}
 __app_alias__ = {}
-_xhr_redirect_json = True
 
 r_callback = re.compile(r'^[\w_]+$')
 # Initialize pyini env
@@ -509,22 +508,6 @@ class HTTPError(Exception):
     def __str__(self):
         return repr(self.errors)
 
-def redirect(location, code=302):
-    global _xhr_redirect_json, request
-
-    if _xhr_redirect_json and getattr(request, 'is_json', None):
-        response = json({'success':False, 'redirect':location}, status=500)
-    else:
-        response = Response(
-            '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">\n'
-            '<title>Redirecting...</title>\n'
-            '<h1>Redirecting...</h1>\n'
-            '<p>You should be redirected automatically to target URL: '
-            '<a href="%s">%s</a>.  If not click the link.' %
-            (html_escape(location), html_escape(location)), status=code, content_type='text/html')
-        response.headers['Location'] = location
-    return response
-
 class RedirectException(Exception):
     """
     This is an exception, which can be raised in view function
@@ -553,34 +536,6 @@ def function(fname, *args, **kwargs):
             return import_attr(func)
     else:
         raise UliwebError("Can't find the function [%s] in settings" % fname)
-
-def json(data, **json_kwargs):
-    def set_content_type():
-        from uliweb import request
-
-    if 'content_type' not in json_kwargs:
-            if request and 'Accept' in request.headers:
-                Accept = request.headers['Accept']
-                if Accept == '*/*':
-                    json_kwargs['content_type'] = CONTENT_TYPE_JSON
-                else:
-                    if 'application/json' in [x.strip() for x in request.headers['Accept'].split(',')]:
-                        json_kwargs['content_type'] = CONTENT_TYPE_JSON
-                    else:
-                        json_kwargs['content_type'] = CONTENT_TYPE_TEXT
-            else:
-                json_kwargs['content_type'] = CONTENT_TYPE_TEXT
-
-    if callable(data):
-        @wraps(data)
-        def f(*arg, **kwargs):
-            set_content_type()
-            ret = data(*arg, **kwargs)
-            return Response(json_dumps(ret), **json_kwargs)
-        return f
-    else:
-        set_content_type()
-        return Response(json_dumps(data), **json_kwargs)
 
 def jsonp(data, **json_kwargs):
     """
