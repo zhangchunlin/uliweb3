@@ -628,7 +628,6 @@ def get_url_adapter(_domain_name):
     Fetch a domain url_adapter object, and bind it to according domain
     统一返回 UliwebRouter（具备 build 方法），不再返回无 build 的 Starlette Router
     """
-    from .context import get_application
     _app = get_application()
 
     # 如果 application 中的 application 为 None，尝试使用 __global__.application
@@ -3507,10 +3506,6 @@ def get_settings():
 def get_application():
     """获取当前应用对象"""
     return application
-
-
-# 不再需要从 context.py 导入，因为已经在模块顶部定义了
-# request, response, settings, application
 
 
 # 兼容性函数

@@ -15,8 +15,7 @@ def prepare_default_env(sender, env):
 
 def url_for_static(filename=None, **kwargs):
     from uliweb import settings
-    from uliweb.core.SimpleFrame import get_url_adapter, __global__, application as sf_application
-    from uliweb.core.context import get_application
+    from uliweb.core.SimpleFrame import get_url_adapter, get_application, __global__, application as sf_application
     from uliweb.utils._compat import import_
 
     urlparse, urlunparse, urljoin, urlencode = import_('urllib.parse',

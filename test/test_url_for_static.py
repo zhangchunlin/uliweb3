@@ -25,19 +25,12 @@ def test_url_adapter_with_app():
         start=False  # 不自动启动
     )
 
-    # 设置到 contextvars 中
-    from uliweb.core.context import application_var
-    application_var.set(app)
-
     # 获取 'static' domain 的 adapter
     adapter = get_url_adapter('static')
 
     print(f"adapter type: {type(adapter)}")
     print(f"adapter: {adapter}")
     print(f"has build method: {hasattr(adapter, 'build')}")
-
-    # 清理
-    application_var.set(None)
 
     # 验证返回的是 AsyncDispatcher 的 router
     assert hasattr(adapter, 'build'), "Adapter should have build method"
@@ -47,10 +40,6 @@ def test_url_adapter_with_app():
 def test_url_adapter_without_app():
     """测试没有 AsyncDispatcher 应用时的 url_adapter"""
     from uliweb.core.SimpleFrame import get_url_adapter
-
-    # 确保没有 application 在 contextvars 中
-    from uliweb.core.context import application_var
-    application_var.set(None)
 
     # 获取 'static' domain 的 adapter
     adapter = get_url_adapter('static')
@@ -77,12 +66,9 @@ def test_url_for_static():
     app.router.add_route("/static/{filename}", lambda: None, name="uliweb.contrib.staticfiles.static")
     app.prepare()
 
-    # 设置到全局和 contextvars 中
+    # 设置到全局中
     from uliweb.core.SimpleFrame import __global__
     __global__.application = app
-
-    from uliweb.core.context import application_var
-    application_var.set(app)
 
     # 测试基本 URL 生成
     url = url_for_static('css/style.css')
@@ -107,7 +93,6 @@ def test_url_for_static():
     assert 'css/style.css' in url, f"Expected URL to contain 'css/style.css', got '{url}'"
 
     # 清理
-    application_var.set(None)
     __global__.application = None
 
     print("Test passed: url_for_static works correctly!")
