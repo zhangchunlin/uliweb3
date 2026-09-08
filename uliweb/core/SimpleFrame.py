@@ -606,8 +606,12 @@ def CORS(func=None, res=None):
             response.headers['Content-Length'] = 0
             return response
         elif request.method in ('GET', 'POST'):
-            if isinstance(r, Response) or isinstance(r, OriginalResponse):
-                response = r
+            # 只处理真正的 Response；非 Response 结果（如字符串）原样返回，
+            # 避免改写全局 response 代理（那个代理在 async/contextvars 下按请求隔离，
+            # 且会被框架随后重新包装，改写其头是无意义副作用）
+            if not (isinstance(r, Response) or isinstance(r, OriginalResponse)):
+                return r
+            response = r
             response.headers['Access-Control-Allow-Credentials'] = 'true'
             if 'Origin' in request.headers:
                 response.headers['Access-Control-Allow-Origin'] = request.headers['Origin']
