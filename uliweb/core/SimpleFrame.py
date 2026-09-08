@@ -19,7 +19,6 @@ from starlette.responses import Response as StarletteResponse, JSONResponse
 from starlette.datastructures import UploadFile
 from starlette.routing import Route, Router, Mount
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from starlette.exceptions import HTTPException as NotFound
 from starlette.websockets import WebSocket as StarletteWebSocket
 # 为了兼容性，创建别名
 OriginalResponse = StarletteResponse
@@ -627,69 +626,50 @@ def GET(rule, **kw):
 def get_url_adapter(_domain_name):
     """
     Fetch a domain url_adapter object, and bind it to according domain
-    使用 Starlette 路由替代 werkzeug，不需要 wsgi_decoding_dance
+    统一返回 UliwebRouter（具备 build 方法），不再返回无 build 的 Starlette Router
     """
-    # 使用 get_application() 来获取 application，如果为 None 则使用 __global__.application
     from .context import get_application
     _app = get_application()
 
     # 如果 application 中的 application 为 None，尝试使用 __global__.application
     if _app is None:
-        # 尝试从 __global__ 获取
         _app = getattr(__global__, 'application', None)
 
-    # 如果有 AsyncDispatcher 实例，使用它的 router
+    # 如果有 AsyncDispatcher 实例，使用它的 router（UliwebRouter）
     if _app and hasattr(_app, 'router'):
-        # 返回 AsyncDispatcher 的 router，它有 build 方法
         return _app.router
 
-    # 否则使用全局的 url_map（WSGI 模式）
-    domain = _app.domains.get(_domain_name, {}) if _app else {}
-    server_name = None
-
-    if domain.get('domain', ''):
-        server_name = domain['domain']
-
-    # 使用 Starlette 路由的简单 bind 方法
-    # 不再依赖 werkzeug 的 bind_to_environ
-    try:
-        # 尝试从 request 获取 scope 信息 (ASGI 环境)
-        if hasattr(request, 'scope') and request.scope:
-            scope = request.scope
-            env = {
-                'url_scheme': scope.get('scheme', 'http'),
-                'default_method': scope.get('method', 'GET'),
-                'script_name': scope.get('root_path', ''),
-                'path_info': scope.get('path', '/'),
-                'query_args': scope.get('query_string', b'').decode('utf-8'),
-            }
-            adapter = url_map.bind(server_name, **env) if server_name else url_map
-        else:
-            adapter = url_map.bind(server_name) if server_name else url_map
-    except:
-        # 如果获取失败，使用默认的 adapter
-        adapter = url_map.bind(server_name) if server_name else url_map
-
-    return adapter
+    # 否则使用全局的 url_map（UliwebRouter）
+    return url_map
 
 def get_rule(url):
     """
-    获取 URL 的路由规则信息。
-    使用 bind 替代 bind_to_environ，避免依赖 werkzeug.test.EnvironBuilder。
+    获取 URL 的路由规则信息（ASGI 版，迭代 UliwebRouter 规则匹配）。
     """
-    # 使用 bind 替代 bind_to_environ
-    url_adapter = url_map.bind('localhost')
+    from starlette.routing import Match
+
+    _app = get_application() or getattr(__global__, 'application', None)
+    router = getattr(_app, 'router', None) if _app else None
+    if router is None:
+        router = url_map
+
     result = {}
-    try:
-        rule, values = url_adapter.match(url, return_rule=True)
-        result['rule'] = rule.rule
-        result['endpoint'] = rule.endpoint
-        result['doc'] = ''
-        mod, handler_cls, func = application.get_handler(rule.endpoint)
-        if func.__doc__:
-            result['doc'] = func.__doc__.strip()
-    except NotFound:
-        pass
+    scope = {'type': 'http', 'path': url, 'path_params': {}}
+    for route in router.iter_rules():
+        match, child_scope = route.matches(scope)
+        if match == Match.FULL:
+            result['rule'] = getattr(route, 'path', None)
+            endpoint = getattr(route, 'name', None)
+            result['endpoint'] = endpoint
+            result['doc'] = ''
+            if endpoint and _app:
+                try:
+                    handler_cls, mod, func = _app.get_handler(endpoint)
+                    if func and func.__doc__:
+                        result['doc'] = func.__doc__.strip()
+                except Exception:
+                    pass
+            break
     return result
 
 def url_for(endpoint, **values):
