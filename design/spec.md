@@ -357,7 +357,7 @@ class Middleware(object):
 
 **中间件开发最佳实践：** 大多数场景用高级接口；需 WebSocket/精细控制用底层 ASGI；预编译正则与缓存优化性能；`request.state` 在中间件间传递状态。
 
-> **教程**：内置中间件、自定义/纯 ASGI/常用中间件（认证、限流、校验、响应格式化等）的完整示例代码见 [`tutorial.md`](tutorial.md)。
+> **教程**：内置中间件、自定义/纯 ASGI/常用中间件（认证、限流、校验、响应格式化等）的完整示例代码与最佳实践见 `docs/zh_CN/02_core_concepts/middleware.md`（§ASGI 中间件开发）。
 
 ### 3.9 模板系统设计
 

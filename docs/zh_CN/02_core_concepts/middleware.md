@@ -166,3 +166,163 @@ INSTALLED_APPS中包含app即可使用。顺序一般也定义好了。
 
 的顺序来执行。
 
+
+## ASGI 中间件开发
+
+{% alert class=info %}
+**Uliweb3 异步变更说明**
+
+在 ASGI 架构下，`Middleware` 基类同时提供两种**异步接口**，与上面传统的 `process_*` 同步接口并存：
+框架会自动把传统的 `process_request` / `process_response` / `process_exception` 经协程池适配为异步执行，
+因此传统写法仍可继续使用。新代码推荐使用下面的异步接口。
+{% endalert %}
+
+### 高级接口（`dispatch`，推荐）
+
+对大多数 HTTP 请求处理场景，推荐实现 `async def dispatch(self, request, call_next):` 高级接口：
+
+```python
+from uliweb import Middleware
+
+class TimingMiddleware(Middleware):
+    """请求计时中间件示例"""
+
+    async def dispatch(self, request, call_next):
+        import time
+        start_time = time.time()
+
+        response = await call_next(request)
+
+        process_time = time.time() - start_time
+        response.headers['X-Process-Time'] = str(process_time)
+
+        return response
+```
+
+`call_next(request)` 会调用下一个中间件或最终视图函数；返回值是 `response` 对象，可在返回前对其进行修改。
+支持拆成 `before_request` / `after_response` 钩子：
+
+```python
+from uliweb import Middleware
+
+class MyAdvancedMiddleware(Middleware):
+    async def dispatch(self, request, call_next):
+        await self.before_request(request)
+        response = await call_next(request)
+        return await self.after_response(request, response)
+
+    async def before_request(self, request):
+        """请求预处理钩子"""
+        pass
+
+    async def after_response(self, request, response):
+        """响应后处理钩子"""
+        return response
+```
+
+### 底层 ASGI 接口（`__call__`）
+
+需要处理 WebSocket、自定义协议或更精细的底层控制时，使用底层 ASGI 接口 `async def __call__(self, scope, receive, send):`：
+
+```python
+from uliweb import Middleware
+from typing import Dict, Any
+
+class MyASGIMiddleware(Middleware):
+    def __init__(self, application, settings):
+        super().__init__(application, settings)
+
+    async def __call__(self, scope: Dict[str, Any], receive, send):
+        # 只处理 HTTP 请求
+        if scope["type"] != "http":
+            await self.application(scope, receive, send)
+            return
+
+        # 请求预处理
+        await self.process_request(scope)
+
+        try:
+            await self.application(scope, receive, send)
+        except Exception as e:
+            await self.handle_exception(scope, receive, send, e)
+
+    async def process_request(self, scope):
+        pass
+
+    async def handle_exception(self, scope, receive, send, exception):
+        raise exception
+```
+
+### 纯 ASGI 中间件
+
+也可以完全不依赖 `Middleware` 基类，直接实现 ASGI 协议：
+
+```python
+from starlette.types import ASGIApp, Scope, Receive, Send
+from typing import Dict, Any
+
+class ASGICustomMiddleware:
+    def __init__(self, app: ASGIApp, **kwargs):
+        self.app = app
+        self.config = kwargs
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_wrapper(message: Dict[str, Any]) -> None:
+            if message["type"] == "http.response.start":
+                await self.process_response_start(scope, message)
+            elif message["type"] == "http.response.body":
+                await self.process_response_body(scope, message)
+            await send(message)
+
+        await self.process_request(scope)
+        try:
+            await self.app(scope, receive, send_wrapper)
+        except Exception as e:
+            await self.handle_asgi_exception(scope, receive, send, e)
+
+    async def process_request(self, scope: Scope) -> None: pass
+    async def process_response_start(self, scope, message): pass
+    async def process_response_body(self, scope, message): pass
+    async def handle_asgi_exception(self, scope, receive, send, exception): pass
+```
+
+### 配置与执行顺序
+
+在 `settings.ini` 的 `[MIDDLEWARES]` 段中配置中间件，格式为 `middleware_name = 'middleware_class_path'[, order]`：
+
+```ini
+[MIDDLEWARES]
+# 高级接口中间件
+logging = 'myapp.middleware.LoggingMiddleware', 100
+auth = 'uliweb.contrib.auth.middle_auth.AuthMiddle', 200
+
+# 底层 ASGI 接口中间件
+cors = 'myapp.middleware.CORSMiddleware', 50
+gzip = 'myapp.middleware.GZipMiddleware', 300
+```
+
+按 `order` 从小到大执行，形成处理链；高级与底层接口中间件可混用：
+
+```
+A Before → B Before → C Before → 应用处理 → C After → B After → A After
+```
+
+### 常用中间件示例
+
+- **认证（JWT）**：校验 `Authorization: Bearer <token>`，跳过公开路径（`/login`、`/register`、`/docs` 等），失败返回 401。
+- **限流**：按 `x-api-key` / `request.state.user_id` / IP 识别客户端，按 1 分钟窗口计数，超限返回 429 并带 `Retry-After` 头。
+- **请求验证**：校验 HTTP 方法（405）、必需请求头（400）、`Content-Type`（415）。
+- **响应格式化**：把 JSON 响应包装成 `{success, status_code, data, meta}` 统一结构。
+- **请求日志**：记录 `method` / `url.path` / `status_code` / 耗时。
+
+### 中间件开发最佳实践
+
+- **选择接口**：大多数 HTTP 场景用高级 `dispatch` 接口；需要 WebSocket / 精细控制时用底层 `__call__` 接口。
+- **性能**：预编译正则表达式、缓存计算结果；快速路径下用 `if self.should_skip(request): return await call_next(request)` 跳过不必要处理。
+- **错误处理**：在 `dispatch` 中用 `try/except` 捕获特定异常并返回对应错误响应；未知异常 `raise` 交由上层处理。
+- **状态传递**：中间件间通过 `request.state` 传递状态，例如认证中间件写入 `request.state.user`，授权中间件读取。
+
