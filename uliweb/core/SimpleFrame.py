@@ -2715,6 +2715,22 @@ class AsyncDispatcher:
         # 这会导致在请求处理时 settings 变成 None
         local_env['settings'] = __global__.settings
 
+        return self._build_view_env(local_env)
+
+    def get_view_env_sync(self):
+        """获取视图环境（同步双轨，供同步装饰器使用）"""
+        local_env = {}
+
+        self._call_dispatch_sync('prepare_view_env', local_env)
+
+        local_env['application'] = get_application()
+        local_env['request'] = get_request()
+        local_env['response'] = get_response()
+        local_env['settings'] = __global__.settings
+
+        return self._build_view_env(local_env)
+
+    def _build_view_env(self, local_env):
         # 合并环境
         if hasattr(self, 'env') and self.env is not None:
             if hasattr(self.env, 'to_dict'):
@@ -2730,9 +2746,11 @@ class AsyncDispatcher:
 
     async def _call_dispatch(self, topic, *args, **kwargs):
         """异步调用分发器"""
-        # 这里需要实现异步的分发器调用
-        # 暂时简单实现
-        pass
+        await dispatch.acall(self, topic, *args, **kwargs)
+
+    def _call_dispatch_sync(self, topic, *args, **kwargs):
+        """同步调用分发器"""
+        dispatch.call(self, topic, *args, **kwargs)
 
     async def call_handler(self, handler, request, response, env, wrap_result=None, args=None, kwargs=None):
         """异步调用处理器"""
