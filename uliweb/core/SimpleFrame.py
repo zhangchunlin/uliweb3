@@ -1803,12 +1803,22 @@ class AsyncDispatcher:
         # 因为 rules.merge_rules() 会保留 websocket 参数
         merged_rules = rules.merge_rules()
 
-        # 构建已注册路由的集合（用于去重和覆盖）
-        # key: endpoint - 用于判断端点是否重复
-        # value: (url, route_info) - 存储路由信息，支持后续覆盖
-        # 这与 WSGI 版本的机制一致：endpoint 是端点的唯一标识
-        # 后来的定义可以覆盖前面的
+        # 已注册路由：key = 最终 starlette 规则(path)，value = path。
+        # 语义：一个 URL(path) 只对应一个 handler；一个 handler 可映射多个 URL。
+        # 同 path 重复注册时，后者覆盖前者（去重）；同 handler 不同 URL 互不影响。
         registered_routes = {}
+
+        def _register(starlette_rule, endpoint, **kwargs):
+            """注册路由；同 path 上已存在的路由先移除（同 URL 后者覆盖 / 去重）。"""
+            if starlette_rule in registered_routes:
+                self.router.routes = [r for r in self.router.routes if r.path != starlette_rule]
+                self.router.router.routes = [r for r in self.router.router.routes if r.path != starlette_rule]
+            websocket = kwargs.pop('websocket', False)
+            if websocket:
+                self.router.add_websocket_route(starlette_rule, endpoint, **kwargs)
+            else:
+                self.router.add_route(starlette_rule, endpoint, **kwargs)
+            registered_routes[starlette_rule] = starlette_rule
 
         # 检查是否已经有路由，如果有则跳过重复注册
         # （避免与 _init_routes_sync 先注册的路由重复；但 _init_routes_sync 是简化版，
@@ -1845,17 +1855,8 @@ class AsyncDispatcher:
                 if static:
                     self.static_views.append(endpoint)
 
-                # 处理 WebSocket 路由
-                websocket = kw.pop('websocket', False)
-                if websocket:
-                    # 注册 WebSocket 路由
-                    self.router.add_websocket_route(starlette_rule, endpoint, **kw)
-                else:
-                    # 注册普通 HTTP 路由
-                    self.router.add_route(starlette_rule, endpoint, **kw)
-
-                # 记录已注册的路由（用于后续 EXPOSES 覆盖）
-                registered_routes[endpoint] = (starlette_rule, endpoint)
+                # 注册路由（经 _register：同 path 去重/后者覆盖；websocket 由 _register 处理）
+                _register(starlette_rule, endpoint, **kw)
 
         # 处理每个应用的 EXPOSES 路由（来自 settings.ini 的路由定义）
         # 这个处理不应该被跳过，因为 _init_routes_sync 可能没有处理 EXPOSES
@@ -1869,14 +1870,6 @@ class AsyncDispatcher:
                     if isinstance(route_info, (list, tuple)) and len(route_info) >= 2:
                         url, endpoint = route_info[:2]
 
-                        # 覆盖逻辑：如果 endpoint 已经注册过，先移除旧的路由
-                        # 后来的 EXPOSES 定义可以覆盖之前的 @expose 定义
-                        if endpoint in registered_routes:
-                            old_rule, old_endpoint = registered_routes[endpoint]
-                            # 移除旧路由
-                            self.router.routes = [r for r in self.router.routes if r.path != old_rule]
-                            self.router.router.routes = [r for r in self.router.router.routes if r.path != old_rule]
-                            logger.debug(f"Override EXPOSES route {url} -> {endpoint}, overriding previous @expose route")
                         # 转换 Werkzeug 风格路由到 Starlette 风格
                         starlette_rule, param_types = _convert_route_param(url)
                         # 存储参数类型信息
@@ -1901,12 +1894,8 @@ class AsyncDispatcher:
                         if not kwargs.get('methods'):
                             kwargs['methods'] = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']
 
-                        # 处理 WebSocket 路由
-                        websocket = kwargs.get('websocket')
-                        if websocket:
-                            self.router.add_websocket_route(starlette_rule, endpoint, name=name)
-                        else:
-                            self.router.add_route(starlette_rule, endpoint, name=name, methods=kwargs['methods'])
+                        # 注册（同 path 去重/后者覆盖）
+                        _register(starlette_rule, endpoint, name=name, **kwargs)
                     elif isinstance(route_info, str):
                         # 如果只有 URL，使用 name 作为 endpoint，同时作为 name 参数
                         url = route_info
@@ -1916,22 +1905,12 @@ class AsyncDispatcher:
                         if param_types:
                             self.route_param_types[starlette_rule] = param_types
 
-                        # 覆盖逻辑：如果 name 已经注册过，先移除旧的路由
-                        if name in registered_routes:
-                            old_rule, old_endpoint = registered_routes[name]
-                            # 移除旧路由
-                            self.router.routes = [r for r in self.router.routes if r.path != old_rule]
-                            self.router.router.routes = [r for r in self.router.router.routes if r.path != old_rule]
-                            logger.debug(f"Override EXPOSES route {url} -> {name}, overriding previous registration")
-
-                        # 注册路由，使用 name 同时作为 endpoint 和路由名称
+                        # 注册路由，使用 name 同时作为 endpoint 和路由名称（同 path 去重/后者覆盖）
                         # 根据 EXPOSES 文档，默认支持所有 HTTP 方法
-                        self.router.add_route(starlette_rule, name, name=name,
+                        _register(starlette_rule, name, name=name,
                             methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'])
                         # 同步更新 url_map，确保 build 方法能找到正确的路由
                         self.router.url_map[name] = self.router.routes[-1]
-                        # 更新 registered_routes
-                        registered_routes[name] = (starlette_rule, name)
 
         # 处理全局 EXPOSES 路由（来自 settings.ini 的路由定义）
         if hasattr(self.settings, 'EXPOSES') and self.settings.EXPOSES:
@@ -1943,13 +1922,6 @@ class AsyncDispatcher:
                 if isinstance(route_info, (list, tuple)) and len(route_info) >= 2:
                     url, endpoint = route_info[:2]
 
-                    # 覆盖逻辑：如果 endpoint 已经注册过，先移除旧的路由
-                    if endpoint in registered_routes:
-                        old_rule, old_endpoint = registered_routes[endpoint]
-                        # 移除旧路由
-                        self.router.routes = [r for r in self.router.routes if r.path != old_rule]
-                        self.router.router.routes = [r for r in self.router.router.routes if r.path != old_rule]
-                        logger.debug(f"Override global EXPOSES route {url} -> {endpoint}, overriding previous registration")
                     # 添加 url_prefix
                     full_url = url_prefix + url
                     # 转换 Werkzeug 风格路由到 Starlette 风格
@@ -1972,30 +1944,18 @@ class AsyncDispatcher:
                     if not kwargs.get('methods'):
                         kwargs['methods'] = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']
 
-                    # 处理 WebSocket 路由
-                    websocket = kwargs.get('websocket')
-                    if websocket:
-                        self.router.add_websocket_route(starlette_rule, endpoint, name=name)
-                    else:
-                        self.router.add_route(starlette_rule, endpoint, name=name, methods=kwargs['methods'])
+                    # 注册（同 path 去重/后者覆盖）
+                    _register(starlette_rule, endpoint, name=name, **kwargs)
                 elif isinstance(route_info, str):
                     # 如果只有 URL，使用 name 作为 endpoint
                     url = route_info
-                    # 覆盖逻辑：如果 name 已经注册过，先移除旧的路由
-                    if name in registered_routes:
-                        old_rule, old_endpoint = registered_routes[name]
-                        # 移除旧路由
-                        self.router.routes = [r for r in self.router.routes if r.path != old_rule]
-                        self.router.router.routes = [r for r in self.router.router.routes if r.path != old_rule]
-                        logger.debug(f"Override global EXPOSES route {url} -> {name}, overriding previous registration")
-
                     starlette_rule, param_types = _convert_route_param(url)
                     # 存储参数类型信息
                     if param_types:
                         self.route_param_types[starlette_rule] = param_types
-                    # 注册路由
+                    # 注册路由（同 path 去重/后者覆盖）
                     # 根据 EXPOSES 文档，默认支持所有 HTTP 方法
-                    self.router.add_route(starlette_rule, name, name=name,
+                    _register(starlette_rule, name, name=name,
                         methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'])
 
     async def _import_views(self):

@@ -602,6 +602,96 @@ def comment(post_id, comment_id):
 
         asyncio.run(run())
 
+    def test_exposes_same_endpoint_multiple_urls(self):
+        """测试同一 endpoint 可被多个 URL 映射（@expose 与 EXPOSES 共存）"""
+        from uliweb.core.SimpleFrame import AsyncDispatcher
+
+        (self.apps_dir / 'settings.ini').write_text('''
+[GLOBAL]
+DEBUG = True
+INSTALLED_APPS = ["testapp"]
+
+[EXPOSES]
+root = "/", "testapp.views.test"
+''')
+        (self.app_dir / 'views.py').write_text('''
+from uliweb import expose
+
+@expose("/test")
+def test():
+    return "OK"
+''')
+
+        dispatcher = AsyncDispatcher(
+            apps_dir='apps', project_dir=str(self.project_dir), start=False)
+        dispatcher.apps = ['testapp']
+        dispatcher.prepare()
+
+        paths = [r.path for r in dispatcher.router.routes]
+        # 同一 endpoint 的 /test 与 / 应同时存在
+        assert '/test' in paths
+        assert '/' in paths
+
+    def test_exposes_same_url_different_endpoint_later_wins(self):
+        """测试同一 URL 映射到两个不同 endpoint：后者覆盖，仅保留一条路由"""
+        from uliweb.core.SimpleFrame import AsyncDispatcher
+
+        (self.apps_dir / 'settings.ini').write_text('''
+[GLOBAL]
+DEBUG = True
+INSTALLED_APPS = ["testapp"]
+
+[EXPOSES]
+t = "/test", "testapp.views.b"
+''')
+        (self.app_dir / 'views.py').write_text('''
+from uliweb import expose
+
+@expose("/test")
+def a():
+    return "A"
+
+def b():
+    return "B"
+''')
+
+        dispatcher = AsyncDispatcher(
+            apps_dir='apps', project_dir=str(self.project_dir), start=False)
+        dispatcher.apps = ['testapp']
+        dispatcher.prepare()
+
+        test_routes = [r for r in dispatcher.router.routes if r.path == '/test']
+        assert len(test_routes) == 1
+        assert getattr(test_routes[0], 'endpoint', None) == 'testapp.views.b'
+
+    def test_exposes_same_url_same_endpoint_no_duplicate(self):
+        """测试同一 URL 映射到同一 endpoint：去重，仅一条路由"""
+        from uliweb.core.SimpleFrame import AsyncDispatcher
+
+        (self.apps_dir / 'settings.ini').write_text('''
+[GLOBAL]
+DEBUG = True
+INSTALLED_APPS = ["testapp"]
+
+[EXPOSES]
+t = "/test", "testapp.views.test"
+''')
+        (self.app_dir / 'views.py').write_text('''
+from uliweb import expose
+
+@expose("/test")
+def test():
+    return "OK"
+''')
+
+        dispatcher = AsyncDispatcher(
+            apps_dir='apps', project_dir=str(self.project_dir), start=False)
+        dispatcher.apps = ['testapp']
+        dispatcher.prepare()
+
+        test_routes = [r for r in dispatcher.router.routes if r.path == '/test']
+        assert len(test_routes) == 1
+
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
