@@ -10,23 +10,8 @@ __license__ = 'BSD'
 
 # 导入管理命令需要的函数（避免循环导入）
 from .core.SimpleFrame import get_apps, get_app_dir, functions, is_in_web, error, Finder, decorators
+from .core.SimpleFrame import HTTPError, RedirectException, UliwebError
 from .core.js import json_dumps
-
-
-# 首先定义错误类，避免循环导入
-class UliwebError(Exception):
-    """Uliweb 基础错误类"""
-    pass
-
-
-class HTTPError(Exception):
-    """HTTP 错误类"""
-    pass
-
-
-class RedirectException(Exception):
-    """重定向异常类"""
-    pass
 
 
 class Middleware(object):
