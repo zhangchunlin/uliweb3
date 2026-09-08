@@ -459,8 +459,6 @@ class UliwebRouter:
 # 此处主要供 get_rule/get_url_adapter 在无 app 时兜底，以及历史兼容。
 url_map = UliwebRouter()
 static_views = []
-use_urls = False
-url_adapters = {}
 __app_dirs__ = {}
 __app_alias__ = {}
 
@@ -558,33 +556,6 @@ def function(fname, *args, **kwargs):
             return import_attr(func)
     else:
         raise UliwebError("Can't find the function [%s] in settings" % fname)
-
-def jsonp(data, **json_kwargs):
-    """
-    jsonp is callback key name
-    """
-    from uliweb import request
-
-    if 'jsonp' in json_kwargs:
-        cb = json_kwargs.pop('jsonp')
-    else:
-        cb = 'callback'
-
-    begin = str(request.GET.get(cb))
-    if not begin:
-        raise StarletteHTTPException(status_code=400, detail="Can't found %s parameter in request's query_string" % cb)
-    if not r_callback.match(begin):
-        raise StarletteHTTPException(status_code=400, detail="The callback name is not right, it can be alphabetic, number and underscore only")
-
-    if callable(data):
-        @wraps(data)
-        def f(*arg, **kwargs):
-            ret = data(*arg, **kwargs)
-            return Response(begin + '(' + json_dumps(ret) + ');', **json_kwargs)
-        return f
-    else:
-        return Response(begin + '(' + json_dumps(data) + ');', **json_kwargs)
-
 
 def CORS(func=None, res=None):
     """
@@ -893,61 +864,6 @@ def load_settings_config(project_dir, include_apps=None, settings_file='settings
 def is_in_web():
     # 使用 request.get_value() 来判断是否在 web 环境中
     return request.get_value() is not None
-
-class ContextStorage(object):
-    """
-    Used to save increament vars
-    """
-
-    __variables__ = {}
-
-    def __init__(self, args={}):
-        self.__class__.__variables__ = args
-        self._vars = {}
-
-    def __getattr__(self, key):
-        try:
-            return self['_vars'][key]
-        except KeyError as e:
-            try:
-                return self[key]
-            except KeyError as e:
-                return None
-
-    def copy(self):
-        n = ContextStorage(self.__variables__)
-        n._vars = self._vars.copy()
-        return n
-
-    def to_dict(self):
-        d = self._vars.copy()
-        d.update(self.__variables__)
-        return d
-
-    def __getitem__(self, key):
-        try:
-            return self._vars[key]
-        except KeyError as e:
-            return self.__variables__[key]
-
-    def __setitem__(self, key, value):
-        self._vars[key] = value
-
-    def update(self, arg):
-        self._vars.update(arg)
-
-    def items(self):
-        keys = set()
-        for k, v in self._vars.items():
-            keys.add(k)
-            yield k, v
-
-        for k, v in self.__variables__.items():
-            if k not in keys:
-                yield k, v
-
-    def __repr__(self):
-        return '<ContextStorage ' + repr(self.__variables__) + ' ' + repr(self._vars) + ' >'
 
 
 # ==================== AsyncDispatcher：ASGI 分发器 ====================
@@ -2345,26 +2261,6 @@ class AsyncDispatcher:
 
         # 处理请求
         await app(scope, receive, send)
-
-    async def handle_http(self, scope, receive, send):
-        """处理 HTTP 请求"""
-        # 确保应用已初始化
-        if not self._initialized:
-            await self._async_init()
-
-        # 使用 req 作为局部变量名，避免遮蔽全局的 request (LocalProxy)
-        req = Request(scope, receive, send)
-
-        # 设置请求上下文
-        request_token = request.set(req)
-
-        try:
-            # 处理请求
-            response = await self._open(req)
-            await response(scope, receive, send)
-        finally:
-            # 清理上下文
-            request.reset(request_token)
 
     async def handle_websocket(self, scope, receive, send):
         """处理 WebSocket 请求"""
