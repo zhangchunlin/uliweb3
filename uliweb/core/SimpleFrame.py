@@ -2,6 +2,20 @@
 # Author: Limodou@gmail.com
 # License: BSD
 ####################################################################
+"""Uliweb 核心分发器（单一入口）。
+
+本文件集中承载 ASGI 迁移后的核心实现，各功能区用 `# =====` 分节标注：
+
+- Request / Response：继承 Starlette 的请求/响应类（含异步数据读取方法）。
+- 模块级代理 request / response / settings / application：LocalProxy 全局状态，
+  是 `uliweb.request` 等对外入口；注意与同名类 `Request`/`Response` 区分。
+- UliwebRouter：路由容器（含 `url_map` 模块全局与 `AsyncDispatcher.router` 实例）。
+- HTTPError / RedirectException / error() / redirect / json：视图辅助与异常。
+- AsyncDispatcher：ASGI 分发（同步适配器 + 中间件栈 + 路由初始化）。
+- ASGIApplication：ASGI 应用入口。
+
+行为契约与"易踩坑"规则见仓库根 AGENTS.md（模块职责地图 / Things agents get wrong）。
+"""
 from __future__ import print_function, absolute_import
 
 import os, sys
@@ -226,6 +240,8 @@ from uliweb.utils.localproxy import LocalProxy, Global
 from uliweb.utils._compat import html_escape, isresponse
 
 # 定义错误类以避免循环导入
+# ==================== 异常与路由辅助 ====================
+
 class UliwebError(Exception):
     """Uliweb 基础错误类"""
     pass
@@ -306,17 +322,19 @@ except:
 
 __global__ = Global()
 
-# 使用 LocalProxy 替代 contextvars
-# request 和 response 使用 LocalProxy + use_contextvars=True（每个协程独立）
-# settings 和 application 使用 LocalProxy + use_contextvars=False（全局一致）
-# 重要：必须使用 __global__ 作为 env，确保与 get_application() 返回的对象一致
+# ==================== 模块级全局代理 ====================
+# request/response 用 contextvars（每协程独立）；settings/application 用普通全局（env=__global__）。
+# 注意：这些全小写代理（如 `uliweb.request`）是 LocalProxy，与上方同名类 Request/Response 不同。
 request = LocalProxy('request', use_contextvars=True)
 response = LocalProxy('response', use_contextvars=True)
 settings = LocalProxy('settings', use_contextvars=False, env=__global__)
 application = LocalProxy('application', use_contextvars=False, env=__global__)
 
-# 使用 Starlette 路由替代 werkzeug.routing.Map
-# 创建 UliwebRouter 实例
+# ==================== 路由 UliwebRouter ====================
+# 路由容器。注意命名含义：
+#   - 模块全局 `url_map` = UliwebRouter()（下方）——WSGI/兜底路由集
+#   - `UliwebRouter.url_map`（dict）与 `UliwebRouter.router`（Starlette Router）是实例内部容器
+#   - `AsyncDispatcher.router` 是独立的 UliwebRouter 实例（路由注册的真正目标）
 class UliwebRouter:
     """Uliweb 路由适配器，将 Werkzeug 风格路由转换为 Starlette 风格"""
 
@@ -437,6 +455,8 @@ class UliwebRouter:
         return url
 
 
+# 模块级路由兜底集合（UliwebRouter）。真正运行用 AsyncDispatcher.router；
+# 此处主要供 get_rule/get_url_adapter 在无 app 时兜底，以及历史兼容。
 url_map = UliwebRouter()
 static_views = []
 use_urls = False
@@ -498,6 +518,9 @@ functions = Finder('FUNCTIONS')
 
 # Request 和 Response 类已移至 starlette.py，避免代码重复
 # 从 .starlette 导入的 Request 和 Response 类已包含所有必要的兼容方法
+
+# ==================== 视图辅助：异常 / 重定向 / 响应 ====================
+# HTTPError 由 error() 抛出（视图无需 return）；RedirectException 由 Redirect() 抛出（同理）。
 
 class HTTPError(Exception):
     def __init__(self, errorpage=None, **kwargs):
@@ -922,6 +945,10 @@ class ContextStorage(object):
     def __repr__(self):
         return '<ContextStorage ' + repr(self.__variables__) + ' ' + repr(self._vars) + ' >'
 
+
+# ==================== AsyncDispatcher：ASGI 分发器 ====================
+# 核心分发：路由初始化（_init_routes/_init_routes_sync 双轨）、视图导入（_import_views）、
+# 同步适配器（anyio 线程池 + copy_context 桥接）、中间件栈、请求分发。
 
 class AsyncDispatcher:
     """支持 ASGI 3.0 接口的异步 Dispatcher
@@ -3384,6 +3411,8 @@ class AsyncDispatcher:
         )
 
 
+
+# ==================== ASGIApplication：ASGI 应用入口 ====================
 
 class ASGIApplication:
     """纯 ASGI 应用处理器（单例模式）"""
