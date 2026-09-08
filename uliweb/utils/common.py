@@ -278,7 +278,7 @@ def wraps(src):
         def f(*args, **kwargs):
             from uliweb import application
             if application:
-                env = application.get_view_env()
+                env = application.get_view_env_sync()
                 for k, v in iteritems(env):
                     src.__globals__[k] = v
 
