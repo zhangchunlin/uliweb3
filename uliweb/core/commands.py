@@ -115,6 +115,7 @@ class Command(with_metaclass(CommandMetaclass)):
     check_apps_dirs = True
     check_apps = False
     skip_options = False #if True, then it'll skip not defined options and keep them in args
+    version = getattr(uliweb, '__version__', '')
 
     def create_parser(self, prog_name, subcommand):
         """
@@ -348,7 +349,7 @@ class CommandManager(Command):
                 sys.exit(0)
             else:
                 self.print_help(global_options)
-                sys.ext(1)
+                sys.exit(1)
     
         self.do_command(args, global_options)
 
