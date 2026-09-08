@@ -867,10 +867,6 @@ def is_in_web():
     # 使用 request.get_value() 来判断是否在 web 环境中
     return request.get_value() is not None
 
-class DispatcherHandler(object):
-    def __init__(self, application):
-        self.application = application
-
 class ContextStorage(object):
     """
     Used to save increament vars
