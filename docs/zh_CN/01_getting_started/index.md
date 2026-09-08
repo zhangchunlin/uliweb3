@@ -104,7 +104,6 @@ compat.md
 
 ### 前端
 {% toc max_depth=1 %}
-articles/xhr_redirect_json.md
 articles/jqcookie.md
 {% endtoc %}
 

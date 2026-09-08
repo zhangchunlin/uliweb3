@@ -98,9 +98,8 @@
 - [Nginx 配置](09_articles/nginx_cfg.md)
 - [SQLite 超时](09_articles/sqlite_timeout.md)
 - [SVG MIME 类型](09_articles/svg_mimetype_config.md)
-- [URL 前缀](09_articles/url_prefix.md)
-- [Model 初始化](09_articles/what_does_model_init_does.md)
-- [AJAX 重定向](09_articles/xhr_redirect_json.md)
+ - [URL 前缀](09_articles/url_prefix.md)
+ - [Model 初始化](09_articles/what_does_model_init_does.md)
 
 ## 参考
 
