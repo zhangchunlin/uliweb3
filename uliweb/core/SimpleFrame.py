@@ -1247,7 +1247,13 @@ class AsyncDispatcher:
         self._settings_loaded = True
 
     def _init_routes_sync(self):
-        """同步初始化路由"""
+        """同步初始化路由（简化版，仅测试路径使用）。
+
+        注意：此方法只是 `_init_routes` 的简化同步版本，仅处理 `merge_rules()`
+        注册与静态 URL 前缀，**不等价于** `_init_routes`（后者还做 `_import_views`、
+        EXPOSES 覆盖、`route_param_types`、`set_app_rules` 等）。
+        生产运行走 `_init_routes`（async）；改动路由逻辑时请以 `_init_routes` 为准。
+        """
         # 设置域名
         self.domains = {}
         if hasattr(self.settings, 'DOMAINS') and self.settings.DOMAINS:
@@ -1885,7 +1891,8 @@ class AsyncDispatcher:
         registered_routes = {}
 
         # 检查是否已经有路由，如果有则跳过重复注册
-        # 因为 _init_routes_sync 已经正确注册了路由
+        # （避免与 _init_routes_sync 先注册的路由重复；但 _init_routes_sync 是简化版，
+        #   此处仍会继续处理 EXPOSES/route_param_types 等它未覆盖的逻辑）
         existing_route_paths = set(r.path for r in self.router.routes)
 
         # 注册路由到路由器（仅当没有路由时）
