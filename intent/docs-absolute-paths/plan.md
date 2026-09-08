@@ -16,7 +16,7 @@ plan.md 由工程师在 plan mode 里基于已批准的 spec.md 生成；审阅�
 
 ## 改动的文件
 
-- `test/README.md`（修改）：L15、L25 `cd ~/project/asgi_knowbot/.venv/src/uliweb3/test` → `cd test`（相对仓库根）。
+- `test/README.md`（修改）：L15、L25 `cd ~/project/asgi_knowbot/.venv/src/uliweb3/test` + `../bin/...` → 改为仓库根规范命令 `nosetests --with-doc test` / `pytest test/`（因 `../bin/` 依赖 venv 位置，改用 AGENTS.md 的仓库根命令更可移植）。
 - `docs/zh_CN/06_commands/manage_guide.md`（修改）：L306-408 `/Users/limodou/...` → 去作者名的通用占位路径（保持示例语义）。
 - `docs/zh_CN/05_builtin_apps/app/recorder.md`（修改）：L116 `/home/uliweb/project/blog` → 通用项目根占位。
 - `docs/zh_CN/09_articles/articles/nginx_cfg.md`（修改）：L16、L20 `/home/xxx/xxx/...` → 核对并统一为占位风格。

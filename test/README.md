@@ -11,21 +11,15 @@ You can execute the test suite using either of the following standard Python tes
 ### Option 1: Legacy Runner (Nose)
 Uliweb's legacy test suite can be run using `nosetests` with the doctest plugin enabled:
 ```bash
-# Navigate to the test directory
-cd ~/project/asgi_knowbot/.venv/src/uliweb3/test
-
-# Run the complete test suite
-../bin/nosetests --with-doctest
+# 在仓库根目录执行（不要在 test/ 内跑，避免相对路径/导入问题）
+nosetests --with-doc test
 ```
 
 ### Option 2: Modern Runner (Pytest)
 For modern development, you can use `pytest`:
 ```bash
-# Navigate to the test directory
-cd ~/project/asgi_knowbot/.venv/src/uliweb3/test
-
-# Run all tests using pytest
-../bin/pytest .
+# 在仓库根目录执行
+pytest test/
 ```
 
 ---

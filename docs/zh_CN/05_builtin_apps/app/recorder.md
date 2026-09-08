@@ -113,7 +113,7 @@ counter 用来计数，统计成功或失败的个数。
 这是一个可能的输出结果：
 
 ```
-Current directory is /home/uliweb/project/blog
+Current directory is <project_root>/blog
 
 Testing /login...OK
 Testing /login...Failed

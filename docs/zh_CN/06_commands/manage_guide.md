@@ -303,13 +303,13 @@ uliweb find -t template --tree --
     apps/project/templates/layout.html
 
     -------------- Tree --------------
-         /Users/limodou/mywork/plugs/plugs/ui/bootstrap/templates/bootstrap/bootstrap_layout.html
-             (extend)/Users/limodou/mywork/plugs/plugs/ui/bootstrap/templates/bootstrap/bootstrap_fluid_layout.html
-                 (extend)/Users/limodou/mywork/plugs/plugs/layout/bootstrap/templates/layout.html
+         <project_root>/plugs/plugs/ui/bootstrap/templates/bootstrap/bootstrap_layout.html
+             (extend)<project_root>/plugs/plugs/ui/bootstrap/templates/bootstrap/bootstrap_fluid_layout.html
+                 (extend)<project_root>/plugs/plugs/layout/bootstrap/templates/layout.html
     ---------------> (extend)apps/project/templates/layout.html
-                         (include)/Users/limodou/mywork/uliweb/uliweb/contrib/csrf/templates/inc_jquery_csrf.html
-                     (include)/Users/limodou/mywork/plugs/plugs/layout/bootstrap/templates/menu.html
-                     (include)/Users/limodou/mywork/plugs/plugs/ui/jquery/pnotify/templates/inc_show_flashes.html
+                         (include)<project_root>/uliweb/uliweb/contrib/csrf/templates/inc_jquery_csrf.html
+                     (include)<project_root>/plugs/plugs/layout/bootstrap/templates/menu.html
+                     (include)<project_root>/plugs/plugs/ui/jquery/pnotify/templates/inc_show_flashes.html
     ```
 
     其中箭头表示当前模板的位置。
@@ -320,30 +320,30 @@ uliweb find -t template --blocks --with-filename --
 
     ```
     apps/project/templates/layout.html
-    /Users/limodou/mywork/plugs/plugs/layout/bootstrap/templates/layout.html
-    /Users/limodou/mywork/plugs/plugs/layout/default/templates/layout.html
+    <project_root>/plugs/plugs/layout/bootstrap/templates/layout.html
+    <project_root>/plugs/plugs/layout/default/templates/layout.html
 
     -------------- Blocks --------------
-        html_tag   (/Users/limodou/mywork/plugs/plugs/ui/bootstrap/templates/bootstrap/bootstrap_layout.html)
-        meta   (/Users/limodou/mywork/plugs/plugs/ui/bootstrap/templates/bootstrap/bootstrap_layout.html)
-        title   (/Users/limodou/mywork/plugs/plugs/layout/bootstrap/templates/layout.html)
-        _css   (/Users/limodou/mywork/plugs/plugs/ui/bootstrap/templates/bootstrap/bootstrap_layout.html)
-        body_tag   (/Users/limodou/mywork/plugs/plugs/ui/bootstrap/templates/bootstrap/bootstrap_layout.html)
-        before_header   (/Users/limodou/mywork/plugs/plugs/layout/bootstrap/templates/layout.html)
-        header   (/Users/limodou/mywork/plugs/plugs/ui/bootstrap/templates/bootstrap/bootstrap_layout.html)
-            project   (/Users/limodou/mywork/plugs/plugs/layout/bootstrap/templates/layout.html)
-            nav   (/Users/limodou/mywork/plugs/plugs/layout/bootstrap/templates/layout.html)
-                menu   (/Users/limodou/mywork/plugs/plugs/layout/bootstrap/templates/layout.html)
+        html_tag   (<project_root>/plugs/plugs/ui/bootstrap/templates/bootstrap/bootstrap_layout.html)
+        meta   (<project_root>/plugs/plugs/ui/bootstrap/templates/bootstrap/bootstrap_layout.html)
+        title   (<project_root>/plugs/plugs/layout/bootstrap/templates/layout.html)
+        _css   (<project_root>/plugs/plugs/ui/bootstrap/templates/bootstrap/bootstrap_layout.html)
+        body_tag   (<project_root>/plugs/plugs/ui/bootstrap/templates/bootstrap/bootstrap_layout.html)
+        before_header   (<project_root>/plugs/plugs/layout/bootstrap/templates/layout.html)
+        header   (<project_root>/plugs/plugs/ui/bootstrap/templates/bootstrap/bootstrap_layout.html)
+            project   (<project_root>/plugs/plugs/layout/bootstrap/templates/layout.html)
+            nav   (<project_root>/plugs/plugs/layout/bootstrap/templates/layout.html)
+                menu   (<project_root>/plugs/plugs/layout/bootstrap/templates/layout.html)
             user_info   (apps/project/templates/layout.html)
                 message_number_show   (apps/project/templates/layout.html)
-        content   (/Users/limodou/mywork/plugs/plugs/ui/bootstrap/templates/bootstrap/bootstrap_fluid_layout.html)
-            content_sidebar   (/Users/limodou/mywork/plugs/plugs/ui/bootstrap/templates/bootstrap/bootstrap_fluid_layout.html)
-            content_tool_container   (/Users/limodou/mywork/plugs/plugs/ui/bootstrap/templates/bootstrap/bootstrap_fluid_layout.html)
-                content_tool   (/Users/limodou/mywork/plugs/plugs/ui/bootstrap/templates/bootstrap/bootstrap_fluid_layout.html)
-            content_main   (/Users/limodou/mywork/plugs/plugs/ui/bootstrap/templates/bootstrap/bootstrap_fluid_layout.html)
-        footer_container   (/Users/limodou/mywork/plugs/plugs/ui/bootstrap/templates/bootstrap/bootstrap_layout.html)
-            footer   (/Users/limodou/mywork/plugs/plugs/layout/bootstrap/templates/layout.html)
-        after_footer   (/Users/limodou/mywork/plugs/plugs/ui/bootstrap/templates/bootstrap/bootstrap_layout.html)
+        content   (<project_root>/plugs/plugs/ui/bootstrap/templates/bootstrap/bootstrap_fluid_layout.html)
+            content_sidebar   (<project_root>/plugs/plugs/ui/bootstrap/templates/bootstrap/bootstrap_fluid_layout.html)
+            content_tool_container   (<project_root>/plugs/plugs/ui/bootstrap/templates/bootstrap/bootstrap_fluid_layout.html)
+                content_tool   (<project_root>/plugs/plugs/ui/bootstrap/templates/bootstrap/bootstrap_fluid_layout.html)
+            content_main   (<project_root>/plugs/plugs/ui/bootstrap/templates/bootstrap/bootstrap_fluid_layout.html)
+        footer_container   (<project_root>/plugs/plugs/ui/bootstrap/templates/bootstrap/bootstrap_layout.html)
+            footer   (<project_root>/plugs/plugs/layout/bootstrap/templates/layout.html)
+        after_footer   (<project_root>/plugs/plugs/ui/bootstrap/templates/bootstrap/bootstrap_layout.html)
     ```
 
     从上面的结果可以看出block之间的包含关系，并且每个block最终生效的是定义在哪个文件中。
@@ -352,7 +352,7 @@ uliweb find -t template --source (0.4) --
     打印当前模板转换为python后的源代码，不包含相关的生成注释，如：
 
     ```
-    /Users/limodou/mywork/test/test/apps/test1/templates/index.html
+    <project_root>/test/test/apps/test1/templates/index.html
 
     ---------------- source of index.html ---------------
     def _tt_execute():
@@ -382,30 +382,30 @@ uliweb find -t template --source --comment (0.4) --
     打印当前模板转换为python后的源代码，包含相关的生成行号及注释，如：
 
     ```
-    /Users/limodou/mywork/test/test/apps/test1/templates/index.html
+    <project_root>/test/test/apps/test1/templates/index.html
 
     ---------------- source of index.html ---------------
-     1  def _tt_execute():  # /Users/limodou/mywork/test/test/apps/test1/templates/index.html:0
-     2      _tt_buffer = []  # /Users/limodou/mywork/test/test/apps/test1/templates/index.html:0
-     3      _tt_append = _tt_buffer.append  # /Users/limodou/mywork/test/test/apps/test1/templates/index.html:0
-     4      def _tt_write(t, escape=True):  # /Users/limodou/mywork/test/test/apps/test1/templates/index.html:0
-     5          if escape:  # /Users/limodou/mywork/test/test/apps/test1/templates/index.html:0
-     6              _tt_append(xhtml_escape(t))  # /Users/limodou/mywork/test/test/apps/test1/templates/index.html:0
-     7          else:  # /Users/limodou/mywork/test/test/apps/test1/templates/index.html:0
-     8              _tt_append(t)  # /Users/limodou/mywork/test/test/apps/test1/templates/index.html:0
-     9              pass  # /Users/limodou/mywork/test/test/apps/test1/templates/index.html:0
-    10          pass  # /Users/limodou/mywork/test/test/apps/test1/templates/index.html:0
-    11      out_write = _tt_append  # /Users/limodou/mywork/test/test/apps/test1/templates/index.html:0
-    12      _tt_append('<h1>')  # /Users/limodou/mywork/test/test/apps/test1/templates/index.html:1
-    13      _tt_tmp = escape(name)  # /Users/limodou/mywork/test/test/apps/test1/templates/index.html:1
-    14      if isinstance(_tt_tmp, _tt_string_types):  # /Users/limodou/mywork/test/test/apps/test1/templates/index.html:1
-    15          _tt_tmp = _tt_utf8(_tt_tmp)  # /Users/limodou/mywork/test/test/apps/test1/templates/index.html:1
-    16      else:  # /Users/limodou/mywork/test/test/apps/test1/templates/index.html:1
-    17          _tt_tmp = _tt_utf8(str(_tt_tmp))  # /Users/limodou/mywork/test/test/apps/test1/templates/index.html:1
-    18          pass  # /Users/limodou/mywork/test/test/apps/test1/templates/index.html:1
-    19      _tt_append(_tt_tmp)  # /Users/limodou/mywork/test/test/apps/test1/templates/index.html:1
-    20      _tt_append(' 1</h1>\n')  # /Users/limodou/mywork/test/test/apps/test1/templates/index.html:2
-    21      return _tt_utf8('').join(_tt_buffer)  # /Users/limodou/mywork/test/test/apps/test1/templates/index.html:0
+     1  def _tt_execute():  # <project_root>/test/test/apps/test1/templates/index.html:0
+     2      _tt_buffer = []  # <project_root>/test/test/apps/test1/templates/index.html:0
+     3      _tt_append = _tt_buffer.append  # <project_root>/test/test/apps/test1/templates/index.html:0
+     4      def _tt_write(t, escape=True):  # <project_root>/test/test/apps/test1/templates/index.html:0
+     5          if escape:  # <project_root>/test/test/apps/test1/templates/index.html:0
+     6              _tt_append(xhtml_escape(t))  # <project_root>/test/test/apps/test1/templates/index.html:0
+     7          else:  # <project_root>/test/test/apps/test1/templates/index.html:0
+     8              _tt_append(t)  # <project_root>/test/test/apps/test1/templates/index.html:0
+     9              pass  # <project_root>/test/test/apps/test1/templates/index.html:0
+    10          pass  # <project_root>/test/test/apps/test1/templates/index.html:0
+    11      out_write = _tt_append  # <project_root>/test/test/apps/test1/templates/index.html:0
+    12      _tt_append('<h1>')  # <project_root>/test/test/apps/test1/templates/index.html:1
+    13      _tt_tmp = escape(name)  # <project_root>/test/test/apps/test1/templates/index.html:1
+    14      if isinstance(_tt_tmp, _tt_string_types):  # <project_root>/test/test/apps/test1/templates/index.html:1
+    15          _tt_tmp = _tt_utf8(_tt_tmp)  # <project_root>/test/test/apps/test1/templates/index.html:1
+    16      else:  # <project_root>/test/test/apps/test1/templates/index.html:1
+    17          _tt_tmp = _tt_utf8(str(_tt_tmp))  # <project_root>/test/test/apps/test1/templates/index.html:1
+    18          pass  # <project_root>/test/test/apps/test1/templates/index.html:1
+    19      _tt_append(_tt_tmp)  # <project_root>/test/test/apps/test1/templates/index.html:1
+    20      _tt_append(' 1</h1>\n')  # <project_root>/test/test/apps/test1/templates/index.html:2
+    21      return _tt_utf8('').join(_tt_buffer)  # <project_root>/test/test/apps/test1/templates/index.html:0
     ```
 
 
