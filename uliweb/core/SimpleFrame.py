@@ -313,12 +313,7 @@ def _merge_rules():
 
 CONTENT_TYPE_JSON = 'application/json; charset=utf-8'
 CONTENT_TYPE_TEXT = 'text/plain; charset=utf-8'
-from ..utils._compat import escape, string_types, callable, import_, get_class, ismethod, import_
-
-try:
-    set
-except:
-    from sets import Set as set
+from ..utils._compat import escape, string_types, callable, import_, get_class, ismethod
 
 __global__ = Global()
 
@@ -514,8 +509,7 @@ class Finder(object):
 decorators = Finder('DECORATORS')
 functions = Finder('FUNCTIONS')
 
-# Request 和 Response 类已移至 starlette.py，避免代码重复
-# 从 .starlette 导入的 Request 和 Response 类已包含所有必要的兼容方法
+# Request/Response 继承 Starlette 的对应类，位于本文件（无独立 starlette.py）。
 
 # ==================== 视图辅助：异常 / 重定向 / 响应 ====================
 # HTTPError 由 error() 抛出（视图无需 return）；RedirectException 由 Redirect() 抛出（同理）。
