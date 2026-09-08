@@ -2,7 +2,7 @@
 
 `profile.py` 提供了一个 ASGI 性能分析中间件，用于对 Uliweb 应用进行性能分析和优化。
 
-**重要更新**：本模块已从 WSGI 迁移到 ASGI。详细信息请参考 [uliweb/core/asgi.md](../core/asgi.md)。
+**重要更新**：本模块已从 WSGI 迁移到 ASGI。详细信息请参考 [ASGI 迁移设计文档](../../design/spec.md)。
 
 ## 概述
 
@@ -202,13 +202,13 @@ app = ASGIProfileMiddleware(application)
 
 **迁移自**: 原有的 WSGI ProfileApplication 类
 **迁移到**: ASGIProfileMiddleware 类
-**参考文档**: [uliweb/core/asgi.md](../core/asgi.md)
+**参考文档**: [ASGI 迁移设计文档](../../design/spec.md)
 
 ## 相关模块
 
 - `cProfile`: Python 内置性能分析器
 - `pstats`: 性能统计数据分析模块
 - `uliweb.utils.textconvert`: Uliweb 文本转换工具
-- [uliweb/core/asgi.md](../core/asgi.md): ASGI 迁移指南
+- [ASGI 迁移设计文档](../../design/spec.md): ASGI 迁移指南
 
 这个性能分析工具可以帮助开发者识别应用中的性能瓶颈，优化代码执行效率。

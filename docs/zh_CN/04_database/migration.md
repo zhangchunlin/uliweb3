@@ -429,6 +429,6 @@ def compute(request):
 ## 相关文档
 
 - [部署指南](deployment.md)
-- [ASGI 技术文档](../uliweb/core/asgi.md)
+- [ASGI 迁移设计文档](../../../design/spec.md)
 - [中间件文档](middleware.md)
 - [视图文档](views.md)

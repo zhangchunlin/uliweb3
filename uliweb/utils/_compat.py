@@ -32,7 +32,7 @@ except Exception as e:
     from html import escape
 
 # ASGI 迁移：使用 starlette.responses.Response 替代 werkzeug.wrappers.Response
-# 迁移说明：uliweb/core/asgi.md
+# 迁移说明：design/spec.md
 from starlette.responses import Response as StarletteResponse
 
 def isresponse(item):

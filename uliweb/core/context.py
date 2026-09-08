@@ -1,7 +1,7 @@
 """
 Uliweb 上下文变量模块
 
-根据 asgi.md 文档的设计方案：
+根据 design/spec.md 文档的设计方案：
 - settings 和 application 使用普通全局变量（整个应用生命周期内保持一致）
 - request 和 response 使用 contextvars（每个协程独立隔离）
 
