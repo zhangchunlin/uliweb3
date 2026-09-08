@@ -1070,9 +1070,12 @@ class AsyncDispatcher:
                 loop.close()
 
         # 调用 startup_installed 钩子
-        # 必须在 _init_routes() 之前调用，因为 startup_installed 会注册路由到 __exposes__
-        # 然后 _init_routes() 会根据 __exposes__ 注册路由
-        # 这与 WSGI 版本的调用顺序一致：startup_installed -> init_urls
+        # 本同步路径（prepare，用于 CLI/测试）的顺序：startup_installed -> _init_routes()
+        # 因为 contrib.staticfiles 的 startup_installed 会通过 expose() 注册静态路由，
+        # 需在 _init_routes() 汇总前执行。
+        # 注意：async init() 路径顺序相反（_init_routes() 先，因 timezone 的
+        # startup_installed 会改 now()）。两条路径各有正当理由，顺序不同是有意的，
+        # 勿在未确认两侧行为前强行统一（详见 init() 中对应注释）。
         dispatch.call(self, 'startup_installed')
 
         # 调用 after_init_settings 钩子
@@ -1339,7 +1342,10 @@ class AsyncDispatcher:
 
         # 初始化 URL
         # 必须在 startup_installed 之前调用，因为 timezone 模块的 startup_installed
-        # 会修改 now() 函数的行为，导致 timezone-aware 和 naive datetime 无法比较
+        # 会修改 now() 函数的行为，导致 timezone-aware 和 naive datetime 无法比较。
+        # 注意：sync prepare() 路径顺序相反（startup_installed 先，因 staticfiles 的
+        # startup_installed 用 expose 注册静态路由）。两条路径各有正当理由，顺序不同
+        # 是有意的，勿在未确认两侧行为前强行统一（详见 prepare() 中对应注释）。
         await self._init_routes()
 
         # 调用 startup_installed 钩子，这会触发 uliweb.contrib.template 的初始化
