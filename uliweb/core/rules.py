@@ -333,7 +333,7 @@ class Expose(object):
                             __no_need_exposed__.append((v[0], new_endpoint, rule, v[3], now()))
                     else:
                         #maybe is subclass
-                        v = copy.deepcopy(func.func_dict.get('__saved_rule__'))
+                        v = copy.deepcopy(getattr(func, '__dict__', {}).get('__saved_rule__'))
                         if getattr(func, '__fixed_url__'):
                             rule = v[2]
                         else:
