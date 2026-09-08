@@ -1,6 +1,7 @@
 import logging
 import inspect
 import asyncio
+import anyio
 from uliweb.utils.common import import_attr
 from ..utils._compat import callable
 
@@ -156,7 +157,7 @@ def get(sender, topic, *args, **kwargs):
             if v is not None:
                 return v
         else:
-            raise "Dispatch point [%s] %r can't been invoked" % (topic, _f)
+            raise Exception("Dispatch point [%s] %r can't been invoked" % (topic, _f))
 
 def get_once(sender, topic, *args, **kwargs):
     signal = kwargs.get('signal')
@@ -199,7 +200,6 @@ async def acall(sender, topic, *args, **kwargs):
                     await _f(sender, *args, **kw)
                 else:
                     # Run sync function in thread pool
-                    import anyio
                     await anyio.to_thread.run_sync(_f, sender, *args, **kw)
             except:
                 func = _f.__module__ + '.' + _f.__name__
@@ -239,7 +239,6 @@ async def aget(sender, topic, *args, **kwargs):
                     v = await _f(sender, *args, **kwargs)
                 else:
                     # Run sync function in thread pool
-                    import anyio
                     v = await anyio.to_thread.run_sync(_f, sender, *args, **kwargs)
             except:
                 func = _f.__module__ + '.' + _f.__name__
@@ -248,7 +247,7 @@ async def aget(sender, topic, *args, **kwargs):
             if v is not None:
                 return v
         else:
-            raise "Dispatch point [%s] %r can't been invoked" % (topic, _f)
+            raise Exception("Dispatch point [%s] %r can't been invoked" % (topic, _f))
 
 
 def print_topics():
