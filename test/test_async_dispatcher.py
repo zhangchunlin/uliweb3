@@ -560,6 +560,48 @@ def comment(post_id, comment_id):
             mock_commit_all.assert_not_called()
             mock_rollback_all.assert_called_once()
 
+    def test_match_route_same_path_multiple_methods(self):
+        """测试同路径多方法时，方法不匹配的路由不遮蔽匹配的路由"""
+        import asyncio
+        from starlette.exceptions import HTTPException
+        from uliweb.core.SimpleFrame import AsyncDispatcher, Request
+
+        dispatcher = AsyncDispatcher(
+            apps_dir='apps',
+            project_dir=str(self.project_dir),
+            start=False
+        )
+        dispatcher.apps = ['testapp']
+
+        async def view_get(request):
+            return "GET"
+
+        async def view_post(request):
+            return "POST"
+
+        # 先注册 POST，后注册 GET（旧逻辑下 POST 的 PARTIAL 会遮蔽 GET 的 FULL）
+        dispatcher.router.add_route("/thing", view_post, methods=["POST"], name="post_thing")
+        dispatcher.router.add_route("/thing", view_get, methods=["GET"], name="get_thing")
+
+        def make_req(method):
+            scope = {
+                "type": "http", "method": method, "path": "/thing",
+                "path_params": {}, "query_string": b"", "headers": [],
+                "scheme": "http", "server": ("test", 80), "client": None,
+            }
+            return Request(scope)
+
+        async def run():
+            # GET 应 FULL 匹配到 GET 路由，而非被前面的 POST PARTIAL 遮蔽
+            route, params = await dispatcher._match_route(make_req("GET"))
+            assert route.name == "get_thing"
+            # DELETE 无任何路由允许 → 405
+            with pytest.raises(HTTPException) as exc_info:
+                await dispatcher._match_route(make_req("DELETE"))
+            assert exc_info.value.status_code == 405
+
+        asyncio.run(run())
+
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

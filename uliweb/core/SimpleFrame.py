@@ -2431,6 +2431,9 @@ class AsyncDispatcher:
         # 获取请求的 scope
         scope = request.scope
 
+        # 记录是否遇到方法不匹配（PARTIAL），以便扫完后决定 405
+        method_not_allowed = False
+
         # 遍历所有路由，使用 Starlette 的 route.matches 方法进行匹配
         # Starlette Router 已经预编译了正则表达式，性能更好
         for route in self.router.router.routes:
@@ -2461,13 +2464,12 @@ class AsyncDispatcher:
 
                 return route, converted_params
             elif match == Match.PARTIAL:
-                # 部分匹配（方法不匹配），可能是 GET/POST 等方法不匹配
-                # 对于这种情况，我们应该返回 405 Method Not Allowed
-                # 而不是 404 Not Found
-                # 返回 405 错误
-                raise HTTPException(status_code=405, detail=f"Method {scope.get('method')} not allowed for {scope.get('path')}")
+                # 部分匹配（路径匹配但方法不匹配），先记录，扫完无 FULL 再决定 405
+                method_not_allowed = True
 
-        # 如果没有匹配到路由，抛出 404 异常
+        # 没有 FULL 匹配：若曾路径匹配但方法不符，抛 405；否则抛 404
+        if method_not_allowed:
+            raise HTTPException(status_code=405, detail=f"Method {scope.get('method')} not allowed for {scope.get('path')}")
         raise HTTPException(status_code=404)
 
     def _sort_middlewares(self, middlewares):
