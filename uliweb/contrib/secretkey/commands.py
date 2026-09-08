@@ -13,10 +13,10 @@ class MakeKeyCommand(Command):
 
     def handle(self, options, global_options, *args):
         from random import choice
-        from uliweb.core.SimpleFrame import get_settings
+        from uliweb.core.SimpleFrame import load_settings_config
         from uliweb.core.commands import get_answer
         
-        settings = get_settings(global_options.project, settings_file=global_options.settings, 
+        settings = load_settings_config(global_options.project, settings_file=global_options.settings, 
             local_settings_file=global_options.local_settings)
         output = options.output or settings.SECRETKEY.SECRET_FILE
         keyfile = os.path.join(global_options.project, output)

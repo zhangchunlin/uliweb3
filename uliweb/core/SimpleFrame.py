@@ -893,7 +893,7 @@ local_settings_file='local_settings.ini'):
         settings.append((None, local_settings_file))
     return settings
 
-def get_settings(project_dir, include_apps=None, settings_file='settings.ini',
+def load_settings_config(project_dir, include_apps=None, settings_file='settings.ini',
     local_settings_file='local_settings.ini', default_settings=None):
 
     default_settings = default_settings or {}
