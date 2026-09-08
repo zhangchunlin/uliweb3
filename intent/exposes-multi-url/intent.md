@@ -8,7 +8,7 @@ intent.md 是 AI-native SDLC 流程的起点：把想法用提出者自己的话
 
 ---
 类型: intent
-状态: draft            <!-- draft → 审阅通过 → approved -->
+状态: approved          <!-- draft → 审阅通过 → approved -->
 创建: 2026-09-08
 ---
 
@@ -45,8 +45,8 @@ intent.md 是 AI-native SDLC 流程的起点：把想法用提出者自己的话
 - sync/async 双轨改动须两条路径都考虑（AGENTS.md 约定）。
 - 改动需跑通 `nosetests --with-doc test`。
 
-## 开放问题
+## 开放问题（已定案）
 
-- **`registered_routes` 的去重/覆盖用途还要不要**：若不再按 endpoint 删除旧路由，`registered_routes` 是否还需要（它目前也用于全局/app EXPOSES 的覆盖判断）？倾向改为「仅做 URL 级别的去重/冲突检测」，而非 endpoint 级别覆盖。
-- **同一 URL 被映射到两个不同 endpoint 时**：冲突如何裁决——保留先注册者、后者覆盖、还是启动报错？需拍板。
-- **是否保留「EXPOSES 覆盖同名 endpoint 的旧路由」作为兼容选项**：还是彻底改为「只新增」？倾向彻底改为只新增（用户已确认期望语义）。
+- **`registered_routes` 的去重/覆盖用途还要不要** → **已定案**：把「endpoint → 路由」字典改为「**url → 路由**」字典。不再按 endpoint 删旧路由（实现「一个 endpoint 可多个 URL」）；url 字典用于 URL 级去重（同一 url+handler 不重复注册）并支撑下面的「后者覆盖」。
+- **同一 URL 被映射到两个不同 endpoint 时** → **已定案**：**后者覆盖**前者（后注册的路由替换先注册的）。
+- **是否保留「EXPOSES 覆盖同名 endpoint 的旧路由」作为兼容选项** → **已定案**：彻底改为「EXPOSES 只新增」，不保留旧的 endpoint 级覆盖行为。
