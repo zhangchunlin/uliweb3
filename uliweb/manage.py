@@ -877,18 +877,19 @@ class RunserverCommand(Command):
             cmd = ['uvicorn']
             if options.reload:
                 cmd.append('--reload')
-                # 添加需要监视的目录
-                # 监视项目目录和 apps 目录
+                # 添加需要监视的目录：三个来源并进同一集合做字符串去重（不做最小根化）
+                # 来源1: 项目目录；来源2: apps 目录；来源3: extra_files 所在目录
                 project_dir = global_options.project or os.getcwd()
-                cmd.extend(['--reload-dir', project_dir])
-                cmd.extend(['--reload-dir', old_apps_dir])
-                # 添加 extra_files 中的目录（去重）
                 watched_dirs = set()
+                for d in (project_dir, old_apps_dir):
+                    if d:
+                        watched_dirs.add(os.path.abspath(d))
                 for f in extra_files:
                     dir_path = os.path.dirname(f)
-                    if dir_path and dir_path not in watched_dirs:
-                        watched_dirs.add(dir_path)
-                        cmd.extend(['--reload-dir', dir_path])
+                    if dir_path:
+                        watched_dirs.add(os.path.abspath(dir_path))
+                for d in watched_dirs:
+                    cmd.extend(['--reload-dir', d])
             # uvicorn 不支持 --debug 选项，使用 --log-level debug 替代
             if options.debug:
                 cmd.extend(['--log-level', 'debug'])
@@ -936,8 +937,7 @@ class RunserverCommand(Command):
         if options.reload:
             log.info(' * 自动重载已启用')
             if global_options.verbose:
-                watched = [project_dir, old_apps_dir] + list(watched_dirs)
-                log.info(f' * 监视目录: {watched}')
+                log.info(f' * 监视目录: {sorted(watched_dirs)}')
 
         try:
             subprocess.run(cmd, env=env, check=True)
