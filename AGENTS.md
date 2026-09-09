@@ -25,6 +25,7 @@ AI-native 工件链见 sdlc/（每个特性一个目录：intent → spec → pl
 - Python 3.8–3.13；基于 Starlette/ASGI，**不 reintroduce werkzeug 依赖**
 - `@expose`、`settings.ini`、`url_for` 等对外契约保持向后兼容
 - 所有 ASGI 相关实现集中在 `uliweb/core/SimpleFrame.py`，不新建独立 `starlette.py`
+- **中间件一律用 `Middleware.dispatch(request, call_next)`**：`process_request/process_response/process_exception` 是 WSGI 相位模型，**3.1 后废弃**（启动期有 `logger.warning` 提醒）。迁移注意**实例化时机**：legacy 每请求 new 实例、dispatch 构建期单例，老中间件若在 `self` 存每请求状态须改为从 `request` 读取。
 
 ## Architecture
 
