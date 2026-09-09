@@ -961,22 +961,22 @@ class AsyncDispatcher:
             # 如果有事件循环在运行，使用 run_in_executor
             import concurrent.futures
             with concurrent.futures.ThreadPoolExecutor() as executor:
-                logger.info("prepare: Using ThreadPoolExecutor with running event loop")
+                logger.debug("prepare: Using ThreadPoolExecutor with running event loop")
                 future = executor.submit(asyncio.run, self._import_views())
                 try:
                     future.result()
-                    logger.info("prepare: _import_views completed successfully")
+                    logger.debug("prepare: _import_views completed successfully")
                 except Exception as e:
                     logger.error(f"prepare: _import_views failed with error: {e}")
                     raise
         except RuntimeError:
             # 没有事件循环在运行
-            logger.info("prepare: No running event loop, creating new one")
+            logger.debug("prepare: No running event loop, creating new one")
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
                 loop.run_until_complete(self._import_views())
-                logger.info("prepare: _import_views completed successfully")
+                logger.debug("prepare: _import_views completed successfully")
             except Exception as e:
                 logger.error(f"prepare: _import_views failed with error: {e}")
                 raise
@@ -3367,7 +3367,7 @@ class ASGIApplication:
                     project_dir=self.project_dir,
                     include_apps=include_apps
                 )
-                logger.info("ASGIApplication._initialize: AsyncDispatcher created, calling prepare()...")
+                logger.debug("ASGIApplication._initialize: AsyncDispatcher created, calling prepare()...")
             except Exception as e:
                 logger.error(f"ASGIApplication._initialize: Failed to create AsyncDispatcher: {e}")
                 import traceback
@@ -3377,7 +3377,7 @@ class ASGIApplication:
             # 调用 prepare() 方法确保视图模块被导入，路由被正确注册
             try:
                 asgi_app.prepare()
-                logger.info("ASGIApplication._initialize: prepare() completed successfully")
+                logger.debug("ASGIApplication._initialize: prepare() completed successfully")
             except Exception as e:
                 logger.error(f"ASGIApplication._initialize: prepare() failed: {e}")
                 import traceback
@@ -3388,7 +3388,7 @@ class ASGIApplication:
             ASGIApplication._instance_asgi_app = asgi_app
 
             self._initialized = True
-            logger.info("ASGIApplication._initialize: Initialization completed")
+            logger.debug("ASGIApplication._initialize: Initialization completed")
 
     async def __call__(self, scope, receive, send):
         """ASGI 接口"""
