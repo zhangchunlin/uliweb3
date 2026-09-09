@@ -3,7 +3,7 @@
 {% alert class=info %}
 **Uliweb3 异步变更说明**
 
-Uliweb3 已迁移到 ASGI 架构。传统的 `process_request`、`process_response`、`process_exception` 方法仍然支持，并且框架会自动通过协程池将其适配为异步执行。新的 ASGI 中间件接口也已支持（`__init__`、`call_next` 方式）。
+Uliweb3 已迁移到 ASGI 架构。传统的 `process_request`、`process_response`、`process_exception` 方法目前仍然支持，并且框架会自动通过协程池将其适配为异步执行；但它们将在 **3.1 之后废弃移除**（启动期有 `logger.warning` 提醒）。新中间件请改用下面的异步 `dispatch` 接口（见本文"ASGI 中间件开发"一节）。
 
 {% endalert %}
 
@@ -174,7 +174,7 @@ INSTALLED_APPS中包含app即可使用。顺序一般也定义好了。
 
 在 ASGI 架构下，`Middleware` 基类同时提供两种**异步接口**，与上面传统的 `process_*` 同步接口并存：
 框架会自动把传统的 `process_request` / `process_response` / `process_exception` 经协程池适配为异步执行，
-因此传统写法仍可继续使用。新代码推荐使用下面的异步接口。
+因此传统写法目前仍可继续使用，但**将在 3.1 之后废弃移除**（启动期有 `logger.warning` 提醒）。新代码一律使用下面的异步 `dispatch` 接口。
 {% endalert %}
 
 ### 高级接口（`dispatch`，推荐）
