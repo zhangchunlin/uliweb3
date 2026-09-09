@@ -1722,6 +1722,7 @@ class AsyncDispatcher:
         self.process_exception_classes = []
 
         # 处理每个中间件配置
+        legacy_middleware = []
         for middleware_cls in sorted_middleware_configs:
             # 添加到中间件列表
             self.middlewares.append(middleware_cls)
@@ -1736,6 +1737,21 @@ class AsyncDispatcher:
 
             if hasattr(middleware_cls, 'process_exception'):
                 self.process_exception_classes.insert(0, middleware_cls)
+
+            # 收集 legacy process_* 中间件，用于启动期废弃告警
+            if (hasattr(middleware_cls, 'process_request') or
+                    hasattr(middleware_cls, 'process_response') or
+                    hasattr(middleware_cls, 'process_exception')):
+                legacy_middleware.append(getattr(middleware_cls, '__name__', str(middleware_cls)))
+
+        # 启动期对每个 legacy process_* 中间件告警一次（绝不进入请求路径）
+        for name in legacy_middleware:
+            logger.warning(
+                "Middleware '%s' uses deprecated process_* (WSGI-phase) hooks; "
+                "they will be removed after uliweb 3.1. Migrate to ASGI "
+                "`dispatch(request, call_next)` - see skills/uliweb-asgi-webapp "
+                "(references/asgi.md).", name
+            )
 
         # 处理 ASGI 中间件
         asgi_middlewares = self.settings.get('ASGI_MIDDLEWARES', {})

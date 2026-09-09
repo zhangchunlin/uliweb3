@@ -145,6 +145,103 @@ class MiddlewareInitTest(unittest.TestCase):
         self.assertIsNotNone(middleware_instance)
         self.assertEqual(middleware_instance.settings, dispatcher.settings)
 
+    def test_legacy_middleware_deprecation_warning(self):
+        """legacy process_* 中间件在启动期打一次废弃告警"""
+        import logging
+        import sys
+        import types
+        from uliweb.core.SimpleFrame import AsyncDispatcher
+
+        # 注册一个临时 legacy process_* 中间件模块，供 import_attr 解析
+        mod = types.ModuleType('_legacy_mw_test')
+
+        class LegacyProcessMiddleware:
+            def process_request(self, request):
+                return None
+
+            def process_response(self, request, response):
+                return response
+
+        mod.LegacyProcessMiddleware = LegacyProcessMiddleware
+        sys.modules['_legacy_mw_test'] = mod
+        try:
+            class MockSettings:
+                def __init__(self):
+                    self.GLOBAL = type('GLOBAL', (), {'DEBUG': False})()
+                    self.MIDDLEWARES = {'legacy': '_legacy_mw_test.LegacyProcessMiddleware'}
+                    self.ASGI_MIDDLEWARES = {}
+                    self.DOMAINS = {}
+
+                def get(self, key, default=None):
+                    return getattr(self, key, default)
+
+                def get_var(self, key, default=None):
+                    return default
+
+            dispatcher = AsyncDispatcher(
+                apps_dir='apps',
+                project_dir=path,
+                include_apps=['uliweb.contrib.auth'],
+                start=False
+            )
+            dispatcher.settings = MockSettings()
+
+            records = []
+            handler = logging.Handler()
+            handler.emit = lambda record: records.append(record)
+            logger = logging.getLogger('uliweb')
+            logger.addHandler(handler)
+            try:
+                dispatcher._init_middlewares()
+            finally:
+                logger.removeHandler(handler)
+
+            warnings = [r for r in records if r.levelno >= logging.WARNING and 'process_*' in r.getMessage()]
+            self.assertEqual(len(warnings), 1, [r.getMessage() for r in records])
+            self.assertIn('LegacyProcessMiddleware', warnings[0].getMessage())
+            self.assertIn('3.1', warnings[0].getMessage())
+        finally:
+            sys.modules.pop('_legacy_mw_test', None)
+
+    def test_no_warning_without_legacy_middleware(self):
+        """无 legacy process_* 中间件时不应有废弃告警"""
+        import logging
+        from uliweb.core.SimpleFrame import AsyncDispatcher
+
+        class MockSettings:
+            def __init__(self):
+                self.GLOBAL = type('GLOBAL', (), {'DEBUG': False})()
+                self.MIDDLEWARES = {}
+                self.ASGI_MIDDLEWARES = {}
+                self.DOMAINS = {}
+
+            def get(self, key, default=None):
+                return getattr(self, key, default)
+
+            def get_var(self, key, default=None):
+                return default
+
+        dispatcher = AsyncDispatcher(
+            apps_dir='apps',
+            project_dir=path,
+            include_apps=['uliweb.contrib.auth'],
+            start=False
+        )
+        dispatcher.settings = MockSettings()
+
+        records = []
+        handler = logging.Handler()
+        handler.emit = lambda record: records.append(record)
+        logger = logging.getLogger('uliweb')
+        logger.addHandler(handler)
+        try:
+            dispatcher._init_middlewares()
+        finally:
+            logger.removeHandler(handler)
+
+        warnings = [r for r in records if 'process_*' in r.getMessage()]
+        self.assertEqual(len(warnings), 0, [r.getMessage() for r in records])
+
     def test_builtin_middleware_init(self):
         """测试 Uliweb 内置中间件能正确初始化"""
         from uliweb.contrib.auth.middle_auth import AuthMiddle
