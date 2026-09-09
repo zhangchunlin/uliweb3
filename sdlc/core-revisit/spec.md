@@ -27,7 +27,7 @@ spec.md 由"接受了的 intent.md"驱动生成。产品负责人审阅、就地
 
 - 在范围内：`uliweb/core/SimpleFrame.py`、`uliweb/core/rules.py`、`uliweb/core/commands.py`、`uliweb/utils/common.py`、`uliweb/__init__.py`。
 - 在范围外：不引入新依赖、不 reintroduce werkzeug、不改对外契约；`_init_routes_sync` 对齐属高风险改动，仅对齐"缺失的注册逻辑"而不过度重构。
-- 关联系统：`intent/core-design-cleanup/`（前序，已完成，不回改）。
+- 关联系统：`sdlc/core-design-cleanup/`（前序，已完成，不回改）。
 
 ## 3. 设计
 

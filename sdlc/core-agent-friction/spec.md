@@ -27,7 +27,7 @@ spec.md 由"接受了的 intent.md"驱动生成。产品负责人审阅、就地
 
 - 在范围内：`AGENTS.md`（架构地图/隐式规则扩充）、`uliweb/core/SimpleFrame.py`（模块 docstring + 分节标注 + 命名澄清注释 + 删 `DispatcherHandler`）。
 - 在范围外：拆分 SimpleFrame.py；重命名 `url_map`/`router`/`Request` 等符号；改对外契约；`docs/zh_CN` 大规模改写（架构地图以 AGENTS.md 为单一入口，若确有必要才顺带补一句链接）。
-- 关联系统：`intent/asgi-migration/spec.md`（保持设计一致性）。
+- 关联系统：`sdlc/asgi-migration/spec.md`（保持设计一致性）。
 
 ## 3. 设计
 

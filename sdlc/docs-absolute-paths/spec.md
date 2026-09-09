@@ -18,7 +18,7 @@ spec.md 由"接受了的 intent.md"驱动生成。产品负责人审阅、就地
 - **验收标准**：
   - 给定一个全新克隆的仓库，读者按 `test/README.md` 的命令可在任意路径执行测试，不再出现 `~/project/asgi_knowbot/...` 这类硬编码路径。
   - 给定 `docs/zh_CN/06_commands/manage_guide.md`、`docs/zh_CN/05_builtin_apps/app/recorder.md`、`docs/zh_CN/09_articles/articles/nginx_cfg.md`，其中的机器专属路径已替换为相对路径或通用占位符。
-- **非目标**（明确不做，防范围蔓延）：不改任何代码/测试行为；不改 `intent/asgi-migration/` 工件链语义；不处理系统级路径（`/etc`）与通用临时文件占位（`/tmp`）。
+- **非目标**（明确不做，防范围蔓延）：不改任何代码/测试行为；不改 `sdlc/asgi-migration/` 工件链语义；不处理系统级路径（`/etc`）与通用临时文件占位（`/tmp`）。
 
 ## 2. 范围与边界
 
@@ -42,7 +42,7 @@ spec.md 由"接受了的 intent.md"驱动生成。产品负责人审阅、就地
 ## 4. 约束与策略落地
 
 - 只改文档，不改代码/测试行为。
-- 不碰 `intent/asgi-migration/` 已有工件。
+- 不碰 `sdlc/asgi-migration/` 已有工件。
 - 顾虑点：占位风格需统一 → 已定案：相对路径优先，其次 `${PROJECT_ROOT}`，示意示例用 `<...>`/`xxx`。
 
 ## 5. 开放问题与结转

@@ -3,7 +3,7 @@ Uliweb ASGI Profile 中间件
 用于对 ASGI 应用进行性能分析和优化
 
 这个模块提供了从 WSGI 迁移到 ASGI 的性能分析中间件。
-迁移说明：intent/asgi-migration/spec.md
+迁移说明：sdlc/asgi-migration/spec.md
 """
 
 import os

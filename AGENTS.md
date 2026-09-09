@@ -3,7 +3,7 @@
 <!--
 AGENTS.md 放在仓库根目录，全团队共享。每个 agent 会话开始都读它。
 规则：agent 同样错误犯两次 → 把纠正写进来；保持简洁（过时内容白占上下文）。
-AI-native 工件链见 intent/（每个特性一个目录：intent → spec → plan → review）。
+AI-native 工件链见 sdlc/（每个特性一个目录：intent → spec → plan → review）。
 -->
 
 ## Commands
@@ -33,7 +33,7 @@ AI-native 工件链见 intent/（每个特性一个目录：intent → spec → 
 - `uliweb/core/rules.py`：`@expose` 装饰器、路由注册 `add_rule`、`parse_class`（类视图方法 auto-register）、`Expose`。
 - `uliweb/core/dispatch.py`：信号/回调注册与触发（`bind`/`call`/`get`/`acall`/`aget`）。
 - `uliweb/utils/localproxy.py`：`LocalProxy` / `Global` 全局状态管理（request/response 用 contextvars，settings/application 用普通全局）。
-- `intent/asgi-migration/`：AI-native 工件链（intent / spec / plan / review），改动时同步更新。
+- `sdlc/asgi-migration/`：AI-native 工件链（intent / spec / plan / review），改动时同步更新。
 
 ### 核心数据流 / 路由解析
 1. 视图用 `@expose`（`rules.py`）注册；类视图方法经 `parse_class` auto-register（**HTTP 动词方法名会跳过**，见下）。

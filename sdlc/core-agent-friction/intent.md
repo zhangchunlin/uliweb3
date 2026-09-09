@@ -2,7 +2,7 @@
 
 <!--
 intent.md 是 AI-native SDLC 流程的起点：把想法用提出者自己的话沉淀为"人类可读、机器可执行"的原型规格。
-张贴本文件到 intent 存放处（最简：产品仓库下的 intent/ 目录）并提交。
+张贴本文件到 intent 存放处（最简：产品仓库下的 sdlc/ 目录）并提交。
 文件头部的 Frontmatter 字段会进入 git 记录，作者与时间戳自动带上。
 -->
 
@@ -35,7 +35,7 @@ intent.md 是 AI-native SDLC 流程的起点：把想法用提出者自己的话
 
 - **隐式行为陷阱**：`error()` 抛 `HTTPError`（不 return）、`Redirect()` 抛 `RedirectException`、同步视图/中间件自动进线程池、`settings` 是 pyini 惰性代理（`settings.GLOBAL.*`/`get_var('FUNCTIONS/...')`）。部分已进 AGENTS.md，其余无文档。
 
-- **工具链与文档分散**：`nosetests --with-doc test` 须仓库根跑；行为契约散落在 AGENTS.md、`intent/asgi-migration/spec.md`、skills、`docs/zh_CN`，无单一架构职责地图。全代码库无类型标注。
+- **工具链与文档分散**：`nosetests --with-doc test` 须仓库根跑；行为契约散落在 AGENTS.md、`sdlc/asgi-migration/spec.md`、skills、`docs/zh_CN`，无单一架构职责地图。全代码库无类型标注。
 
 ## 期望结果 （更好的情况长什么样）
 
@@ -48,7 +48,7 @@ intent.md 是 AI-native SDLC 流程的起点：把想法用提出者自己的话
 ## 受影响的用户与系统
 
 - 未来所有参与 uliweb 开发的 coding agent（读 AGENTS.md/架构文档 → 定位代码 → 改动）。
-- 相关文件：`uliweb/core/SimpleFrame.py`、`uliweb/core/rules.py`、`AGENTS.md`、`docs/`、`skills/uliweb-asgi-webapp/`、`intent/asgi-migration/spec.md`。
+- 相关文件：`uliweb/core/SimpleFrame.py`、`uliweb/core/rules.py`、`AGENTS.md`、`docs/`、`skills/uliweb-asgi-webapp/`、`sdlc/asgi-migration/spec.md`。
 
 ## 约束
 

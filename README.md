@@ -12,7 +12,7 @@ Uliweb3 is a modern Python web framework based on Starlette/ASGI. It supports as
 
 Uliweb is a full-stacked Python based web framework with three main design goals: reusability, configurability, and replaceabilities. All functionalities revolve around these goals. This project was created and led by Limodou <mailto:limodou@gmail.com>.
 
-> **Note**: For detailed ASGI architecture and migration guide, see [intent/asgi-migration/spec.md](intent/asgi-migration/spec.md) (AI-native intent artifacts: intent / spec / plan / review).
+> **Note**: For detailed ASGI architecture and migration guide, see [sdlc/asgi-migration/spec.md](sdlc/asgi-migration/spec.md) (AI-native intent artifacts: intent / spec / plan / review).
 
 ### Differences between Uliweb and Uliweb3
 

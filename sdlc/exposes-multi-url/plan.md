@@ -25,4 +25,4 @@ plan.md 由"approved 的 spec.md"驱动生成。评审通过后逐条执行，�
      - 同一 URL + 同一 endpoint 重复 → 不重复。
   验证：`python -c "import uliweb.core.SimpleFrame"`；手动场景脚本（同 spec §1 验收）；`nosetests --with-doc test` 全绿。
 
-- [x] **2. 终检**：仓库根 `nosetests --with-doc test` 全绿（OK）；`git status` 工作区干净；归档 `intent/exposes-multi-url/REVIEW.md`。
+- [x] **2. 终检**：仓库根 `nosetests --with-doc test` 全绿（OK）；`git status` 工作区干净；归档 `sdlc/exposes-multi-url/REVIEW.md`。

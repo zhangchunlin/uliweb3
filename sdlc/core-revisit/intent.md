@@ -2,7 +2,7 @@
 
 <!--
 intent.md 是 AI-native SDLC 流程的起点：把想法用提出者自己的话沉淀为"人类可读、机器可执行"的原型规格。
-张贴本文件到 intent 存放处（最简：产品仓库下的 intent/ 目录）并提交。
+张贴本文件到 intent 存放处（最简：产品仓库下的 sdlc/ 目录）并提交。
 文件头部的 Frontmatter 字段会进入 git 记录，作者与时间戳自动带上。
 -->
 
@@ -13,7 +13,7 @@ intent.md 是 AI-native SDLC 流程的起点：把想法用提出者自己的话
 ---
 
 - 作者: zhangchunlin
-- 关联工单/事故: core-design-cleanup 之后的复盘评审（承接 `intent/core-design-cleanup/`）
+- 关联工单/事故: core-design-cleanup 之后的复盘评审（承接 `sdlc/core-design-cleanup/`）
 
 ## 问题 （今天做不到什么 / 痛点）
 

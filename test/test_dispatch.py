@@ -5,7 +5,7 @@
 这个测试文件验证 dispatch 模块的异步调用函数 acall 和 aget
 是否正确支持异步事件处理函数。
 
-根据 intent/asgi-migration/spec.md §3.10 的说明，事件分发系统需要支持异步化。
+根据 sdlc/asgi-migration/spec.md §3.10 的说明，事件分发系统需要支持异步化。
 """
 import os
 import sys

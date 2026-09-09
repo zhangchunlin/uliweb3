@@ -32,7 +32,7 @@ spec.md 由"接受了的 intent.md"驱动生成。产品负责人审阅、就地
 
 - 在范围内：`uliweb/core/SimpleFrame.py` 的 `AsyncDispatcher._init_routes`（merge 循环 + 4 处 EXPOSES 覆盖逻辑：应用级 list/str、全局 list/str）。
 - 在范围外：`_init_routes_sync`（简化测试路径，无 EXPOSES 覆盖逻辑，**不改**）；不引入新依赖；不 reintroduce werkzeug。
-- 关联：`intent/core-revisit/`（`_init_routes` 的 405/404 与注释已处理，本意图只改 EXPOSES 覆盖/去重语义）。
+- 关联：`sdlc/core-revisit/`（`_init_routes` 的 405/404 与注释已处理，本意图只改 EXPOSES 覆盖/去重语义）。
 
 ## 3. 设计
 
