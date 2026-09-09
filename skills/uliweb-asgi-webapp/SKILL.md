@@ -129,7 +129,7 @@ TEMPLATE_DIRS = []
 ```
 
 {% alert class=info %}
-**重要变更**：在 Uliweb3 中，`WSGI_MIDDLEWARES` 已更名为 `MIDDLEWARES`。传统的 `process_request`、`process_response`、`process_exception` 方法仍然支持，框架会自动将其适配为异步执行。
+**重要变更**：在 Uliweb3 中，`WSGI_MIDDLEWARES` 已更名为 `MIDDLEWARES`。传统的 `process_request`、`process_response`、`process_exception` 方法目前仍然支持，框架会自动将其适配为异步执行；但它们将在 **3.1 之后废弃移除**（启动期有 `logger.warning` 提醒），新中间件请改用 `Middleware.dispatch(request, call_next)`。迁移写法见 `references/asgi.md` 的"从 process_* 迁移到 dispatch"。
 {% endalert %}
 
 #### FUNCTIONS 配置

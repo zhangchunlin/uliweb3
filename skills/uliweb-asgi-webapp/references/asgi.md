@@ -244,6 +244,35 @@ class MyMiddleware(Middleware):
 my_middleware = 'myapp.middleware.MyMiddleware', 100
 ```
 
+### 从 `process_*` 迁移到 `dispatch`
+
+传统的 `process_request` / `process_response` / `process_exception` 中间件是 **WSGI 时代的相位模型**，与 ASGI 的流式/异步/双向模型不匹配（例如响应需整体缓冲、无法覆盖 WebSocket/lifespan/SSE）。Uliweb3 会在启动期对仍使用 `process_*` 的中间件输出一次 `logger.warning` 提醒：**它们将在 3.1 之后移除**。新中间件请一律用 `Middleware.dispatch(request, call_next)`。
+
+单个 `process_*` 中间件的对等 `dispatch` 写法：
+
+```python
+from uliweb import Middleware
+
+class MyMiddleware(Middleware):
+    async def dispatch(self, request, call_next):
+        # —— process_request 阶段：返回非 None 即短路，不进入响应阶段 ——
+        r = self.process_request(request) if hasattr(self, 'process_request') else None
+        if r is not None:
+            return r
+        try:
+            response = await call_next(request)
+        except Exception as e:
+            # —— process_exception 阶段：返回非 None 则吞掉异常 ——
+            r = self.process_exception(request, e) if hasattr(self, 'process_exception') else None
+            if r is not None:
+                return r
+            raise
+        # —— process_response 阶段 ——
+        return self.process_response(request, response) if hasattr(self, 'process_response') else response
+```
+
+**唯一的坑：实例化时机**。legacy 中间件每请求 new 一个实例；`dispatch` 中间件在构建期单例化。若老中间件在 `self` 上存了每请求状态，迁移时必须改为**从 `request` 读取**（例如存 `request` 的属性），不要依赖 `self` 上的瞬时状态。
+
 ## WebSocket 支持
 
 Uliweb3 支持 WebSocket：
@@ -292,7 +321,7 @@ async def websocket_endpoint(websocket):
 
 #### 4. 中间件
 
-- [ ] 传统中间件（process_request/process_response/process_exception）仍然支持
+- [ ] 传统中间件（process_request/process_response/process_exception）目前仍兼容，但**会在 3.1 之后移除**（启动期有 `logger.warning` 提醒）；新中间件改用 `dispatch`（见上文"从 process_* 迁移到 dispatch"）
 - [ ] ASGI 中间件需要实现 `async def __call__(self, scope, receive, send)`
 - [ ] 检查自定义中间件是否需要更新
 
