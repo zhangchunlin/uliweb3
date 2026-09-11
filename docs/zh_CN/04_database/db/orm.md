@@ -263,6 +263,21 @@ class Note(Model):
     datetime = Field(datetime.datetime, auto_now_add=True)
 ```
 
+### 惰性初始化时序 {#lazy_init}
+
+Uliweb3 中 Model 的绑定（`table`/`c` 的生成、`get_model` 的 engine 解析）是**惰性**的：
+只有应用完成初始化（发一次真实请求，或调用 `prepare()`）后才会触发绑定。
+
+在应用初始化完成之前：
+
+- 访问未绑定 Model 的 `table`/`c`/`columns`，或调用 `filter()`，会抛 `ModelNotBoundError`（带"请先初始化应用"指引）。
+  可用 `Model.is_bound()` 判断模型是否已绑定。
+- `get_model()` 在 engine 尚未注册时会给出惰性初始化指引，而不是难以定位的裸错误。
+- 读取尚未加载的 `settings` 配置项会返回 `None`；若开启了 `GLOBAL/LAZY_INIT_WARN`（默认 `True`），
+  debug 日志会提示"惰性初始化进行中"。
+
+所以，需要在启动期就访问模型结构或配置的代码，请务必放在应用初始化完成之后。
+
 
 ### 表名
 

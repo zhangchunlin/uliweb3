@@ -549,3 +549,57 @@ def test_never_awaited_warning_message_visible_in_debug():
     with warnings.catch_warnings(record=True) as w:
         warnings.warn("coroutine 'Request.get_params' was never awaited", RuntimeWarning)
     assert any("was never awaited" in str(x.message) for x in w)
+
+
+def _attach_log(logger, level):
+    import logging
+    records = []
+    handler = logging.Handler()
+    handler.emit = lambda record: records.append(record)
+    handler.setLevel(level)
+    logger.addHandler(handler)
+    return records, handler, logger.level
+
+
+def _detach_log(logger, handler, records, old_level):
+    logger.removeHandler(handler)
+    logger.setLevel(old_level)
+    return records
+
+
+def test_get_var_lazy_hint():
+    """settings 未加载时访问返回 None，debug 下给惰性初始化提示。"""
+    from uliweb.core import SimpleFrame
+    from uliweb.utils import pyini
+
+    orig = SimpleFrame.__global__.settings
+    try:
+        SimpleFrame.__global__.settings = pyini.Ini(lazy=True)
+        records, handler, old_level = _attach_log(SimpleFrame.logger, 10)
+        try:
+            SimpleFrame.get_var('GLOBAL/DEBUG', None)
+        finally:
+            _detach_log(SimpleFrame.logger, handler, records, old_level)
+        assert any('惰性初始化' in (r.getMessage() or '') for r in records)
+    finally:
+        SimpleFrame.__global__.settings = orig
+
+
+def test_get_var_loaded_no_hint():
+    """settings 已加载时访问不提示。"""
+    from uliweb.core import SimpleFrame
+    from uliweb.utils import pyini
+
+    orig = SimpleFrame.__global__.settings
+    try:
+        loaded = pyini.Ini(lazy=True)
+        loaded._loaded = True
+        SimpleFrame.__global__.settings = loaded
+        records, handler, old_level = _attach_log(SimpleFrame.logger, 10)
+        try:
+            SimpleFrame.get_var('GLOBAL/DEBUG', None)
+        finally:
+            _detach_log(SimpleFrame.logger, handler, records, old_level)
+        assert not any('惰性初始化' in (r.getMessage() or '') for r in records)
+    finally:
+        SimpleFrame.__global__.settings = orig

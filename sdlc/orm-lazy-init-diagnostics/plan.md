@@ -10,24 +10,24 @@
 
 ## 执行顺序（每个 [x] 一个提交，一个目的一个提交）
 
-- [ ] **1. feat(orm)：未绑定 Model 入口显式报错**
+- [x] **1. feat(orm)：未绑定 Model 入口显式报错**
       在 `Model`（`uliweb/orm/__init__.py:4020`）加 `is_bound()`；在常用入口 `table`/`c`/`filter()`（`Model.table` property、`Model.filter` ~L4795、metaclass 的 `table`/`c` 访问）未绑定时抛 `Error`，消息含模型名 + "not bound to an engine; Initialize the app first (send a real request or call prepare())."
       只覆盖 `table`/`c`/`filter` 三个入口（spec §5 定案），其它（`properties` 等）不加。
       验证：写用例——未绑定访问 `Model.table`/`c`/`filter()` 抛带指引异常；绑定后正常；`nosetests` 全绿。
 
-- [ ] **2. feat(orm)：`get_model()` 未绑定诊断（~L1135）**
+- [x] **2. feat(orm)：`get_model()` 未绑定诊断（~L1135）**
       `get_model` 取到未绑定/engine 为 None 的模型时，把裸 `AttributeError` 换成带上下文诊断（含指引）。
       验证：`get_model` 未绑定路径用例 + `nosetests` 全绿。
 
-- [ ] **3. feat(SimpleFrame)：settings 惰性访问提示（`LAZY_INIT_WARN`）**
+- [x] **3. feat(SimpleFrame)：settings 惰性访问提示（`LAZY_INIT_WARN`）**
       在 settings 惰性代理访问未加载 section 处（`__global__.settings` ~L466 / LocalProxy ~L325 包装），命中时若 `settings.GLOBAL.LAZY_INIT_WARN`（bool，默认 True）且 debug，打 `logger.debug`；只提示、不改加载行为。
       验证：默认开、debug 下访问未初始化 section 有 debug 日志；关掉开关/生产不提示；`nosetests` 全绿。
 
-- [ ] **4. docs(zh_CN)：补"懒加载时序"一节**
+- [x] **4. docs(zh_CN)：补"懒加载时序"一节**
       说明首请求/`prepare()` 前访问模型与 settings 的行为边界，指向新诊断。
       验证：渲染审阅小节完整。
 
-- [ ] **5. 终检**：仓库根 `nosetests --with-doc test` 全绿（OK）；`git status` 工作区干净；4 处改动落位。
+- [x] **5. 终检**：仓库根 `nosetests --with-doc test` 全绿（OK）；`git status` 工作区干净；4 处改动落位。
 
 ## 验证命令
 - `nosetests --with-doc test`（仓库根，不要在 test/ 内跑）

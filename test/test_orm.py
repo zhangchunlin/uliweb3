@@ -3166,3 +3166,56 @@ if __name__ == '__main__':
     # b.put('update', **{'username':'test', 'year':30})
     # print(b.sqles['update']['data'])
 
+
+
+def test_unbound_model_not_bound_error():
+    """惰性初始化下未绑定模型访问结构抛 ModelNotBoundError。"""
+    import uliweb.orm
+    from uliweb.orm import set_lazy_model_init, Model, Field, ModelNotBoundError
+    from uliweb.utils._compat import text_type
+
+    old = uliweb.orm.__lazy_model_init__
+    set_lazy_model_init(True)
+    try:
+        class UnboundModelX(Model):
+            name = Field(text_type)
+
+        assert UnboundModelX.is_bound() is False
+        for attr in ('table', 'c', 'columns'):
+            try:
+                getattr(UnboundModelX, attr)
+                assert False, "%s 未抛异常" % attr
+            except ModelNotBoundError as e:
+                assert '未绑定' in str(e) and 'engine' in str(e)
+
+        # filter() 经 Result.__init__ 访问 table 同样触发
+        try:
+            UnboundModelX.filter(UnboundModelX.c.name == 'x')
+            assert False, "filter 未抛异常"
+        except ModelNotBoundError:
+            pass
+    finally:
+        set_lazy_model_init(old)
+
+
+def test_get_model_engine_not_registered_diagnostic():
+    """get_model 引擎未注册时给出惰性初始化指引。"""
+    import uliweb.orm
+    from uliweb.orm import Error
+    from uliweb.utils._compat import text_type
+
+    # 直接注册一个模型到 __models__，避免依赖真实 app 初始化
+    name = 'lazy_unregistered_m'
+    uliweb.orm.__models__[name] = {
+        'model_path': 'test.test_orm:UnboundModelX',
+        'engines': ['does_not_exist_engine'],
+        'config': {},
+    }
+    try:
+        try:
+            uliweb.orm.get_model(name)
+            assert False, "get_model 未抛异常"
+        except Error as e:
+            assert 'get_model' in str(e) and '惰性初始化' in str(e)
+    finally:
+        uliweb.orm.__models__.pop(name, None)

@@ -130,6 +130,13 @@ class Local:
 Local = Local()
 
 class Error(Exception):pass
+
+class ModelNotBoundError(AttributeError):
+    """模型尚未绑定到 engine（惰性初始化未完成）时访问其结构引发的错误。
+
+    继承 AttributeError 以保持向后兼容：`hasattr(model, 'table')` 仍返回
+    False，捕获 AttributeError 的既有代码不受影响。
+    """
 class NotFound(Error):
     def __init__(self, message, model, key):
         self.message = message
@@ -1160,7 +1167,14 @@ def get_model(model, engine_name=None, signal=True, reload=False):
                 engine_name = __default_engine__
             else:
                 engine_name = engines[0]
-        engine = engine_manager[engine_name]
+        try:
+            engine = engine_manager[engine_name]
+        except Error:
+            raise Error(
+                "get_model({!r}) failed: engine {!r} not registered. "
+                "ORM 是惰性初始化的，访问模型前请先初始化应用"
+                "（发一次真实请求或调用 prepare()）注册 engine。".format(model, engine_name)
+            )
 
         item = engine._models.get(model)
         #process duplication
@@ -1559,6 +1573,15 @@ def migrate_tables(tables, engine_name=None):
     run_migrate_script(mc, script)
 
 class ModelMetaclass(type):
+    def __getattr__(cls, name):
+        if name in ('table', 'c', 'columns'):
+            raise ModelNotBoundError(
+                "{}.{} 不可用：模型尚未绑定到 engine（惰性初始化未完成）。"
+                "请先初始化应用（发一次真实请求或调用 prepare()）触发模型绑定。"
+                .format(cls.__name__, name)
+            )
+        raise AttributeError(name)
+
     def __init__(cls, name, bases, dct):
         super(ModelMetaclass, cls).__init__(name, bases, dct)
         if name == 'Model':
@@ -4578,6 +4601,11 @@ class Model(with_metaclass(ModelMetaclass)):
         if cls._connection:
             return cls._connection
         return get_session(cls.get_engine_name())
+
+    @classmethod
+    def is_bound(cls):
+        """当前模型是否已绑定 engine（惰性初始化是否完成）。"""
+        return hasattr(cls, 'table') and cls.table is not None
 
     @classmethod
     def get_engine_name(cls):

@@ -771,7 +771,20 @@ def get_var(key, default=None):
     """
     from uliweb import settings
 
-    return settings.get_var(key, default)
+    value = settings.get_var(key, default)
+    if value is None and not getattr(settings, '_loaded', False):
+        # settings 仍是初始惰性占位（应用尚未完成加载），访问未加载 section
+        lazy_warn = True
+        try:
+            lazy_warn = settings.GLOBAL.get('LAZY_INIT_WARN', True)
+        except Exception:
+            pass
+        if lazy_warn:
+            logger.debug(
+                "settings 未完全加载（惰性初始化进行中），get_var(%r) 返回 None；"
+                "请确认应用已初始化后再读取配置。", key
+            )
+    return value
 
 def get_local_cache(key, creator=None):
     # 使用 request.scope['state'] 来存储本地缓存
@@ -1167,6 +1180,7 @@ class AsyncDispatcher:
             x.freeze()
             if not x.GLOBAL.FILESYSTEM_ENCODING:
                 x.GLOBAL.FILESYSTEM_ENCODING = sys.getfilesystemencoding() or x.GLOBAL.DEFAULT_ENCODING
+            x._loaded = True
             return x
 
         # 执行 settings 加载
@@ -2152,6 +2166,7 @@ class AsyncDispatcher:
             # process FILESYSTEM_ENCODING
             if not x.GLOBAL.FILESYSTEM_ENCODING:
                 x.GLOBAL.FILESYSTEM_ENCODING = sys.getfilesystemencoding() or x.GLOBAL.DEFAULT_ENCODING
+            x._loaded = True
             return x
 
         loop = asyncio.get_event_loop()
