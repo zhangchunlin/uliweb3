@@ -18,6 +18,14 @@
 
 来获得cache对象。
 
+## uliweb.contrib.develop
+
+
+* 开发调试工具 App。提供只读命令行调试命令（`route`/`urlfor`/`request`/`inspect`/`body`，
+  详见[命令说明](../06_commands/manage_guide.html#develop-调试命令)），以及 `/develop/*` 网页调试面板。
+* 自动启用：当 `GLOBAL.DEBUG` 且 `GLOBAL.AUTO_DEVELOP`（默认 `True`）都为真时，自动把本 App
+  加入已安装应用，无需手工改 `INSTALLED_APPS`；debug 下不想引入时设 `AUTO_DEVELOP = False`。
+
 详细信息参见 [cache](cache.html)
 
 

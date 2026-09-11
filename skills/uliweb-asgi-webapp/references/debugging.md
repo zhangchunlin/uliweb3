@@ -88,3 +88,23 @@ settings.AUTH.AUTH_DEFAULT_TYPE = 'default'
 
 真 bug 常在请求/响应边界。先做「真实请求 + 临时库 + 绕过认证」的最小复现，
 用堆栈说话，改完同步补测试 mock 并跑全量测试。
+
+## 命令行调试工具（uliweb develop 命令）
+
+不开服务器、不写临时脚本即可完成常见调试。`uliweb.contrib.develop` 提供一组只读命令；
+**当 `GLOBAL.DEBUG` 且 `GLOBAL.AUTO_DEVELOP`（默认 `True`）都为真时自动启用**（与
+`uliweb develop` 的注入机制同构），无需手工改 `INSTALLED_APPS`；debug 下不想引入 develop
+时设 `AUTO_DEVELOP = False` 即可关闭。
+
+| 命令 | 用途 |
+|------|------|
+| `uliweb route <path> [--method METHOD] [--json]` | 匹配 URL → endpoint / 视图 file:line / URL 参数 / allowed methods；未全命中列出 method 不匹配或最接近的 path 模式（404 排查）。 |
+| `uliweb urlfor <endpoint> [key=value ...] [--json]` | 反向生成 URL。 |
+| `uliweb request <path> [--method/--data/--json/--header/--follow/--out json]` | 进程内 `httpx.ASGITransport` 发真实请求，打印 status/headers/body/耗时/命中路由，**顺带触发懒加载初始化**。 |
+| `uliweb inspect <endpoint> [--json]` | 视图源码位置、async 与否、签名、docstring、约定默认模板路径。 |
+| `uliweb body <content-type> '<raw-body>' [--method] [--json]` | 展示同一 raw body 下 `get_data()/get_POST()/get_FILES()/get_json()/get_params()` 各自返回值（直观点破异步 body 解析差异）。 |
+
+注意：
+- `request` 默认走 `base_url='http://test'` 隔离；auth 等中间件会照常执行，调试时可结合
+  第 3 节"绕认证"思路临时调整 settings。
+- `--json` 输出为稳定 JSON，方便 agent 解析。

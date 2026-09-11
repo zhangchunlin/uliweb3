@@ -216,6 +216,23 @@ CRITICAL = 'red'
 
 {% endalert %}
 
+### develop 调试命令
+
+`uliweb.contrib.develop` 提供一组**只读**调试命令，方便 coding agent 与开发者在不开服务器、
+不写临时脚本的情况下排查问题。**当 `GLOBAL.DEBUG` 且 `GLOBAL.AUTO_DEVELOP`（默认 `True`）
+都为真时自动启用**（与 `uliweb develop` 的注入机制同构），无需手工改 `INSTALLED_APPS`；
+若 debug 下不想引入 develop，设 `AUTO_DEVELOP = False` 即可。
+
+| 命令 | 用途 |
+|------|------|
+| `uliweb route <path> [--method METHOD] [--json]` | 匹配 URL → endpoint / 视图 file:line / URL 参数 / allowed methods；未全命中时列出 method 不匹配或最接近的 path 模式（404 排查）。 |
+| `uliweb urlfor <endpoint> [key=value ...] [--json]` | 反向生成 URL。 |
+| `uliweb request <path> [--method/--data/--json/--header/--follow/--out json]` | 进程内用 `httpx.ASGITransport` 发真实请求，打印 status/headers/body/耗时/命中路由，**顺带触发懒加载初始化**。 |
+| `uliweb inspect <endpoint> [--json]` | 视图源码位置、async 与否、签名、docstring、约定默认模板路径。 |
+| `uliweb body <content-type> '<raw-body>' [--method] [--json]` | 展示同一 raw body 下 `get_data()/get_POST()/get_FILES()/get_json()/get_params()` 各自返回值（直观点破异步 body 解析差异）。 |
+
+> `request` 默认 `base_url='http://test'` 隔离；auth 等中间件会照常执行，调试时可临时调整 settings 绕认证。`--json` 输出稳定 JSON，便于 agent 解析。
+
 ### export
 
 将已安装的app目录下的文件导出到指定目录。它的作用是当部署到某些受限环境时，需要

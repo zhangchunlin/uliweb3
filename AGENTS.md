@@ -10,6 +10,10 @@ AI-native 工件链见 sdlc/（每个特性一个目录：intent → spec → pl
 - Test: `nosetests --with-doc test`（在仓库根执行，不要在 test/ 内跑，避免相对路径/导入问题）
 - 或现代 runner：`pytest test/`
 - 提交前建议用 git 跟踪变更并保持工作区干净
+- 调试命令（`GLOBAL.DEBUG` 且 `GLOBAL.AUTO_DEVELOP`(默认 True) 都为真时自动启用 `uliweb.contrib.develop`）：
+  `uliweb route <path> [--method]`（URL→endpoint 匹配/404 排查）、`uliweb urlfor <endpoint> k=v`（反查 URL）、
+  `uliweb request <path>`（进程内真实请求，触发懒加载）、`uliweb inspect <endpoint>`（视图源码/async/模板）、
+  `uliweb body <content-type> '<raw>'`（异步 body 解析调试）。详见 `sdlc/develop-debug-cli/`。
 
 ## Git 提交约定
 - **一个目的一个提交**：每次提交只做一件事，把无关改动拆成多个提交
