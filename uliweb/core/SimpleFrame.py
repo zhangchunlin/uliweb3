@@ -831,6 +831,18 @@ def get_apps(apps_dir, include_apps=None, settings_file='settings.ini', local_se
 
     installed_apps.extend(include_apps)
 
+    # debug 模式下自动启用 develop 调试工具（与 uliweb develop 注入机制同构）。
+    # 仅当 GLOBAL.DEBUG 且 GLOBAL.AUTO_DEVELOP 都为真时注入；AUTO_DEVELOP 默认开，
+    # 用户在 debug 下不想引入 develop 时可设 AUTO_DEVELOP=False 关闭。
+    _debug = False
+    _auto_develop = True
+    if os.path.exists(inifile):
+        _globals = pyini.Ini(inifile, basepath=apps_dir).GLOBAL
+        _debug = bool(_globals.get('DEBUG', False))
+        _auto_develop = bool(_globals.get('AUTO_DEVELOP', True))
+    if _debug and _auto_develop and 'uliweb.contrib.develop' not in installed_apps:
+        installed_apps.append('uliweb.contrib.develop')
+
     for app in installed_apps:
         apps.extend(list(get_app_depends(app, visited, installed_apps)))
 
