@@ -278,6 +278,21 @@ Uliweb3 中 Model 的绑定（`table`/`c` 的生成、`get_model` 的 engine 解
 
 所以，需要在启动期就访问模型结构或配置的代码，请务必放在应用初始化完成之后。
 
+### 优雅关闭顺序 {#graceful_shutdown}
+
+应用停止 / `--reload` 重载时，事件循环可能先于在途的异步 DB 收尾被拆除，导致
+游标/结果集关闭时报 `Cannot operate on a closed database`（`sqlite3.ProgrammingError`）。
+这是关闭阶段的**正常收尾噪音**：
+
+- 框架进入 lifespan `shutdown` 后会标记 ORM"关闭中"，此时这类关闭错误会**降级为 debug
+  并去重**（首条完整、后续仅计数），不再刷屏；非关闭阶段仍按原样抛出，不掩盖真实错误。
+
+推荐的优雅关闭顺序：
+
+1. 先停后台任务：WebSocket、事件总线/定时器、后台协程。
+2. 再 dispose engine（`engine.dispose()` / 等待在途请求收尾）。
+3. 最后退出进程。
+
 
 ### 表名
 

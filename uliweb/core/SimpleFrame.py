@@ -44,7 +44,7 @@ import sys
 # 创建日志记录器
 logger = logging.getLogger('uliweb')
 
-from uliweb.orm import CommitAll, RollbackAll
+from uliweb.orm import CommitAll, RollbackAll, set_shutting_down
 
 
 # ==================== Request 类 ====================
@@ -951,6 +951,7 @@ class AsyncDispatcher:
         # 初始化标记
         self._initialized = False
         self._settings_loaded = False  # 标记 settings 是否已加载
+        self._shutting_down = False  # 标记是否进入 lifespan shutdown 阶段
         self._middleware_stack = None
         # 存储路由的参数类型信息：{route_path: {param_name: param_type}}
         self.route_param_types = {}
@@ -1604,6 +1605,8 @@ class AsyncDispatcher:
                 })
         elif message["type"] == "lifespan.shutdown":
             # 执行关闭逻辑
+            self._shutting_down = True
+            set_shutting_down(True)
             try:
                 # 调用 shutdown 钩子
                 dispatch.call(self, 'shutdown')

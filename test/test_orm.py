@@ -3219,3 +3219,45 @@ def test_get_model_engine_not_registered_diagnostic():
             assert 'get_model' in str(e) and '惰性初始化' in str(e)
     finally:
         uliweb.orm.__models__.pop(name, None)
+
+
+class _FakeResultClosedDB(object):
+    def __init__(self):
+        import sqlite3
+        self._exc = sqlite3.ProgrammingError("Cannot operate on a closed database")
+
+    def close(self):
+        raise self._exc
+
+
+def test_close_db_result_shutdown_dedup():
+    """关闭阶段游标关闭遇 sqlite3.ProgrammingError 降级 debug 并去重。"""
+    import sqlite3
+    import uliweb.orm as orm
+    from uliweb.orm import close_db_result, set_shutting_down
+
+    orm._shutdown_close_errors = 0
+    set_shutting_down(True)
+    try:
+        close_db_result(_FakeResultClosedDB())
+        close_db_result(_FakeResultClosedDB())
+        assert orm._shutdown_close_errors == 2  # 去重计数，不抛不刷屏
+    finally:
+        set_shutting_down(False)
+        orm._shutdown_close_errors = 0
+
+
+def test_close_db_result_not_shutdown():
+    """非关闭阶段仍抛 sqlite3.ProgrammingError，不掩盖真实错误。"""
+    import sqlite3
+    from uliweb.orm import close_db_result, set_shutting_down
+
+    set_shutting_down(False)
+    try:
+        try:
+            close_db_result(_FakeResultClosedDB())
+            assert False, "非关闭阶段不应吞掉异常"
+        except sqlite3.ProgrammingError:
+            pass
+    finally:
+        set_shutting_down(False)

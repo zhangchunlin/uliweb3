@@ -66,6 +66,7 @@ import datetime
 import copy
 import re
 import logging
+import sqlite3
 from uliweb.utils import date as _date
 from uliweb.utils.common import (flat_list, classonlymethod,
     safe_str, safe_unicode, import_attr, dumps)
@@ -227,6 +228,46 @@ def set_tablename_converter(converter=None):
 def set_lazy_model_init(flag):
     global __lazy_model_init__
     __lazy_model_init__ = flag
+
+
+_shutting_down = False
+_shutdown_close_errors = 0
+
+
+def set_shutting_down(flag=True):
+    """标记 ORM 是否进入关闭阶段（由框架在 lifespan shutdown 时调用）。"""
+    global _shutting_down
+    _shutting_down = flag
+
+
+def is_shutting_down():
+    return _shutting_down
+
+
+def close_db_result(result):
+    """安全关闭游标/结果集。
+
+    关闭阶段连接可能已被拆除，游标关闭会抛 `sqlite3.ProgrammingError`
+    （Cannot operate on a closed database）——此时属正常收尾噪音，降级为
+    debug 并去重（首条完整、后续仅计数），避免关闭/重载时刷屏。
+    非关闭阶段仍按原样抛出，绝不掩盖真实错误。
+    """
+    global _shutdown_close_errors
+    if result is None:
+        return
+    try:
+        result.close()
+    except sqlite3.ProgrammingError:
+        if _shutting_down:
+            _shutdown_close_errors += 1
+            if _shutdown_close_errors == 1:
+                log.debug(
+                    "关闭阶段游标/结果集关闭遇 sqlite3.ProgrammingError"
+                    "（连接已拆除，属正常收尾噪音；已降级为 debug 并去重）",
+                    exc_info=True,
+                )
+        else:
+            raise
 
 def set_timezone_support(func):
     global __timezone_support__
@@ -3008,7 +3049,7 @@ class Result(object):
 
     def __del__(self):
         if self.result:
-            self.result.close()
+            close_db_result(self.result)
             self.result = None
 
     def __iter__(self):
@@ -3446,7 +3487,7 @@ class ManyResult(Result):
 
     def __del__(self):
         if self.result:
-            self.result.close()
+            close_db_result(self.result)
             self.result = None
 
     def __iter__(self):
