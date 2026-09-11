@@ -521,3 +521,31 @@ def test_session_property():
     req2 = Request(scope_with_session, receive, send)
     assert req2.session is not None
     assert req2.session.key == 'test_session_key'
+
+
+def test_never_awaited_warning_filter_registration():
+    """debug 模式挂载窄匹配的 never-awaited 警告过滤；非 debug 不挂。"""
+    import warnings
+    from uliweb.core.SimpleFrame import _setup_never_awaited_warning
+
+    rule = r'coroutine .*Request\.get_.* was never awaited'
+
+    warnings.resetwarnings()
+    _setup_never_awaited_warning(True)
+    assert any(f[0] == 'always' and getattr(f[1], 'pattern', None) == rule for f in warnings.filters)
+
+    warnings.resetwarnings()
+    _setup_never_awaited_warning(False)
+    assert not any(f[0] == 'always' and getattr(f[1], 'pattern', None) == rule for f in warnings.filters)
+
+
+def test_never_awaited_warning_message_visible_in_debug():
+    """debug 下匹配的 RuntimeWarning 不被吞掉。"""
+    import warnings
+    from uliweb.core.SimpleFrame import _setup_never_awaited_warning
+
+    warnings.resetwarnings()
+    _setup_never_awaited_warning(True)
+    with warnings.catch_warnings(record=True) as w:
+        warnings.warn("coroutine 'Request.get_params' was never awaited", RuntimeWarning)
+    assert any("was never awaited" in str(x.message) for x in w)

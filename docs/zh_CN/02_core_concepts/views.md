@@ -11,6 +11,10 @@ Uliweb3 已从 Werkzeug/WSGI 迁移到 Starlette/ASGI 架构。主要变化：
 - `request.json` 已弃用，请使用 `await request.get_json()` 异步获取
 - `request.params` 仅返回 GET 参数，请使用 `await request.get_params()` 获取合并参数
 
+**忘 await 的排查：**
+- `get_POST`/`get_FILES`/`get_json`/`get_data`/`get_params` 均为 **async 方法**，必须 `await` 调用；忘 await 会得到 coroutine 而非 dict，下游 `.get()` 会崩溃或静默失败。
+- **debug 模式**下框架会挂载窄匹配的警告过滤，忘 await 时控制台会看到 `RuntimeWarning: coroutine 'Request.get_xxx' was never awaited`，据此定位即可；生产模式不额外输出。
+
 **同步适配器机制：**
 - 同步视图函数仍然可以使用，框架会自动将其适配为异步执行
 - 同步函数在协程池中执行，不会阻塞事件循环

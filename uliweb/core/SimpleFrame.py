@@ -25,6 +25,7 @@ import typing as t
 import threading
 import asyncio
 import contextvars
+import warnings
 from inspect import iscoroutinefunction
 
 # 使用 Starlette 替代 Werkzeug
@@ -64,21 +65,36 @@ class Request(StarletteRequest):
         return self.scope['state']
 
     async def get_POST(self):
-        """异步获取 POST 表单数据"""
+        """异步获取 POST 表单数据
+
+        async 方法，必须 await 调用：`await request.get_POST()`。
+        忘 await 会得到 coroutine 而非 dict；debug 模式下会有
+        "coroutine was never awaited" 警告提示。
+        """
         if self.method == "POST":
             form = await self.form()
             return form
         return {}
 
     async def get_FILES(self):
-        """异步获取上传文件"""
+        """异步获取上传文件
+
+        async 方法，必须 await 调用：`await request.get_FILES()`。
+        忘 await 会得到 coroutine 而非 dict；debug 模式下会有
+        "coroutine was never awaited" 警告提示。
+        """
         if self.method == "POST":
             form = await self.form()
             return {k: v for k, v in form.items() if isinstance(v, UploadFile)}
         return {}
 
     async def get_json(self):
-        """异步获取 JSON 数据"""
+        """异步获取 JSON 数据
+
+        async 方法，必须 await 调用：`await request.get_json()`。
+        忘 await 会得到 coroutine 而非 dict；debug 模式下会有
+        "coroutine was never awaited" 警告提示。
+        """
         import json as jsn
         body = await self.get_data()
         return jsn.loads(body)
@@ -86,6 +102,7 @@ class Request(StarletteRequest):
     async def get_data(self):
         """异步获取原始请求体数据（bytes）
 
+        async 方法，必须 await 调用：`await request.get_data()`。
         与 WSGI 版本的 request.data 行为一致：
         - 返回原始请求体的字节数据
         - 如果请求是表单数据，读取后 body 可能为空（因为表单解析器会消费流）
@@ -93,7 +110,12 @@ class Request(StarletteRequest):
         return await self.body()
 
     async def get_params(self):
-        """异步获取合并参数"""
+        """异步获取合并参数
+
+        async 方法，必须 await 调用：`await request.get_params()`。
+        忘 await 会得到 coroutine 而非 dict；debug 模式下会有
+        "coroutine was never awaited" 警告提示。
+        """
         get_params = self.query_params
         post_params = await self.get_POST()
         merged_params = {}
@@ -324,6 +346,20 @@ request = LocalProxy('request', use_contextvars=True)
 response = LocalProxy('response', use_contextvars=True)
 settings = LocalProxy('settings', use_contextvars=False, env=__global__)
 application = LocalProxy('application', use_contextvars=False, env=__global__)
+
+
+def _setup_never_awaited_warning(debug):
+    """debug 模式下让 async 忘 await 的 RuntimeWarning 可见。
+
+    仅匹配 `Request.get_*` 这类方法（窄匹配），避免全局警告噪音；
+    生产（非 debug）不挂载，零运行时包装成本。
+    """
+    if debug:
+        warnings.filterwarnings(
+            'always',
+            message=r'coroutine .*Request\.get_.* was never awaited',
+            category=RuntimeWarning,
+        )
 
 # ==================== 路由 UliwebRouter ====================
 # 路由容器。注意命名含义：
@@ -942,6 +978,7 @@ class AsyncDispatcher:
         # 设置 debug 模式（如果未设置）
         if not hasattr(self, 'debug'):
             self.debug = self.settings.GLOBAL.get('DEBUG', False)
+        _setup_never_awaited_warning(self.debug)
 
         # 确保模板加载器已初始化
         if not hasattr(self, 'template_loader') or self.template_loader is None:
@@ -1234,6 +1271,7 @@ class AsyncDispatcher:
 
         # 获取 debug 模式配置
         self.debug = self.settings.GLOBAL.get('DEBUG', False)
+        _setup_never_awaited_warning(self.debug)
 
         # 初始化中间件
         self.process_request_classes = []
