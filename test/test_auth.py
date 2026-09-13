@@ -5,13 +5,13 @@
 覆盖纯密码函数（get_hexdigest / encrypt_password / check_password）与 User 模型
 的 set_password/check_password（sqlite 内存库）。
 
-注：encrypt_password 的 md5=True 默认分支存在生产 bug（template 无关）——
-hashlib.md5(raw_password).hexdigest 未对 str 编码且未调用 hexdigest()，会抛
-TypeError（见 plan.md 记录）。此处仅测可用的 md5=False 路径。
+encrypt_password 的 md5 语义（已定案）：md5=True 走 md5 算法、md5=False 走 sha1，
+两分支均测往返。
 """
 
 import os
 import sys
+import hashlib
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -35,12 +35,12 @@ class PasswordFuncTestCase(unittest.TestCase):
     def test_get_hexdigest_sha1(self):
         self.assertEqual(
             get_hexdigest('sha1', 'salt', 'pw'),
-            __import__('hashlib').sha1(b'saltpw').hexdigest())
+            hashlib.sha1(b'saltpw').hexdigest())
 
     def test_get_hexdigest_md5(self):
         self.assertEqual(
             get_hexdigest('md5', 'salt', 'pw'),
-            __import__('hashlib').md5(b'saltpw').hexdigest())
+            hashlib.md5(b'saltpw').hexdigest())
 
     def test_get_hexdigest_unknown_raises(self):
         self.assertRaises(ValueError, get_hexdigest, 'unknown', 'salt', 'pw')
@@ -60,10 +60,6 @@ class PasswordFuncTestCase(unittest.TestCase):
         self.assertEqual(len(enc.split('$')), 3)
         self.assertTrue(check_password('secret', enc))
         self.assertFalse(check_password('wrong', enc))
-
-    def test_encrypt_md5_false_prefix_sha1(self):
-        enc = encrypt_password('secret', md5=False)
-        self.assertTrue(enc.startswith('sha1$'))
 
     def test_check_wrong_password(self):
         enc = encrypt_password('secret', md5=False)

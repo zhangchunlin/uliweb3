@@ -50,7 +50,7 @@ class FileIterableTestCase(unittest.TestCase):
         self.assertIsInstance(ranged, FileIterable)
         self.assertEqual(b''.join(ranged), DATA[:100])
 
-    def test_iterator_equality_of_content(self):
+    def test_empty_range(self):
         it = FileIterable(self.path, start=0, stop=0)
         self.assertEqual(b''.join(it), b'')
 
@@ -124,7 +124,8 @@ class FiledownTestCase(unittest.TestCase):
             f.close()
 
     def test_xsendfile_requires_headers(self):
-        with self.assertRaises(Exception):
+        # x_sendfile=True 但缺 x_header_name/x_filename 时须报明确错误
+        with self.assertRaisesRegex(Exception, "can't be empty"):
             asyncio.run(filedown({}, 'report.txt', x_sendfile=True))
 
     def test_xsendfile(self):

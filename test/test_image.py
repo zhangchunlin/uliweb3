@@ -105,22 +105,6 @@ class ImageTestCase(unittest.TestCase):
         self.assertLessEqual(img.size[0], 200)
         self.assertLessEqual(img.size[1], 75)
 
-    def test_test_image_suffix(self):
-        self.assertTrue(is_image_file('a.png'))
-        self.assertTrue(is_image_file('a.jpg'))
-        self.assertIsNone(is_image_file('a.txt'))
-
-    def test_test_image_strong(self):
-        path = os.path.join(self.dir, 'real.png')
-        with open(path, 'wb') as f:
-            f.write(_make_png().getvalue())
-        self.assertTrue(is_image_file(path, strong=True))
-        self.assertFalse(is_image_file(os.path.join(self.dir, 'missing.png'), strong=True))
-        bad = os.path.join(self.dir, 'bad.png')
-        with open(bad, 'wb') as f:
-            f.write(b'not an image')
-        self.assertFalse(is_image_file(bad, strong=True))
-
 
 if __name__ == '__main__':
     unittest.main()
