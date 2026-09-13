@@ -42,7 +42,7 @@ Uliweb3 的核心实现位于 `uliweb/core/SimpleFrame.py`，包含以下主要�
 
 ## 先决条件
 
-- Python 3.7+
+- Python 3.8+（与 setup.cfg 支持的 3.8–3.13 一致）
 - 已安装 uliweb3：`pip install -e .`
 - ASGI 服务器（如 uvicorn、hypercorn）
 
@@ -402,14 +402,15 @@ class Todo:
     def index(self):
         return {'todos': self.model.all()}
 
-    def new(self):
-        title = request.POST.get('title')
+    async def new(self):
+        post = await request.get_POST()   # request.POST 已弃用（同步访问抛 RuntimeError）
+        title = post.get('title')
         if title:
             todo = self.model(title=title)
             todo.save()
         return redirect(url_for(Todo.index))
 
-    def delete(self, id):
+    def remove(self, id):   # 不能用 delete：delete 是 HTTP 动词，默认不会被 auto-expose
         todo = self.model.get(int(id))
         if todo:
             todo.delete()
@@ -427,7 +428,7 @@ class Todo:
 {{for todo in todos:}}
     <li>
         {{= todo.title }}
-        <a href="/todo/delete/{{= todo.id }}">删除</a>
+        <a href="/todo/remove/{{= todo.id }}">删除</a>
     </li>
 {{pass}}
 </ul>
