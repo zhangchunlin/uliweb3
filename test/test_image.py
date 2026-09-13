@@ -27,12 +27,8 @@ is_image_file.__test__ = False
 try:
     from PIL import Image
     HAVE_PIL = True
-    # Image.ANTIALIAS 在 Pillow 10+ 移除；resize/thumbnail/crop_resize 依赖它，
-    # 旧版可用、新版会 AttributeError（属生产代码兼容缺陷，见 plan.md 记录）
-    HAVE_ANTIALIAS = hasattr(Image, 'ANTIALIAS')
 except Exception:
     HAVE_PIL = False
-    HAVE_ANTIALIAS = False
 
 
 def _make_png(size=(100, 80), color=(255, 0, 0)):
@@ -77,21 +73,18 @@ class ImageTestCase(unittest.TestCase):
             f.write(b'not an image')
         self.assertFalse(is_image_file(bad, strong=True))
 
-    @unittest.skipUnless(HAVE_ANTIALIAS, 'Pillow>=10 移除 Image.ANTIALIAS，resize_image 不可用')
     def test_resize_image(self):
         out = resize_image(_make_png(), size=(50, 50))
         img = Image.open(out)
         self.assertEqual(img.size, (50, 50))
         self.assertEqual(img.format, 'JPEG')
 
-    @unittest.skipUnless(HAVE_ANTIALIAS, 'Pillow>=10 移除 Image.ANTIALIAS，resize_image_string 不可用')
     def test_resize_image_string(self):
         from uliweb.utils.image import resize_image_string
         data = resize_image_string(_make_png().getvalue(), size=(30, 30))
         img = Image.open(BytesIO(data))
         self.assertEqual(img.size, (30, 30))
 
-    @unittest.skipUnless(HAVE_ANTIALIAS, 'Pillow>=10 移除 Image.ANTIALIAS，thumbnail_image 不可用')
     def test_thumbnail_small_no_change(self):
         # 原图小于缩略目标，直接返回原名，不生成文件
         path = os.path.join(self.dir, 'small.png')
@@ -101,7 +94,6 @@ class ImageTestCase(unittest.TestCase):
         self.assertEqual(result, ('small.png', 'small.png'))
         self.assertFalse(os.path.exists(os.path.join(self.dir, 'small.thumbnail.png')))
 
-    @unittest.skipUnless(HAVE_ANTIALIAS, 'Pillow>=10 移除 Image.ANTIALIAS，thumbnail_image 不可用')
     def test_thumbnail_large(self):
         path = os.path.join(self.dir, 'large.png')
         with open(path, 'wb') as f:

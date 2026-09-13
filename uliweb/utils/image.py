@@ -2,6 +2,19 @@ import os
 
 QUALITY = 95
 
+# Image.ANTIALIAS 在 Pillow>=10 被移除；Pillow>=9.1 用 Image.Resampling.LANCZOS。
+# 兼容取值：新老版本都能工作。
+_RESAMPLE = None
+
+
+def _resample():
+    global _RESAMPLE
+    if _RESAMPLE is None:
+        from PIL import Image
+        _RESAMPLE = getattr(Image, 'Resampling', Image).LANCZOS
+    return _RESAMPLE
+
+
 def fix_filename(filename, suffix=''):
     """
     e.g.
@@ -19,13 +32,13 @@ def fix_filename(filename, suffix=''):
 
 def resize_image(fobj, size=(50, 50), quality=None):
     from PIL import Image
-    from io import StringIO
+    from io import BytesIO
     
     image = Image.open(fobj)
     if image.mode not in ('L', 'RGB'):
         image = image.convert('RGB')
-    image = image.resize(size, Image.ANTIALIAS)
-    o = StringIO()
+    image = image.resize(size, _resample())
+    o = BytesIO()
     image.save(o, "JPEG", quality=quality or QUALITY)
     o.seek(0)
     return o
@@ -46,7 +59,7 @@ def thumbnail_image(realfile, filename, size=(200, 75), suffix=True, quality=Non
         #the image size is smaller than thumbnail size, so we don't need to 
         #thumbnail the image
         return filename, filename
-    im.thumbnail(size, Image.ANTIALIAS)
+    im.thumbnail(size, _resample())
     format = ext[1:].upper()
     if format == 'JPG':
         format = 'JPEG'
@@ -63,8 +76,8 @@ def thumbnail_image(realfile, filename, size=(200, 75), suffix=True, quality=Non
     return ofile, ofile1
 
 def resize_image_string(buf, size=(50, 50)):
-    from io import StringIO
-    f = StringIO(buf)
+    from io import BytesIO
+    f = BytesIO(buf)
     return resize_image(f, size).getvalue()
     
 def image_size(filename):
@@ -100,7 +113,7 @@ def crop_resize(fobj, outfile, x, y, w, h, size=(50, 50), quality=None):
         image = image.convert('RGB')
     r = image.crop((x, y, x+w, y+h))
     if size:
-        rm = r.resize(size, Image.ANTIALIAS)
+        rm = r.resize(size, _resample())
     else:
         rm = r
     rm.save(outfile, "JPEG", quality=quality or QUALITY)
