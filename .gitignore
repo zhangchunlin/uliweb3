@@ -10,3 +10,5 @@ test/.*
 test/coverage_output
 .venv
 testproject
+profile/
+profile_test/
