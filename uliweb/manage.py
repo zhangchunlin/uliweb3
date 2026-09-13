@@ -48,10 +48,6 @@ def register_command(kclass):
     global __commands__
     __commands__[kclass.name] = kclass
 
-workpath = os.path.join(os.path.dirname(__file__), 'lib')
-if workpath not in sys.path:
-    sys.path.insert(0, os.path.join(workpath, 'lib'))
-
 def install_config(apps_dir):
     from uliweb.utils import pyini
     #user can configure custom PYTHONPATH, so that uliweb can add these paths
