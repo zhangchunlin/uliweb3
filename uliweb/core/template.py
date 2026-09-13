@@ -1198,12 +1198,13 @@ class _ApplyBlock(_Node):
             writer.write_line("_tt_buffer = []", self.line)
             writer.write_line("_tt_append = _tt_buffer.append", self.line)
             writer.write_line("def _tt_write(t, escape=True):", self.line)
-            writer.write_line("    if escape:", self.line)
-            writer.write_line("         _tt_append(xhtml_escape(t))", self.line)
-            writer.write_line("    else: _tt_append(t)", self.line)
-            writer.write_line("        _tt_append(t)", self.line)
-            writer.write_line("        pass", self.line)
-            writer.write_line("    pass", self.line)
+            with writer.indent():
+                writer.write_line("if escape:", self.line)
+                with writer.indent():
+                    writer.write_line("_tt_append(xhtml_escape(t))", self.line)
+                writer.write_line("else:", self.line)
+                with writer.indent():
+                    writer.write_line("_tt_append(t)", self.line)
             self.body.generate(writer)
             writer.write_line("return _tt_utf8('').join(_tt_buffer)", self.line)
         writer.write_line("_tt_append(_tt_utf8(%s(%s())))" % (

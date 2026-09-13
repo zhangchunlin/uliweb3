@@ -60,9 +60,15 @@ class TemplateRenderTestCase(unittest.TestCase):
     def test_begin_end_tag(self):
         self.assertEqual(render('{{ BEGIN_TAG }}x{{ END_TAG }}'), '{{x}}')
 
-    # 注：{{ apply }} 节点（_ApplyBlock.generate, template.py:1203-1205）存在缩进 bug，
-    # 对任意输入均抛 SyntaxError。属生产代码缺陷，已在 sdlc/test-coverage-gaps/plan.md
-    # 记录为待修 bug，不在本测试任务内改动生产代码。
+    def test_apply(self):
+        # apply 需要一个接受 bytes 的可调用对象（内部 buffer 为 bytes，escape 走 _tt_utf8）。
+        # 修复前 _ApplyBlock.generate 缩进错乱对任意输入抛 SyntaxError。
+        tpl = '{{ apply upper }}{{<< name }}{{ end }}'
+        self.assertEqual(render(tpl, {'name': 'tom', 'upper': bytes.upper}), 'TOM')
+
+    def test_apply_plain_text(self):
+        tpl = '{{ apply upper }}abc{{ end }}'
+        self.assertEqual(render(tpl, {'upper': bytes.upper}), 'ABC')
 
 
 class TemplateParseErrorTestCase(unittest.TestCase):
