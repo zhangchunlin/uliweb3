@@ -51,6 +51,20 @@ class PasswordFuncTestCase(unittest.TestCase):
         self.assertEqual(len(enc.split('$')), 3)
         self.assertTrue(check_password('secret', enc))
 
+    def test_encrypt_md5_true_roundtrip(self):
+        # 默认 md5=True。修复前 hashlib.md5(raw_password).hexdigest 未编码 str 且未调用，
+        # 抛 TypeError；且"先 md5 再 sha1"无法被 check_password 验证。
+        # 定案：md5=True 直接走 md5 算法，check_password 按 algo 分支匹配，往返成立。
+        enc = encrypt_password('secret', md5=True)
+        self.assertTrue(enc.startswith('md5$'))
+        self.assertEqual(len(enc.split('$')), 3)
+        self.assertTrue(check_password('secret', enc))
+        self.assertFalse(check_password('wrong', enc))
+
+    def test_encrypt_md5_false_prefix_sha1(self):
+        enc = encrypt_password('secret', md5=False)
+        self.assertTrue(enc.startswith('sha1$'))
+
     def test_check_wrong_password(self):
         enc = encrypt_password('secret', md5=False)
         self.assertFalse(check_password('wrong', enc))
