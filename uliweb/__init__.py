@@ -60,7 +60,6 @@ try:
         url_for,
         merge_rules,
         _convert_route_param,
-        _merge_rules,
         context_middleware,
         get_request,
         get_response,

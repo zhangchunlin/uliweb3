@@ -271,11 +271,6 @@ class UliwebError(Exception):
 # from rules import Mapping, add_rule
 from . import rules
 
-# 将 rules 模块的接口导出到当前模块
-__exposes__ = rules.__exposes__
-__no_need_exposed__ = rules.__no_need_exposed__
-__url_names__ = rules.__url_names__
-
 # 兼容其他模块直接访问 merge_rules 的需求
 def merge_rules():
     """合并路由规则"""
@@ -301,36 +296,6 @@ def _convert_route_param(rule):
 
     converted_rule = re.sub(r'<([^>]+)>', replacer, rule)
     return converted_rule, param_types
-
-
-def _merge_rules():
-    """合并路由规则，类似 SimpleFrame.py 中的 merge_rules 函数"""
-    from itertools import chain
-
-    s = []
-    index = {}
-    # 同时遍历 __no_need_exposed__ 和 __exposes__
-    all_rules = __no_need_exposed__ + list(chain(*__exposes__.values()))
-
-    for v in sorted(all_rules, key=lambda x: x[4]):  # 按时间戳排序
-        appname, endpoint, url, kw, timestamp = v
-        if 'name' in kw:
-            url_name = kw.pop('name')
-        else:
-            url_name = endpoint
-        __url_names__[url_name] = endpoint
-        methods = [y.upper() for y in kw.get('methods', [])]
-        methods.sort()
-
-        key = url, tuple(methods), kw.get('subdomain')
-        i = index.get(key, None)
-        if i is not None:
-            s[i] = (appname, endpoint, url, kw)
-        else:
-            s.append((appname, endpoint, url, kw))
-            index[key] = len(s) - 1
-
-    return s
 
 
 CONTENT_TYPE_JSON = 'application/json; charset=utf-8'
