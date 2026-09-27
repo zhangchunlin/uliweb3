@@ -1586,6 +1586,28 @@ View中要手工处理事务，执行Begin()会自动使用当前线程的连接
 所有连接。而在View中手动控制，也只要简单调用 `Rollback()` 就可以了，关闭连接处理由
 中间件完成。
 
+{% alert class=warning %}
+**注意：WebSocket / 非 HTTP 协程里写库不会自动提交。**
+上述 Web 事务模式由 **HTTP 请求生命周期**驱动——请求应答成功即自动 `CommitAll()`。但 WebSocket 长连接协程、后台协程、定时器等**不在 HTTP 请求生命周期内**，事务中间件不会为它们自动提交，写库的数据会静默丢失（表象是"明明 save 了却没落库"）。这是应用层的责任，不是框架 bug。在这些场景里写库请自行显式提交：
+
+```python
+from uliweb.orm import Begin, Commit, Rollback
+
+@expose('/ws', websocket=True)
+async def ws_endpoint(websocket):
+    await websocket.accept()
+    while True:
+        data = await websocket.receive_text()
+        try:
+            Begin()
+            Log(text=data).save()
+            Commit()          # 必须自己提交，HTTP 生命周期不会帮你
+        except:
+            Rollback()
+        await websocket.send_text("ok")
+```
+{% endalert %}
+
 在View中的处理，有几点要注意，Begin(), Commit(), Rollback() 都不带参数调用。
 在Uliorm中，SQL的执行分两种，一种是直接使用ORM的API处理，还有一种是使用SQLAlchemy
 的API进行处理(即非ORM的SQL)。为了保证正确使用线程的连接对象，ORM的API已经都使用

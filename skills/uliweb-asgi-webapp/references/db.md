@@ -248,6 +248,26 @@ class Profile(Model):
 
 安装 `uliweb.contrib.orm` 后会自动启用事务中间件，请求成功自动提交，异常自动回滚。
 
+{% alert class=warning %}
+**坑：WebSocket / 非 HTTP 协程里写 DB 不会自动提交。**
+Uliweb 的事务由 **HTTP 请求生命周期**管理——请求结束自动 `CommitAll()`。但 **WS 长连接协程不在此约定内**：在 WebSocket（`@ws.route`）或其他非 HTTP 协程里直接写 DB，框架不会自动提交，数据静默丢失（表象像"写库没生效"）。这是应用层的责任，不是 bug。正确做法是：在 WS/后台协程里写库后**自己显式提交**：
+
+```python
+from uliweb.orm import Begin, Commit, Rollback
+
+@ws.route('/notify')
+async def notify(ws):
+    async for message in ws:
+        try:
+            Begin()
+            NotifyLog(text=message).save()
+            Commit()      # 必须自己提交，HTTP 生命周期不会帮你
+        except:
+            Rollback()
+        await ws.send('ok')
+```
+{% endalert %}
+
 ### 手动事务控制
 
 ```python

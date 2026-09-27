@@ -119,6 +119,10 @@ async def mixed_view():
 
 Uliweb3 原生支持 WebSocket，可以用于实时双向通信。
 
+{% alert class=warning %}
+**坑：WS 协程里写数据库不会自动提交。** Uliweb 的事务由 HTTP 请求生命周期管理（请求结束自动 `CommitAll`），WebSocket 长连接协程不在此约定内——在 WS 协程里写库必须自己显式 `Commit()`（`from uliweb.orm import Begin, Commit, Rollback`），否则数据静默丢失。详见 `04_database/db/orm.md` 事务章节。
+{% endalert %}
+
 ### WebSocket 视图函数
 
 ```python
