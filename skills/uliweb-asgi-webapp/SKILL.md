@@ -311,10 +311,18 @@ class UserView:
 
 模板语法：
 - `{{= variable }}` - 输出转义内容
-- `{{<< variable }}` - 输出非转义内容
+- `{{<< variable }}` - 输出非转义内容（原样 HTML）
 - `{{extend "parent.html"}}` - 继承模板
 - `{{include "partial.html"}}` - 包含模板
 - `{{block name}}{{end}}` - 定义块
+
+{% alert class=warning %}
+**模板踩坑点（务必先看 `references/template.md` 的「常见坑」）**：
+- 别把顶层变量命名为 `item`（会被 layout 菜单循环遮蔽，报 `KeyError`）；改用它名如 `mail`/`record`。
+- 字典用 `{{= x['k'] }}` 下标取值；`{{= x.k }}` 只对对象有效，对 dict 会 `AttributeError`。
+- 渲染邮件/富文本正文用 `{{<< x['html'] }}`（不转义）；不可信文本用 `{{= }}` 防 XSS。
+- 测试带 `{{extend}}` 的模板须用 `uliweb.core.template.Loader(...)`，不能裸 `Template(src)` 编译。
+{% endalert %}
 
 ### 步骤 6: 全局对象
 

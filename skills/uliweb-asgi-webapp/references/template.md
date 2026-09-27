@@ -231,3 +231,41 @@ apps/
 {% alert class=warning %}
 endpoint 必须包含完整路径 `gateway.views.AgentView.index`，不能只写 `AgentView.index`。
 {% endalert %}
+
+## 常见坑（实际踩过）
+
+### 1. 别把顶层变量命名为 `item`
+
+如果父模板（如 `layout.html`）里有菜单/循环用了 `item` 作循环变量：
+
+```html
+<!-- layout.html -->
+{{for item in functions.iter_menu_item('MAINMENU', nav_active):}}
+  ...
+{{pass}}
+```
+
+那么任何 `{{extend "layout.html"}}` 的子模板里，顶层 `item` 会被 layout 的循环变量**遮蔽**——子模板里 `item['status']` 拿到的是最后一个菜单项而不是你传入的字典，表现为 `KeyError: 'status'`。**规避**：子模板传变量时避开 `item`，改用 `mail`、`record`、`thread` 等命名。
+
+### 2. 字典用下标、对象用属性
+
+Uliweb 模板里 `{{= x['k'] }}` 和 `{{= x.k }}` 编译结果不同：
+
+- 对 **dict**：`{{= x['k'] }}` 可以正常取键；`{{= x.k }}` 会 `AttributeError`（dict 没有属性 `k`）。
+- 对 **对象**（如 `SimpleNamespace`、ORM 实例）：`{{= x.k }}` 才有效。
+
+所以视图返回的如果是 dict，模板里请统一用 `x['key']`；返回对象则用 `x.attr`。二者不要混用。另外 `{{if x['key']:}}`、`{{= ', '.join(x['list']) }}` 等对 dict 下标都可用。
+
+### 3. 输出 HTML 正文用 `{{<< }}`（不转义），普通文本用 `{{= }}`
+
+`{{= }}` 会转义 HTML（`<p>` → `&lt;p&gt;`）。若要在详情页原样渲染邮件/富文本正文，用：
+
+```html
+{{<< mail['html'] }}   <!-- 原样输出，不转义 -->
+```
+
+只有信任的内容才用 `{{<< }}`；不可信的输入继续用 `{{= }}` 防 XSS。
+
+### 4. 继承布局的模板不能在测试里用裸 `Template(src)` 编译
+
+带 `{{extend}}` 的模板若直接用裸 `Template(src)` 编译会报 `ParseError: extends block found, but no template loader`。测试须用 `uliweb.core.template.Loader([TMPL_DIR], namespace=...)` 再 `load(...).generate(vars=...)` 走通 layout+block 完整链路。
