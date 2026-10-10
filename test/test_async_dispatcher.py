@@ -861,6 +861,93 @@ def test():
             mock_rollback.assert_called_once()
             mock_reset.assert_called_once()
 
+    def test_coroutine_handler_orm_commit_and_reset(self):
+        """测试异步协程视图执行成功时自动触发 CommitAll 与 ResetAll"""
+        from unittest.mock import patch, AsyncMock
+        from uliweb.core.SimpleFrame import AsyncDispatcher
+        import asyncio
+
+        dispatcher = AsyncDispatcher(
+            apps_dir='apps',
+            project_dir=str(self.project_dir),
+            start=False
+        )
+
+        async def dummy_coro_handler():
+            return "ok"
+
+        with patch('uliweb.core.SimpleFrame.CommitAll') as mock_commit, \
+             patch('uliweb.core.SimpleFrame.RollbackAll') as mock_rollback, \
+             patch('uliweb.core.SimpleFrame.ResetAll') as mock_reset:
+
+            loop = asyncio.new_event_loop()
+            try:
+                res = loop.run_until_complete(dispatcher.call_handler(dummy_coro_handler, None, None, {}))
+            finally:
+                loop.close()
+
+            assert getattr(res, 'body', None) == b"ok" or res == "ok"
+            mock_commit.assert_called_once()
+            mock_rollback.assert_not_called()
+            mock_reset.assert_called_once()
+
+    def test_coroutine_handler_orm_error_rollback_and_reset(self):
+        """测试异步协程视图抛出异常时自动触发 RollbackAll 与 ResetAll"""
+        from unittest.mock import patch
+        from uliweb.core.SimpleFrame import AsyncDispatcher
+        import asyncio
+
+        dispatcher = AsyncDispatcher(
+            apps_dir='apps',
+            project_dir=str(self.project_dir),
+            start=False
+        )
+
+        async def error_coro_handler():
+            raise ValueError("coroutine error")
+
+        with patch('uliweb.core.SimpleFrame.CommitAll') as mock_commit, \
+             patch('uliweb.core.SimpleFrame.RollbackAll') as mock_rollback, \
+             patch('uliweb.core.SimpleFrame.ResetAll') as mock_reset:
+
+            loop = asyncio.new_event_loop()
+            try:
+                with pytest.raises(ValueError):
+                    loop.run_until_complete(dispatcher.call_handler(error_coro_handler, None, None, {}))
+            finally:
+                loop.close()
+
+            mock_commit.assert_not_called()
+            mock_rollback.assert_called_once()
+            mock_reset.assert_called_once()
+
+    def test_async_dispatcher_call_always_calls_reset_all(self):
+        """测试 AsyncDispatcher.__call__ 在请求结束时无条件执行 ResetAll"""
+        from unittest.mock import patch, AsyncMock
+        from uliweb.core.SimpleFrame import AsyncDispatcher
+        import asyncio
+
+        dispatcher = AsyncDispatcher(
+            apps_dir='apps',
+            project_dir=str(self.project_dir),
+            start=False
+        )
+        dispatcher._initialized = True
+        dispatcher._build_middleware_stack = AsyncMock()
+        mock_app = AsyncMock()
+        dispatcher._build_middleware_stack.return_value = mock_app
+
+        scope = {"type": "http", "method": "GET", "path": "/test"}
+
+        with patch('uliweb.core.SimpleFrame.ResetAll') as mock_reset:
+            loop = asyncio.new_event_loop()
+            try:
+                loop.run_until_complete(dispatcher(scope, AsyncMock(), AsyncMock()))
+            finally:
+                loop.close()
+
+            mock_reset.assert_called_once()
+
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

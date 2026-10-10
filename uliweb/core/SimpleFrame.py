@@ -1636,6 +1636,10 @@ class AsyncDispatcher:
             # 处理异常
             await self._handle_websocket_exception(websocket, exc)
         finally:
+            try:
+                ResetAll()
+            except Exception:
+                pass
             # 清理上下文
             # settings 和 application 使用 LocalProxy（普通全局变量），不需要 reset
             # request 和 response 使用 contextvars，需要 reset
@@ -2263,7 +2267,13 @@ class AsyncDispatcher:
         app = await self._build_middleware_stack()
 
         # 处理请求
-        await app(scope, receive, send)
+        try:
+            await app(scope, receive, send)
+        finally:
+            try:
+                ResetAll()
+            except Exception:
+                pass
 
     async def handle_websocket(self, scope, receive, send):
         """处理 WebSocket 请求"""
@@ -2718,8 +2728,55 @@ class AsyncDispatcher:
         # 检查是否是协程函数
         if iscoroutinefunction(handler):
             logger.debug(f"[_call_function] handler is coroutine function, awaiting...")
-            result = await handler(*call_args, **call_kwargs)
-            logger.debug(f"[_call_function] after await, result type: {type(result)}, result: {result}")
+            result = None
+            try:
+                result = await handler(*call_args, **call_kwargs)
+                logger.debug(f"[_call_function] after await, result type: {type(result)}, result: {result}")
+                is_streaming = (
+                    hasattr(result, 'is_streaming') and result.is_streaming
+                ) or (result is not None and result.__class__.__name__ in ('StreamingResponse', 'StarletteStreamingResponse'))
+                if not is_streaming:
+                    try:
+                        CommitAll()
+                    except Exception as commit_err:
+                        logger.error(
+                            "[ASGI Coroutine Executor] CommitAll failed on coroutine handler, "
+                            f"rolling back: {commit_err}",
+                            exc_info=True
+                        )
+                        try:
+                            RollbackAll()
+                        except Exception as rollback_err:
+                            logger.error(
+                                "[ASGI Coroutine Executor] RollbackAll failed after commit failure: "
+                                f"{rollback_err}",
+                                exc_info=True
+                            )
+                        raise commit_err
+                return result
+            except BaseException as e:
+                try:
+                    RollbackAll()
+                except Exception as rollback_err:
+                    logger.error(
+                        "[ASGI Coroutine Executor] RollbackAll failed: "
+                        f"{rollback_err}",
+                        exc_info=True
+                    )
+                raise e
+            finally:
+                is_streaming = (
+                    hasattr(result, 'is_streaming') and result.is_streaming
+                ) or (result is not None and result.__class__.__name__ in ('StreamingResponse', 'StarletteStreamingResponse'))
+                if not is_streaming:
+                    try:
+                        ResetAll()
+                    except Exception as reset_err:
+                        logger.error(
+                            "[ASGI Coroutine Executor] ResetAll failed: "
+                            f"{reset_err}",
+                            exc_info=True
+                        )
         else:
             # 同步函数需要在协程池中执行
             # run_in_executor 只接受位置参数，使用 functools.partial 绑定参数
@@ -3215,9 +3272,10 @@ class AsyncDispatcher:
                     response = await next_app(new_scope, receive, send)
                     request_success = True
                     return response
-            except Exception as e:
+            except BaseException as e:
                 # Log detailed exception stack and roll back the transaction
-                logger.error(f"[ASGI Middleware Error] Exception occurred during request processing: {e}", exc_info=True)
+                if not isinstance(e, asyncio.CancelledError):
+                    logger.error(f"[ASGI Middleware Error] Exception occurred during request processing: {e}", exc_info=True)
                 try:
                     RollbackAll()
                 except Exception as rollback_err:
