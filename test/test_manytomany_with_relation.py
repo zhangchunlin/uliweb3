@@ -308,7 +308,57 @@ def test_with_relation_and_fields():
     """
 
 
+def test_manytomany_through_model_class_and_reverse_property():
+    """测试 ManyToMany 在 through 参数直接传入 Model 类时正确初始化 table 并支持反向属性访问"""
+    db = get_connection('sqlite://')
+    db.metadata.drop_all()
+    db.metadata.clear()
+
+    class PermClass(Model):
+        name = Field(str)
+
+    class RoleClass(Model):
+        name = Field(str)
+
+    class RolePermRelClass(Model):
+        role = Reference('roleclass')
+        permission = Reference('permclass')
+
+    RoleClass.add_property(
+        'permissions',
+        ManyToMany('permclass', through=RolePermRelClass, collection_name='perm_roles')
+    )
+
+    PermClass.create()
+    RoleClass.create()
+    RolePermRelClass.create()
+
+    p = PermClass(name='sys_access')
+    p.save()
+    r = RoleClass(name='sys_admin')
+    r.save()
+
+    # 访问反向属性触发 init_through 并验证解决 AttributeError: 'ManyToMany' object has no attribute 'table'
+    assert len(list(p.perm_roles.all())) == 0
+
+    # 验证是否正确创建联合唯一索引
+    idx_names = [idx.name for idx in RolePermRelClass.table.indexes]
+    expected_idx = '%s_mindx' % RoleClass.permissions.tablename
+    assert expected_idx in idx_names
+
+    r.permissions.add(p)
+    roles = list(p.perm_roles.all())
+    assert len(roles) == 1
+    assert roles[0].name == 'sys_admin'
+
+
 if __name__ == '__main__':
     import doctest
     results = doctest.testmod(verbose=True)
     print(f"\nDoctest: {results.attempted} tests, {results.failed} failures")
+    try:
+        test_manytomany_through_model_class_and_reverse_property()
+        print("test_manytomany_through_model_class_and_reverse_property passed")
+    except Exception as exc:
+        print(f"test_manytomany_through_model_class_and_reverse_property FAILED: {exc}")
+        raise

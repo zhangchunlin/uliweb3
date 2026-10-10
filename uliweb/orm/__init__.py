@@ -3618,63 +3618,72 @@ class ManyToMany(ReferenceProperty):
         return _table
 
     def init_through(self):
+        if not self.through:
+            return
+        if getattr(self, '_through_initialized', False):
+            return
+
         def find_property(properties, model, skip=None):
             for k, v in properties.items():
                 if isinstance(v, ReferenceProperty) and v.reference_class is model and (not skip or skip and v.reference_class is not skip):
                     return k, v
 
-        if self.through and (not isinstance(self.through, type) or not issubclass(self.through, Model)):
+        if not isinstance(self.through, type) or not issubclass(self.through, Model):
             if not (
                     (isinstance(self.through, type) and issubclass(self.reference_class, Model)) or
                     valid_model(self.reference_class)):
                 raise KindError('through must be Model or available table name')
             self.through = get_model(self.through, engine_name=self.engine_name,
-                                                                 signal=False)
-            #auto find model
-            _auto_model = None
-            #process through_reference_fieldname
-            if self.through_reversed_fieldname:
-                k = self.through_reversed_fieldname
-                v = self.through.properties.get(k)
-                if not v:
-                    raise BadPropertyTypeError("Can't find property %s in through model %s" % (
-                        k, self.through.__name__))
-            else:
-                x = find_property(self.through.properties, self.model_class)
-                if not x:
-                    raise BadPropertyTypeError("Can't find reference property of model %s in through model %s" % (
-                        self.model_class.__name__, self.through.__name__))
-                k, v = x
-                _auto_model = self.model_class
-            self.fielda = k
-            self.reversed_fieldname = v.reference_fieldname
+                                     signal=False)
 
-            #process through_reversed_fieldname
-            if self.through_reference_fieldname:
-                k = self.through_reference_fieldname
-                v = self.through.properties.get(k)
-                if not v:
-                    raise BadPropertyTypeError("Can't find property %s in through model %s" % (
-                        k, self.through.__name__))
-            else:
-                x = find_property(self.through.properties, self.reference_class, self.model_class)
-                if not x:
-                    raise BadPropertyTypeError("Can't find reference property of model %s in through model %s" % (
-                        self.model_class.__name__, self.through.__name__))
-                k, v = x
-                #check if the auto find models are the same
-                if _auto_model and _auto_model is self.reference_class:
-                    raise BadPropertyTypeError("If the two reference fields come from the same"
-                        " model, you should specify them via through_reference_fieldname or"
-                        " through_reversed_fieldname in through model %s" % self.through.__name__)
-            self.fieldb = k
-            self.reference_fieldname = v.reference_fieldname
+        #auto find model
+        _auto_model = None
+        #process through_reference_fieldname
+        if self.through_reversed_fieldname:
+            k = self.through_reversed_fieldname
+            v = self.through.properties.get(k)
+            if not v:
+                raise BadPropertyTypeError("Can't find property %s in through model %s" % (
+                    k, self.through.__name__))
+        else:
+            x = find_property(self.through.properties, self.model_class)
+            if not x:
+                raise BadPropertyTypeError("Can't find reference property of model %s in through model %s" % (
+                    self.model_class.__name__, self.through.__name__))
+            k, v = x
+            _auto_model = self.model_class
+        self.fielda = k
+        self.reversed_fieldname = v.reference_fieldname
 
-            self.table = self.through.table
-            appname = self.model_class.__module__
-            self.table.__appname__ = appname[:appname.rfind('.')]
-            self.model_class.manytomany.append(self.table)
-            Index('%s_mindx' % self.tablename, self.table.c[self.fielda], self.table.c[self.fieldb], unique=True)
+        #process through_reversed_fieldname
+        if self.through_reference_fieldname:
+            k = self.through_reference_fieldname
+            v = self.through.properties.get(k)
+            if not v:
+                raise BadPropertyTypeError("Can't find property %s in through model %s" % (
+                    k, self.through.__name__))
+        else:
+            x = find_property(self.through.properties, self.reference_class, self.model_class)
+            if not x:
+                raise BadPropertyTypeError("Can't find reference property of model %s in through model %s" % (
+                    self.model_class.__name__, self.through.__name__))
+            k, v = x
+            #check if the auto find models are the same
+            if _auto_model and _auto_model is self.reference_class:
+                raise BadPropertyTypeError("If the two reference fields come from the same"
+                    " model, you should specify them via through_reference_fieldname or"
+                    " through_reversed_fieldname in through model %s" % self.through.__name__)
+        self.fieldb = k
+        self.reference_fieldname = v.reference_fieldname
+
+        self.table = self.through.table
+        appname = self.model_class.__module__
+        self.table.__appname__ = appname[:appname.rfind('.')]
+        self.model_class.manytomany.append(self.table)
+        idx_name = '%s_mindx' % self.tablename
+        if not any(idx.name == idx_name for idx in self.table.indexes):
+            Index(idx_name, self.table.c[self.fielda], self.table.c[self.fieldb], unique=True)
+        self._through_initialized = True
 
     def __property_config__(self, model_class, property_name):
         """Loads all of the references that point to this model.
