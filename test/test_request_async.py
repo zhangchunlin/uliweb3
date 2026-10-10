@@ -557,8 +557,10 @@ def _attach_log(logger, level):
     handler = logging.Handler()
     handler.emit = lambda record: records.append(record)
     handler.setLevel(level)
+    old_level = logger.level
+    logger.setLevel(level)
     logger.addHandler(handler)
-    return records, handler, logger.level
+    return records, handler, old_level
 
 
 def _detach_log(logger, handler, records, old_level):

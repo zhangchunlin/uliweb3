@@ -74,7 +74,7 @@ try:
     ASGI_AVAILABLE = True
 
     # 从 SimpleFrame.py 导入 AsyncDispatcher（已从 starlette.py 迁移）
-    from .core.SimpleFrame import AsyncDispatcher, ASGIApplication
+    from .core.SimpleFrame import AsyncDispatcher, ASGIApplication, ORMSafeThreadPoolExecutor, to_thread
     Dispatcher = AsyncDispatcher
 
 except ImportError:
@@ -97,5 +97,5 @@ __all__ = [
     'common', 'date', 'files', 'storage', 'sorteddict',
     'form', 'orm', 'i18n', 'mail', 'ASGI_AVAILABLE',
     'get_apps', 'get_app_dir', 'functions', 'Finder', 'decorators', 'url_for', 'json_dumps',
-    'is_in_web', 'error', 'models'
+    'is_in_web', 'error', 'models', 'to_thread'
 ]

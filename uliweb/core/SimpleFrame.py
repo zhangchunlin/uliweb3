@@ -45,6 +45,45 @@ import sys
 logger = logging.getLogger('uliweb')
 
 from uliweb.orm import CommitAll, RollbackAll, ResetAll, set_shutting_down
+from concurrent.futures import ThreadPoolExecutor
+
+
+async def to_thread(func, /, *args, **kwargs):
+    """在独立工作线程中异步执行同步函数 func，自动管理 ORM 异常回滚与连接释放。
+
+    与 Python 标准库 asyncio.to_thread 签名与 ContextVar 上下文行为完全兼容。
+    执行语义：
+    - 任务正常完成时，由工作线程 finally 执行 ResetAll() 确保数据库连接归还连接池；
+    - 任务发生未捕获异常时，自动执行 RollbackAll() 回滚未完成事务，随后执行 ResetAll()；
+    - 事务提交由业务函数自行显式控制（如 CommitAll()），避免静默自动提交只读查询操作。
+    """
+    from contextvars import copy_context
+
+    loop = asyncio.get_running_loop()
+    ctx = copy_context()
+
+    def _sync_worker():
+        try:
+            return func(*args, **kwargs)
+        except Exception:
+            try:
+                RollbackAll()
+            except Exception as rollback_err:
+                logger.error(f"[to_thread] RollbackAll failed: {rollback_err}", exc_info=True)
+            raise
+        finally:
+            try:
+                ResetAll()
+            except Exception as reset_err:
+                logger.error(f"[to_thread] ResetAll failed: {reset_err}", exc_info=True)
+
+    return await loop.run_in_executor(None, ctx.run, _sync_worker)
+
+
+class ORMSafeThreadPoolExecutor(ThreadPoolExecutor):
+    """向后兼容存根，新代码推荐直接使用 uliweb.to_thread"""
+    pass
+
 
 
 # ==================== Request 类 ====================
@@ -948,6 +987,19 @@ class AsyncDispatcher:
         # 与 WSGI 版本的 Dispatcher 行为一致
         self._init_settings()
 
+    @property
+    def safe_executor(self):
+        """向后兼容属性"""
+        return None
+
+    async def to_thread(self, func, *args, **kwargs):
+        """在独立工作线程中异步执行同步函数，自动管理 ORM 异常回滚与连接释放"""
+        return await to_thread(func, *args, **kwargs)
+
+    def close(self):
+        """关闭 Dispatcher"""
+        pass
+
     def prepare(self):
         """手动初始化应用（用于命令行工具等场景）
 
@@ -1638,8 +1690,8 @@ class AsyncDispatcher:
         finally:
             try:
                 ResetAll()
-            except Exception:
-                pass
+            except Exception as reset_err:
+                logger.warning("[ASGI WebSocket] ResetAll failed: %s", reset_err)
             # 清理上下文
             # settings 和 application 使用 LocalProxy（普通全局变量），不需要 reset
             # request 和 response 使用 contextvars，需要 reset
@@ -1716,16 +1768,31 @@ class AsyncDispatcher:
                 # 同步函数需要在协程池中执行
                 import functools
                 from contextvars import copy_context
-                loop = asyncio.get_event_loop()
+                loop = asyncio.get_running_loop()
                 ctx = copy_context()
 
+                def _sync_ws_wrapper(fn, *a, **kw):
+                    try:
+                        return fn(*a, **kw)
+                    except Exception:
+                        try:
+                            RollbackAll()
+                        except Exception as rollback_err:
+                            logger.warning("[WebSocket] RollbackAll failed: %s", rollback_err)
+                        raise
+                    finally:
+                        try:
+                            ResetAll()
+                        except Exception as reset_err:
+                            logger.warning("[WebSocket] ResetAll failed: %s", reset_err)
+
                 try:
-                    partial_handler = functools.partial(handler, websocket)
+                    partial_handler = functools.partial(_sync_ws_wrapper, handler, websocket)
                     await loop.run_in_executor(None, ctx.run, partial_handler)
                 except TypeError:
                     # 尝试 ASGI 风格
                     try:
-                        partial_handler = functools.partial(handler, websocket.scope, websocket._receive, websocket._send)
+                        partial_handler = functools.partial(_sync_ws_wrapper, handler, websocket.scope, websocket._receive, websocket._send)
                         await loop.run_in_executor(None, ctx.run, partial_handler)
                     except Exception:
                         await self.handle_websocket(websocket.scope, websocket._receive, websocket._send)
@@ -2153,7 +2220,7 @@ class AsyncDispatcher:
             x._loaded = True
             return x
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         settings = await loop.run_in_executor(
             None,
             load_settings
@@ -2167,7 +2234,7 @@ class AsyncDispatcher:
 
         # 使用协程池执行同步的应用获取
         # 注意：需要传递完整的 apps 目录路径
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         # 构建完整的 apps 目录路径
         if self.project_dir:
@@ -2272,8 +2339,8 @@ class AsyncDispatcher:
         finally:
             try:
                 ResetAll()
-            except Exception:
-                pass
+            except Exception as reset_err:
+                logger.warning("[ASGI Request] ResetAll failed: %s", reset_err)
 
     async def handle_websocket(self, scope, receive, send):
         """处理 WebSocket 请求"""
@@ -2782,7 +2849,7 @@ class AsyncDispatcher:
             # run_in_executor 只接受位置参数，使用 functools.partial 绑定参数
             import functools
             from contextvars import copy_context
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
 
             # 获取当前 contextvars 上下文
             ctx = copy_context()
@@ -2939,7 +3006,7 @@ class AsyncDispatcher:
     async def _render_template(self, template_file, vars, env):
         """异步渲染模板"""
         # 使用协程池执行同步的模板渲染
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         # 使用 copy_context 确保 contextvars 在线程池中正确传播
         from contextvars import copy_context
         ctx = copy_context()
@@ -3632,6 +3699,8 @@ __all__ = [
     'UliwebRouter',
     'AsyncDispatcher',
     'ASGIApplication',
+    'ORMSafeThreadPoolExecutor',
+    'to_thread',
     'expose',
     'POST',
     'GET',

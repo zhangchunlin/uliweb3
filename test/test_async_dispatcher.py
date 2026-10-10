@@ -948,6 +948,146 @@ def test():
 
             mock_reset.assert_called_once()
 
+    def test_to_thread_calls_rollback_and_reset_all(self):
+        """测试 to_thread 工具函数在工作线程中保证事务回滚与连接释放"""
+        from unittest.mock import patch
+        from uliweb.core.SimpleFrame import to_thread, AsyncDispatcher
+        import asyncio
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            with patch('uliweb.core.SimpleFrame.RollbackAll') as mock_rollback,                  patch('uliweb.core.SimpleFrame.ResetAll') as mock_reset:
+
+                def sync_ok(x, y=10):
+                    return x + y
+
+                async def test_ok():
+                    res = await to_thread(sync_ok, 5, y=20)
+                    assert res == 25
+
+                loop.run_until_complete(test_ok())
+                assert mock_rollback.call_count == 0
+                assert mock_reset.call_count == 1
+
+            with patch('uliweb.core.SimpleFrame.RollbackAll') as mock_rollback,                  patch('uliweb.core.SimpleFrame.ResetAll') as mock_reset:
+
+                def sync_fail():
+                    raise ValueError("test_err")
+
+                async def test_fail():
+                    try:
+                        await to_thread(sync_fail)
+                    except ValueError as e:
+                        assert str(e) == "test_err"
+
+                loop.run_until_complete(test_fail())
+                assert mock_rollback.call_count == 1
+                assert mock_reset.call_count == 1
+
+            # 测试 dispatcher.to_thread 代理调用
+            dispatcher = AsyncDispatcher(apps_dir='apps', project_dir=str(self.project_dir), start=False)
+            async def test_dispatcher():
+                res = await dispatcher.to_thread(lambda: "disp_ok")
+                assert res == "disp_ok"
+            loop.run_until_complete(test_dispatcher())
+            dispatcher.close()
+        finally:
+            loop.close()
+
+    def test_to_thread_contextvars_propagation(self):
+        """测试 to_thread 正常继承与传递 ContextVar 上下文变量"""
+        from contextvars import ContextVar
+        import asyncio
+        from uliweb.core.SimpleFrame import to_thread
+
+        test_var: ContextVar[str] = ContextVar('test_var', default='default_val')
+        test_var.set('caller_val')
+
+        def worker():
+            return test_var.get()
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            val = loop.run_until_complete(to_thread(worker))
+            assert val == 'caller_val'
+        finally:
+            loop.close()
+
+    def test_to_thread_no_implicit_commit(self):
+        """测试 to_thread 执行正常任务时不会静默隐式触发 CommitAll（事务提交由业务主动控制）"""
+        from unittest.mock import patch
+        import asyncio
+        from uliweb.core.SimpleFrame import to_thread
+
+        with patch('uliweb.core.SimpleFrame.CommitAll') as mock_commit,              patch('uliweb.core.SimpleFrame.ResetAll') as mock_reset:
+            def sync_readonly():
+                return "readonly_result"
+
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                res = loop.run_until_complete(to_thread(sync_readonly))
+                assert res == "readonly_result"
+                assert mock_commit.call_count == 0
+                assert mock_reset.call_count == 1
+            finally:
+                loop.close()
+
+    def test_websocket_sync_handler_resets_connection(self):
+        """测试同步 WebSocket handler 执行时通过 _sync_ws_wrapper 自动管理异常回滚并释放数据库连接"""
+        from unittest.mock import patch, MagicMock
+        from uliweb.core.SimpleFrame import AsyncDispatcher
+        import asyncio
+
+        dispatcher = AsyncDispatcher(apps_dir='apps', project_dir=str(self.project_dir), start=False)
+
+        mock_ws = MagicMock()
+        mock_ws.url = 'ws://localhost/ws'
+        mock_ws.scope = {'type': 'websocket'}
+
+        # 模拟同步 WebSocket 处理器正常处理
+        def sync_ws_view(ws):
+            return "ws_processed"
+
+        mock_ws._handler = sync_ws_view
+        mock_ws._handler_cls = None
+        mock_ws.rule = None
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            with patch('uliweb.core.SimpleFrame.RollbackAll') as mock_rollback,                  patch('uliweb.core.SimpleFrame.ResetAll') as mock_reset:
+
+                loop.run_until_complete(dispatcher._open_websocket(mock_ws))
+                assert mock_rollback.call_count == 0
+                assert mock_reset.call_count >= 1
+
+            # 模拟同步 WebSocket 处理器抛出异常
+            def sync_ws_error(ws):
+                raise RuntimeError("ws error")
+
+            mock_ws._handler = sync_ws_error
+            with patch('uliweb.core.SimpleFrame.RollbackAll') as mock_rollback,                  patch('uliweb.core.SimpleFrame.ResetAll') as mock_reset:
+
+                try:
+                    loop.run_until_complete(dispatcher._open_websocket(mock_ws))
+                except RuntimeError:
+                    pass
+                assert mock_rollback.call_count == 1
+                assert mock_reset.call_count >= 1
+        finally:
+            dispatcher.close()
+            loop.close()
+
+    def test_import_to_thread_from_uliweb(self):
+        """测试从顶级 uliweb 模块直接导入 to_thread"""
+        from uliweb import to_thread as uliweb_to_thread
+        from uliweb.core.SimpleFrame import to_thread as frame_to_thread
+
+        assert uliweb_to_thread is frame_to_thread
+
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
