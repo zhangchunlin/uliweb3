@@ -486,8 +486,10 @@ def comment(post_id, comment_id):
         mock_response = MagicMock()
         mock_env = {}
 
-        # Patch CommitAll 和 RollbackAll
-        with patch('uliweb.core.SimpleFrame.CommitAll') as mock_commit_all,              patch('uliweb.core.SimpleFrame.RollbackAll') as mock_rollback_all:
+        # Patch CommitAll, RollbackAll 和 ResetAll
+        with patch('uliweb.core.SimpleFrame.CommitAll') as mock_commit_all, \
+             patch('uliweb.core.SimpleFrame.RollbackAll') as mock_rollback_all, \
+             patch('uliweb.core.SimpleFrame.ResetAll') as mock_reset_all:
              
             # 运行同步视图调度
             loop = asyncio.new_event_loop()
@@ -510,9 +512,10 @@ def comment(post_id, comment_id):
             assert len(mock_called) == 1
             mock_commit_all.assert_called_once()
             mock_rollback_all.assert_not_called()
+            mock_reset_all.assert_called_once()
 
     def test_async_dispatcher_sync_handler_transaction_rollback(self):
-        """测试 AsyncDispatcher 对失败的同步视图执行自动 ORM 事务回滚"""
+        """测试 AsyncDispatcher 对失败的同步视图执行自动 ORM 事务回滚及连接重置"""
         from unittest.mock import patch, MagicMock
         from uliweb.core.SimpleFrame import AsyncDispatcher
         import asyncio
@@ -536,8 +539,10 @@ def comment(post_id, comment_id):
         mock_response = MagicMock()
         mock_env = {}
 
-        # Patch CommitAll 和 RollbackAll
-        with patch('uliweb.core.SimpleFrame.CommitAll') as mock_commit_all,              patch('uliweb.core.SimpleFrame.RollbackAll') as mock_rollback_all:
+        # Patch CommitAll, RollbackAll 和 ResetAll
+        with patch('uliweb.core.SimpleFrame.CommitAll') as mock_commit_all, \
+             patch('uliweb.core.SimpleFrame.RollbackAll') as mock_rollback_all, \
+             patch('uliweb.core.SimpleFrame.ResetAll') as mock_reset_all:
              
             # 运行并断言异常抛出
             loop = asyncio.new_event_loop()
@@ -559,6 +564,115 @@ def comment(post_id, comment_id):
             # 验证结果
             mock_commit_all.assert_not_called()
             mock_rollback_all.assert_called_once()
+            mock_reset_all.assert_called_once()
+
+    def test_async_dispatcher_sync_middleware_commit_and_reset(self):
+        """测试 AsyncDispatcher 对同步中间件执行后自动 CommitAll 和 ResetAll 释放连接"""
+        from unittest.mock import patch, MagicMock
+        from uliweb.core.SimpleFrame import AsyncDispatcher
+        import asyncio
+
+        dispatcher = AsyncDispatcher(
+            apps_dir='apps',
+            project_dir=str(self.project_dir),
+            start=False
+        )
+
+        mock_called = []
+        def sync_middleware_process_request(req):
+            mock_called.append(True)
+            return None
+
+        mock_request = MagicMock()
+
+        with patch('uliweb.core.SimpleFrame.CommitAll') as mock_commit_all, \
+             patch('uliweb.core.SimpleFrame.RollbackAll') as mock_rollback_all, \
+             patch('uliweb.core.SimpleFrame.ResetAll') as mock_reset_all:
+
+            loop = asyncio.new_event_loop()
+            try:
+                res = loop.run_until_complete(
+                    dispatcher._call_middleware_method(sync_middleware_process_request, mock_request)
+                )
+            finally:
+                loop.close()
+
+            assert res is None
+            assert len(mock_called) == 1
+            mock_commit_all.assert_called_once()
+            mock_rollback_all.assert_not_called()
+            mock_reset_all.assert_called_once()
+
+    def test_async_dispatcher_sync_middleware_rollback_and_reset(self):
+        """测试 AsyncDispatcher 对出错的同步中间件自动 RollbackAll 和 ResetAll 释放连接"""
+        from unittest.mock import patch, MagicMock
+        from uliweb.core.SimpleFrame import AsyncDispatcher
+        import asyncio
+
+        dispatcher = AsyncDispatcher(
+            apps_dir='apps',
+            project_dir=str(self.project_dir),
+            start=False
+        )
+
+        class MiddlewareError(Exception):
+            pass
+
+        def sync_middleware_fail(req):
+            raise MiddlewareError("Middleware DB error")
+
+        mock_request = MagicMock()
+
+        with patch('uliweb.core.SimpleFrame.CommitAll') as mock_commit_all, \
+             patch('uliweb.core.SimpleFrame.RollbackAll') as mock_rollback_all, \
+             patch('uliweb.core.SimpleFrame.ResetAll') as mock_reset_all:
+
+            loop = asyncio.new_event_loop()
+            try:
+                with pytest.raises(MiddlewareError):
+                    loop.run_until_complete(
+                        dispatcher._call_middleware_method(sync_middleware_fail, mock_request)
+                    )
+            finally:
+                loop.close()
+
+            mock_commit_all.assert_not_called()
+            mock_rollback_all.assert_called_once()
+            mock_reset_all.assert_called_once()
+
+    def test_async_dispatcher_sync_middleware_commit_failure_handled(self):
+        """测试同步中间件在 CommitAll 失败时记录错误并回滚，但不中断返回结果（对齐 spec 2.1）"""
+        from unittest.mock import patch, MagicMock
+        from uliweb.core.SimpleFrame import AsyncDispatcher
+        import asyncio
+
+        dispatcher = AsyncDispatcher(
+            apps_dir='apps',
+            project_dir=str(self.project_dir),
+            start=False
+        )
+
+        def sync_middleware_ok(req):
+            return "SUCCESS_RESULT"
+
+        mock_request = MagicMock()
+
+        with patch('uliweb.core.SimpleFrame.CommitAll', side_effect=Exception("DB Commit Failure")) as mock_commit_all, \
+             patch('uliweb.core.SimpleFrame.RollbackAll') as mock_rollback_all, \
+             patch('uliweb.core.SimpleFrame.ResetAll') as mock_reset_all:
+
+            loop = asyncio.new_event_loop()
+            try:
+                res = loop.run_until_complete(
+                    dispatcher._call_middleware_method(sync_middleware_ok, mock_request)
+                )
+            finally:
+                loop.close()
+
+            assert res == "SUCCESS_RESULT"
+            mock_commit_all.assert_called_once()
+            mock_rollback_all.assert_called_once()
+            mock_reset_all.assert_called_once()
 
     def test_match_route_same_path_multiple_methods(self):
         """测试同路径多方法时，方法不匹配的路由不遮蔽匹配的路由"""
@@ -691,6 +805,61 @@ def test():
 
         test_routes = [r for r in dispatcher.router.routes if r.path == '/test']
         assert len(test_routes) == 1
+
+    def test_sqlite_pool_args_filtered(self):
+        """测试 NamedEngine._create 对 sqlite 连接字符串自动过滤 QueuePool 参数"""
+        from uliweb.orm import get_connection
+        engine = get_connection(
+            'sqlite:///:memory:',
+            pool_size=5,
+            max_overflow=10,
+            pool_timeout=30,
+            pool_recycle=300,
+            pool_pre_ping=True
+        )
+        assert engine is not None
+
+    def test_async_dispatcher_main_middleware_commit_failure_rollback(self):
+        """测试主请求链在 CommitAll 抛错时触发 RollbackAll 并最终 ResetAll"""
+        from unittest.mock import patch, MagicMock, AsyncMock
+        from uliweb.core.SimpleFrame import AsyncDispatcher
+        import asyncio
+
+        dispatcher = AsyncDispatcher(
+            apps_dir='apps',
+            project_dir=str(self.project_dir),
+            start=False
+        )
+
+        mock_middleware = MagicMock()
+        mock_middleware.dispatch = AsyncMock(return_value=None)
+
+        async def dummy_next_app(scope, receive, send):
+            pass
+
+        app = dispatcher._wrap_advanced_middleware(mock_middleware, dummy_next_app)
+
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/test",
+            "headers": [],
+            "query_string": b"",
+        }
+
+        with patch('uliweb.core.SimpleFrame.CommitAll', side_effect=RuntimeError("Commit failed")) as mock_commit, \
+             patch('uliweb.core.SimpleFrame.RollbackAll') as mock_rollback, \
+             patch('uliweb.core.SimpleFrame.ResetAll') as mock_reset:
+
+            loop = asyncio.new_event_loop()
+            try:
+                loop.run_until_complete(app(scope, AsyncMock(), AsyncMock()))
+            finally:
+                loop.close()
+
+            mock_commit.assert_called_once()
+            mock_rollback.assert_called_once()
+            mock_reset.assert_called_once()
 
 
 if __name__ == '__main__':

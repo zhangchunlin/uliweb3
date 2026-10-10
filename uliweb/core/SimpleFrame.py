@@ -44,7 +44,7 @@ import sys
 # 创建日志记录器
 logger = logging.getLogger('uliweb')
 
-from uliweb.orm import CommitAll, RollbackAll, set_shutting_down
+from uliweb.orm import CommitAll, RollbackAll, ResetAll, set_shutting_down
 
 
 # ==================== Request 类 ====================
@@ -2763,6 +2763,14 @@ class AsyncDispatcher:
                             exc_info=True
                         )
                     raise e
+                finally:
+                    try:
+                        ResetAll()
+                    except Exception as reset_err:
+                        logger.error(
+                            f"[ASGI Sync Executor] ResetAll failed on child thread: {reset_err}",
+                            exc_info=True
+                        )
 
             logger.debug(f"[_call_function] handler is sync function, using run_in_executor with sync_orm_wrapper")
             if call_kwargs:
@@ -3216,12 +3224,21 @@ class AsyncDispatcher:
                     logger.error(f"[ASGI Middleware Error] RollbackAll failed: {rollback_err}", exc_info=True)
                 raise e
             finally:
-                # Commit ORM database transaction only on success path to prevent persisting invalid data
+                # Note: Response body has been fully serialized and sent over ASGI (via await response / next_app)
+                # before this finally block, so session.close() in ResetAll will not trigger DetachedInstanceError.
                 if request_success:
                     try:
                         CommitAll()
                     except Exception as commit_err:
                         logger.error(f"[ASGI Middleware Error] CommitAll failed: {commit_err}", exc_info=True)
+                        try:
+                            RollbackAll()
+                        except Exception as rollback_err:
+                            logger.error(f"[ASGI Middleware Error] RollbackAll failed after commit failure: {rollback_err}", exc_info=True)
+                try:
+                    ResetAll()
+                except Exception as reset_err:
+                    logger.error(f"[ASGI Middleware Error] ResetAll failed: {reset_err}", exc_info=True)
                 # Clean up request context
                 request.reset(request_token)
 
@@ -3246,11 +3263,60 @@ class AsyncDispatcher:
         if iscoroutinefunction(method):
             return await method(*args)
         else:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             # 使用 copy_context 确保 contextvars 在线程池中正确传播
             from contextvars import copy_context
+            import functools
             ctx = copy_context()
-            return await loop.run_in_executor(None, ctx.run, method, *args)
+
+            def sync_middleware_wrapper(func, *call_args):
+                """在工作线程中执行同步中间件，并管理工作线程本地的数据库连接生命周期。
+
+                注意事务边界：Uliweb ORM 的 Session 绑定在线程局部存储 (threading.local) 上。
+                每个在线程池中执行的同步中间件（如使用 process_request 查库进行身份验证的中间件）
+                都会从连接池借出独立的数据库连接。为了防止连接在工作线程中长期处于 'idle in transaction'
+                状态导致连接池耗尽，在此子线程包装器中独立执行该中间件的 Commit/Rollback 与 ResetAll。
+                若 CommitAll 失败，仅记录错误日志并回滚，不中断中间件结果返回（与 spec 2.1 规范对齐）。
+                """
+                try:
+                    res = func(*call_args)
+                    try:
+                        CommitAll()
+                    except Exception as commit_err:
+                        logger.error(
+                            f"[ASGI Sync Middleware] CommitAll failed on child thread: {commit_err}",
+                            exc_info=True
+                        )
+                        try:
+                            RollbackAll()
+                        except Exception as rollback_err:
+                            logger.error(
+                                "[ASGI Sync Middleware] RollbackAll failed on child thread after commit failure: "
+                                f"{rollback_err}",
+                                exc_info=True
+                            )
+                    return res
+                except Exception as e:
+                    try:
+                        RollbackAll()
+                    except Exception as rollback_err:
+                        logger.error(
+                            "[ASGI Sync Middleware] RollbackAll failed on child thread: "
+                            f"{rollback_err}",
+                            exc_info=True
+                        )
+                    raise e
+                finally:
+                    try:
+                        ResetAll()
+                    except Exception as reset_err:
+                        logger.error(
+                            f"[ASGI Sync Middleware] ResetAll failed on child thread: {reset_err}",
+                            exc_info=True
+                        )
+
+            wrapped = functools.partial(sync_middleware_wrapper, method, *args)
+            return await loop.run_in_executor(None, ctx.run, wrapped)
 
     async def _handle_cors_preflight(self, request):
         """处理 CORS 预检请求"""

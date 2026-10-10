@@ -72,6 +72,7 @@ from uliweb.utils.common import (flat_list, classonlymethod,
     safe_str, safe_unicode, import_attr, dumps)
 from sqlalchemy import *
 from sqlalchemy import __version__ as sa_version
+from sqlalchemy.engine.url import make_url
 from sqlalchemy.sql import select, Select, ColumnElement, text, true, and_, false
 from sqlalchemy.sql.elements import TextClause
 from sqlalchemy.pool import NullPool
@@ -367,8 +368,18 @@ class NamedEngine(object):
 
         db = self.engine_instance
         if not self.engine_instance or new:
-            args = c.get('connection_args', {})
-            self.engine_instance = create_engine(c.get('connection_string'), **args)
+            args = c.get('connection_args', {}).copy()
+            conn_str = c.get('connection_string') or ''
+            if conn_str:
+                try:
+                    is_sqlite = make_url(conn_str).drivername.startswith('sqlite')
+                except Exception:
+                    log.warning(f"Failed to parse connection string with make_url, falling back to prefix match: {conn_str}")
+                    is_sqlite = conn_str.lower().startswith('sqlite')
+                if is_sqlite and 'poolclass' not in args:
+                    for pool_arg in ('pool_size', 'max_overflow', 'pool_timeout', 'pool_recycle', 'pool_pre_ping'):
+                        args.pop(pool_arg, None)
+            self.engine_instance = create_engine(conn_str, **args)
         self.engine_instance.echo = c['debug_log']
         self.engine_instance.metadata = self.metadata
         self.metadata.bind = self.engine_instance
