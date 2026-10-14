@@ -1088,6 +1088,62 @@ def test():
 
         assert uliweb_to_thread is frame_to_thread
 
+    def test_set_log_idempotent_no_duplicate_handlers(self):
+        """测试 set_log 在 prepare() 和 init() 重复调用时 logger handlers 保持幂等不累加"""
+        import asyncio
+        import logging
+        from uliweb.core.SimpleFrame import AsyncDispatcher
+
+        project_dir, apps_dir, app_dir = create_temp_project()
+        test_logger_name = 'test_access_logger_dedup'
+        test_log = logging.getLogger(test_logger_name)
+        test_log.handlers = []
+
+        try:
+            settings_ini = Path(apps_dir) / 'settings.ini'
+            settings_ini.write_text(f"""
+[GLOBAL]
+DEBUG = True
+SECRET_KEY = "test-secret-key"
+INSTALLED_APPS = ["testapp"]
+
+[LOG.Formatters]
+test_fmt = "%(message)s"
+
+[LOG.Handlers]
+TestHandler = {{'format': 'test_fmt'}}
+
+[LOG.Loggers]
+{test_logger_name} = {{'propagate': 0, 'handlers': ['TestHandler']}}
+""")
+
+            dispatcher = AsyncDispatcher(apps_dir=str(apps_dir), project_dir=str(project_dir))
+
+            # 1. 模拟 ASGI 启动阶段的 prepare()
+            dispatcher.prepare()
+            assert len(test_log.handlers) == 1
+            assert getattr(dispatcher, '_log_initialized', False) is True
+
+            # 2. 模拟首个请求触发的 _async_init() / init()
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(dispatcher._async_init())
+            finally:
+                loop.close()
+
+            # 验证经过 init() 后 handlers 数量依然为 1，没有重复追加
+            assert len(test_log.handlers) == 1
+
+            # 3. 再次显式调用 set_log()，验证幂等性
+            dispatcher.set_log()
+            assert len(test_log.handlers) == 1
+        finally:
+            dispatcher.close()
+            test_log.handlers = []
+            cleanup_temp_project(project_dir)
+            cleanup_rules()
+
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

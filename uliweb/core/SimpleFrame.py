@@ -1334,7 +1334,9 @@ class AsyncDispatcher:
         # 初始化日志系统
         # 初始化 dispatch 绑定（必须在调用 startup_installed 之前）
         self.install_binds()
-        self.set_log()
+        if not hasattr(self, '_log_initialized') or not self._log_initialized:
+            self.set_log()
+            self._log_initialized = True
 
         # 初始化 URL
         # 必须在 startup_installed 之前调用，因为 timezone 模块的 startup_installed
@@ -1497,6 +1499,8 @@ class AsyncDispatcher:
                 log.handlers = []
             else:
                 log = logging.getLogger(logger_name)
+                if 'handlers' in v:
+                    log.handlers = []
 
             if v.get('level'):
                 log.setLevel(_get_level(v.get('level')))
@@ -1506,6 +1510,8 @@ class AsyncDispatcher:
                 for h in v['handlers']:
                     if h in handlers:
                         log.addHandler(handlers[h])
+
+        self._log_initialized = True
 
     def process_domains(self, settings):
         """处理域名配置"""
