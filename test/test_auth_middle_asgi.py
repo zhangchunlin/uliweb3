@@ -1,7 +1,9 @@
-import pytest
+import asyncio
+from unittest.mock import patch
+
 from uliweb import functions
 from uliweb.contrib.auth.middle_auth import AuthMiddle
-from uliweb.core.SimpleFrame import AsyncDispatcher, Response
+from uliweb.core.SimpleFrame import AsyncDispatcher
 
 
 class MockUser:
@@ -16,29 +18,32 @@ class MockRequest:
         self.user = None
 
 
-@pytest.mark.anyio
-async def test_auth_middle_syncs_user_to_scope(monkeypatch):
-    # 使用 functions 内部对象字典进行 monkeypatch，无需修改 Finder 核心类
-    monkeypatch.setitem(functions._Finder__objects, "get_auth_user", lambda: MockUser("tangjn1"))
-    monkeypatch.setitem(functions._Finder__objects, "update_user_session_expiry_time", lambda: None)
+def test_auth_middle_syncs_user_to_scope():
+    # 使用 functions 内部对象字典进行 patch，无需修改 Finder 核心类
+    with patch.dict(functions._Finder__objects, {
+        "get_auth_user": lambda: MockUser("tangjn1"),
+        "update_user_session_expiry_time": lambda: None,
+    }):
+        auth_middle = AuthMiddle(None, None)
 
-    auth_middle = AuthMiddle(None, None)
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/test",
+        }
+        req = MockRequest(scope)
 
-    scope = {
-        "type": "http",
-        "method": "GET",
-        "path": "/test",
-    }
-    req = MockRequest(scope)
+        captured_scope_user_during_call = None
 
-    captured_scope_user_during_call = None
+        async def call_next(request):
+            nonlocal captured_scope_user_during_call
+            captured_scope_user_during_call = request.scope.get("user")
+            return "response_ok"
 
-    async def call_next(request):
-        nonlocal captured_scope_user_during_call
-        captured_scope_user_during_call = request.scope.get("user")
-        return "response_ok"
+        async def run():
+            return await auth_middle.dispatch(req, call_next)
 
-    res = await auth_middle.dispatch(req, call_next)
+        res = asyncio.run(run())
 
     assert res == "response_ok"
     assert req.user is not None
@@ -49,8 +54,7 @@ async def test_auth_middle_syncs_user_to_scope(monkeypatch):
     assert captured_scope_user_during_call.username == "tangjn1"
 
 
-@pytest.mark.anyio
-async def test_call_next_propagates_scope_keys_on_success_and_error():
+def test_call_next_propagates_scope_keys_on_success_and_error():
     dispatcher = AsyncDispatcher.__new__(AsyncDispatcher)
 
     # 1. 正常路径下传播 PROPAGATED_SCOPE_KEYS
@@ -74,7 +78,10 @@ async def test_call_next_propagates_scope_keys_on_success_and_error():
     async def fake_send(msg):
         pass
 
-    await wrapped_success(parent_scope, fake_receive, fake_send)
+    async def run_success():
+        await wrapped_success(parent_scope, fake_receive, fake_send)
+
+    asyncio.run(run_success())
 
     assert parent_scope.get("user") is not None
     assert parent_scope["user"].username == "inner_user"
@@ -93,8 +100,15 @@ async def test_call_next_propagates_scope_keys_on_success_and_error():
     wrapped_error = dispatcher._wrap_advanced_middleware(DummyMiddlewareError(), inner_app_error)
     parent_scope_error = {"type": "http", "method": "GET", "path": "/"}
 
-    with pytest.raises(RuntimeError):
+    async def run_error():
         await wrapped_error(parent_scope_error, fake_receive, fake_send)
+
+    try:
+        asyncio.run(run_error())
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("expected RuntimeError to propagate")
 
     assert parent_scope_error.get("user") is not None
     assert parent_scope_error["user"].username == "errored_user"
