@@ -2703,8 +2703,10 @@ class AsyncDispatcher:
         await self._call_dispatch('prepare_view_env', local_env)
 
         local_env['application'] = get_application()
-        local_env['request'] = get_request()
-        local_env['response'] = get_response()
+        # 注入稳定的 LocalProxy 代理（contextvar 隔离）而非每请求的 Request/Response 对象。
+        # 避免把每请求对象写进共享模块全局导致并发下跨请求串扰。
+        local_env['request'] = request
+        local_env['response'] = response
         # 使用 __global__.settings 而不是 get_settings()
         # 因为 get_settings() 使用 settings.get(None)，而 settings 的 _env 是 _globals
         # 这会导致在请求处理时 settings 变成 None
@@ -2719,8 +2721,10 @@ class AsyncDispatcher:
         self._call_dispatch_sync('prepare_view_env', local_env)
 
         local_env['application'] = get_application()
-        local_env['request'] = get_request()
-        local_env['response'] = get_response()
+        # 注入稳定的 LocalProxy 代理（contextvar 隔离）而非每请求的 Request/Response 对象，
+        # 避免把每请求对象写进共享模块全局导致并发下跨请求串扰。
+        local_env['request'] = request
+        local_env['response'] = response
         local_env['settings'] = __global__.settings
 
         return self._build_view_env(local_env)
