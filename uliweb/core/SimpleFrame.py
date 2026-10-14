@@ -3201,6 +3201,14 @@ class AsyncDispatcher:
         self._middleware_stack = app
         return app
 
+    # Standard ASGI scope keys and framework-internal keys that must be synchronized
+    # back to the parent scope when unwinding the middleware stack.
+    # 'user', 'auth': authenticated user / credentials per ASGI standard & auth middlewares
+    # 'session': session data injected by session middleware
+    # 'state': application/request state dictionary
+    # '_sse_streaming': internal flag indicating SSE response was streamed via call_next
+    PROPAGATED_SCOPE_KEYS = ('user', 'auth', 'session', 'state', '_sse_streaming')
+
     def _wrap_advanced_middleware(self, middleware, next_app):
         """包装高级中间件"""
         async def app(scope, receive, send):
@@ -3319,6 +3327,12 @@ class AsyncDispatcher:
                 except Exception as e:
                     # Re-raise if inner app raised exception
                     raise e
+                finally:
+                    # Propagate inner scope updates even when the inner app errored,
+                    # so wrapping middlewares or outer error handlers see the updated scope state.
+                    for key in self.PROPAGATED_SCOPE_KEYS:
+                        if key in new_scope:
+                            scope[key] = new_scope[key]
 
             # Dispatch middleware
             request_success = False

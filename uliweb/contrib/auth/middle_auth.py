@@ -7,6 +7,8 @@ class AuthMiddle(Middleware):
     async def dispatch(self, request, call_next):
         # 请求预处理
         request.user = functions.get_auth_user()
+        if request.user and hasattr(request, "scope") and isinstance(request.scope, dict):
+            request.scope["user"] = request.user
 
         # 调用下一个中间件或视图函数
         response = await call_next(request)
