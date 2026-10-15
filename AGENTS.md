@@ -7,8 +7,7 @@ AI-native 工件链见 sdlc/（每个特性一个目录：intent → spec → pl
 -->
 
 ## Commands
-- Test: `nosetests --with-doc test`（在仓库根执行，不要在 test/ 内跑，避免相对路径/导入问题）
-- 或现代 runner：`pytest test/`
+- Test: `pytest test/`（唯一权威，在仓库根执行，不要在 test/ 内跑，避免相对路径/导入问题；`pytest.ini` 已配 `--doctest-modules` 启用 doctest）
 - 提交前建议用 git 跟踪变更并保持工作区干净
 - 调试命令（`GLOBAL.DEBUG` 且 `GLOBAL.AUTO_DEVELOP`(默认 True) 都为真时自动启用 `uliweb.contrib.develop`）：
   `uliweb route <path> [--method]`（URL→endpoint 匹配/404 排查）、`uliweb urlfor <endpoint> k=v`（反查 URL）、

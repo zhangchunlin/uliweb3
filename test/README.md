@@ -6,20 +6,18 @@ Welcome to the test suite of the `uliweb3` library! This directory contains comp
 
 ## 🚀 How to Run the Tests
 
-You can execute the test suite using either of the following standard Python test runners:
-
-### Option 1: Legacy Runner (Nose)
-Uliweb's legacy test suite can be run using `nosetests` with the doctest plugin enabled:
+### Pytest（唯一权威入口）
+The authoritative runner is `pytest`（`pytest.ini` 已配置 `--doctest-modules` 启用 doctest）:
 ```bash
 # 在仓库根目录执行（不要在 test/ 内跑，避免相对路径/导入问题）
-nosetests --with-doc test
+pytest test/
 ```
 
-### Option 2: Modern Runner (Pytest)
-For modern development, you can use `pytest`:
+### Nose（legacy，可选）
+Legacy `nosetests` 仍可运行以作兜底，但**不作为验收闸门**（nose 停更、无法运行 async 测试）:
 ```bash
 # 在仓库根目录执行
-pytest test/
+nosetests --with-doctest test
 ```
 
 ---
@@ -71,10 +69,7 @@ We have integrated native test cases validating this transaction safety model wi
 
 You can run these specific tests to verify transaction safety:
 ```bash
-# Run using nosetests
-nosetests --with-doctest test_async_dispatcher.py
-
-# Run using pytest
+# Run using pytest（权威）
 pytest test_async_dispatcher.py
 ```
-Both test runners will execute the tests, verifying transaction commitment and rollbacks cleanly and robustly.
+This will execute the tests, verifying transaction commitment and rollbacks cleanly and robustly.
