@@ -808,16 +808,25 @@ def test():
 
     def test_sqlite_pool_args_filtered(self):
         """测试 NamedEngine._create 对 sqlite 连接字符串自动过滤 QueuePool 参数"""
-        from uliweb.orm import get_connection
-        engine = get_connection(
-            'sqlite:///:memory:',
-            pool_size=5,
-            max_overflow=10,
-            pool_timeout=30,
-            pool_recycle=300,
-            pool_pre_ping=True
-        )
-        assert engine is not None
+        from uliweb.orm import get_connection, engine_manager
+
+        # 保存并恢复全局 default engine：get_connection('sqlite:///:memory:')
+        # 会整体替换 engine_manager['default']，若不留痕会污染后续依赖
+        # 该引擎（如 test_auth 在 import 期绑定 user 模型）的其它测试。
+        old_default = engine_manager.engines.get('default')
+        try:
+            engine = get_connection(
+                'sqlite:///:memory:',
+                pool_size=5,
+                max_overflow=10,
+                pool_timeout=30,
+                pool_recycle=300,
+                pool_pre_ping=True
+            )
+            assert engine is not None
+        finally:
+            if old_default is not None:
+                engine_manager.engines['default'] = old_default
 
     def test_async_dispatcher_main_middleware_commit_failure_rollback(self):
         """测试主请求链在 CommitAll 抛错时触发 RollbackAll 并最终 ResetAll"""

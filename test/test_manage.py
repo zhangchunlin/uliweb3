@@ -7,14 +7,14 @@ import os
 
 
 class TestMakeProject:
-    def setup(self):
+    def setup_method(self):
         import shutil
         if os.path.exists('maketest'):
             print("remove maketest when setup")
             shutil.rmtree('maketest', ignore_errors=True)
         print('setup')
             
-    def teardown(self):
+    def teardown_method(self):
         import shutil
         if os.path.exists('maketest'):
             print("remove maketest when teardown")
